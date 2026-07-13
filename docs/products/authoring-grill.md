@@ -4,102 +4,140 @@ The fixture and engine characterization are complete enough to decide the public
 These decisions have multiple valid approaches and meaningful long-term consequences. They should be
 resolved before `@ue-shed/authoring`, `UEShedAuthoring`, or CLI interfaces harden.
 
-## 1. Companion requirement for read-only authoring
+## 1. Read authority without a companion
 
-### Options
+### Decision
 
-1. Require `UEShedAuthoring` for every authoring operation.
-2. Support a stock degraded mode for known DataTable paths and JSON export, while requiring the
-   companion for discovery, normalized schema, fingerprints, and safe mutation.
-3. Require the broad Editor Scripting Utilities plugin as the stock read-only baseline.
+Plugin-free authoring is a first-class read-only mode backed by saved Unreal package inspection. It
+does not depend on a running editor, Remote Control, or Editor Scripting Utilities. UE Shed owns
+project and asset discovery, invokes the versioned `uasset` CLI JSON contract through a narrow
+adapter, and normalizes supported assets for the authoring domain.
 
-### Initial recommendation
+`UEShedAuthoring` provides a separate live-editor authority. It is required for unsaved editor state,
+mutation, transactions, and Save, but not for useful discovery and inspection.
 
-Use option 2. It demonstrates capability-driven degradation without making a broad optional engine
-plugin a product prerequisite. The UI and CLI must label partial support explicitly.
+The product must name the authority of every snapshot:
+
+- **project files:** read-only saved package state;
+- **live editor:** current editor memory, which may include unsaved changes.
+
+Neither authority is a degraded version of the other. They have different freshness and operation
+capabilities. When both are available, drift between them is product state to expose, not an adapter
+detail to hide.
 
 ## 2. Canonical snapshot and schema wire representation
 
-### Options
+### Decision
 
-1. Treat Unreal's exported JSON as the wire contract.
-2. Return a normalized language-neutral schema and typed value tree from `UEShedAuthoring`.
-3. Return raw reflection records and normalize exclusively in TypeScript.
+Define one normalized, language-neutral Unreal authoring contract for schemas, snapshots, and typed
+values. Both the saved-package reader and `UEShedAuthoring` produce this same format. TypeScript
+runtime schemas and types are derived from the contract rather than becoming a second authority.
 
-### Initial recommendation
+The shared payload includes its project-files or live-editor authority, provenance, partial decoding,
+and explicit unsupported values. Source-specific diagnostics may wrap the payload but must not alter
+its authoring shape. Generic package metadata that has no authoring meaning remains outside the
+shared contract.
 
-Use option 2. Raw export remains evidence and a fallback, but a normalized contract can preserve
-unknown values, describe containers and references, and remain conformant across TypeScript and C++.
-It costs more plugin code and requires an explicit wire-schema authority.
+This is not the stock DataTable JSON export format: that representation lacks sufficient schema,
+metadata, and unsupported-value fidelity. Raw export may remain evidence, but it is not the product
+contract.
 
 ## 3. Command granularity
 
-### Options
+### Decision
 
-1. Replace complete rows or tables.
-2. Use only cell patches plus row lifecycle commands.
-3. Use a typed command union with cell, structured-value, row lifecycle, and reorder operations.
+Drafts are an ordered log of five canonical command kinds: `SetCell`, `AddRow`, `RemoveRow`,
+`RenameRow`, and `ReorderRows`. `SetCell` replaces one complete typed field value, including a struct
+or container. Finer nested-value commands can be added only when real workflows justify their extra
+conflict and inversion semantics.
 
-### Initial recommendation
+Each command captures the prior value, row payload, index, name, or order needed to invert it without
+consulting historical snapshots. Working state is folded from the active command prefix over the base
+snapshot. Undo and redo move the prefix pointer; appending after undo truncates the redo tail.
+Commands created by one user gesture share a group identity, append atomically, and form one undo
+step even though the pointer still identifies an active command prefix.
 
-Use option 3, beginning with cell replacement and row lifecycle commands. Full-table replacement is
-too destructive for review and conflict handling; cell-only commands become awkward for containers
-and structured values.
+Command envelopes record stable identity, authored-at time, author provenance, table identity, base
+fingerprint, and dispatch state. Drafting does not imply that a command has been applied. Complete-row
+or complete-table replacement is not a normal editing command because it obscures review and creates
+unnecessarily broad conflicts.
 
 ## 4. Fingerprint authority
 
-### Options
+### Decision
 
-1. Hash the external JSON snapshot in TypeScript.
-2. Have the companion hash a canonical engine-side representation.
-3. Use package timestamps, dirty state, or asset-registry package metadata.
+The language-neutral authoring contract defines a versioned semantic fingerprint over canonical
+table state. Saved-package and live-editor producers derive the same fingerprint for the same table
+content. Authority, provenance, timestamps, diagnostics, and non-semantic package metadata are not
+fingerprinted.
 
-### Initial recommendation
-
-Use option 2 and include the algorithm/version in the result. Package metadata is insufficient for
-in-memory editor changes, while client-side hashing risks divergence from the engine's semantic
-serialization.
+Producers return the fingerprint with a snapshot, and consumers may verify it. Immediately before
+Apply, `UEShedAuthoring` recomputes the fingerprint from live editor state and compares it with the
+expected base. File timestamps and dirty flags remain useful evidence but never substitute for
+semantic comparison.
 
 ## 5. Transaction scope
 
-### Options
+### Decision
 
-1. One transaction per command.
-2. One transaction per table batch.
-3. One bounded transaction spanning all tables in an Apply plan.
+One bounded Apply plan may span several tables and executes inside one editor transaction. Every
+command succeeds or the complete plan rolls back. Limits on commands, tables, and payload bytes are
+part of capability negotiation so atomicity cannot imply unbounded work.
 
-### Initial recommendation
-
-Design for option 3 but constrain the first editing slice to one table. Cross-table product workflows
-need atomic intent eventually; the initial limit keeps rollback and failure evidence tractable.
+The first editing implementation may exercise one table, but neither the command model nor protocol
+assumes one-table intent. Save remains a later, separate operation and reports each package result.
 
 ## 6. Persistent session authority
 
-### Options
+### Decision
 
-1. Persist only commands and reload every base snapshot from Unreal.
-2. Persist the base snapshots, command log, undo pointer, and schema/fingerprint versions.
-3. Keep sessions ephemeral until the mutation contract is mature.
+Persist a versioned session atomically. It contains base snapshots, the ordered command log, undo
+pointer, authoring-contract and fingerprint versions, authority provenance, Apply receipts, and the
+set of assets still awaiting Save.
 
-### Initial recommendation
-
-Use option 2 with an explicitly versioned, atomic file format. Persistent sessions are part of the
-product promise and are required to distinguish drafted work from editor and disk state after a
-restart.
+Successful Apply rebases active draft state from the returned live snapshots. It does not erase the
+fact that changes were applied but remain unsaved. Apply and Save receipts make recovery and review
+truthful after a restart without treating the renderer cache as authority.
 
 ## 7. Apply response under transport uncertainty
 
-### Options
+### Decision
 
-1. Treat connection loss as failure and retry automatically.
-2. Return an indeterminate result that requires snapshot/fingerprint reconciliation.
-3. Add operation IDs and a companion-side bounded result cache for idempotent lookup.
+Every Apply plan has a stable operation ID. The companion keeps a bounded result cache so reconnecting
+clients can query the result without replaying mutation. If no result is available, the session
+enters an indeterminate state and reconciles live fingerprints and snapshots before permitting
+another Apply.
 
-### Initial recommendation
+Automatic mutation replay is forbidden. The result distinguishes committed, rolled back, rejected,
+and indeterminate outcomes and includes enough evidence to guide recovery.
 
-Combine options 2 and 3. Automatic replay of a mutation batch is unsafe without idempotency. An
-operation ID plus short-lived result lookup lets the client distinguish committed, rolled back, and
-unknown outcomes after reconnect.
+## Reference behavior retained and improved
+
+The behavioral reference validates the command-log core, but its incidental implementation is not
+the target architecture.
+
+### Retain
+
+- canonical typed commands and thin draft intents;
+- working state derived from a base snapshot plus active command prefix;
+- pure inversion from data captured at draft time;
+- permissive value drafting with structural impossibilities rejected immediately;
+- undo, redo, grouped drafting, review, Apply, and Save as separate concepts;
+- one session log shared by every UI and automation surface.
+
+### Improve
+
+- Use typed authoring values instead of unrestricted JSON payloads.
+- Give rows session-stable identities so rename chains do not make every later command depend only on
+  a mutable name.
+- Treat an invalid fold as a typed session error; never silently skip a command that no longer fits.
+- Record `authoredAt` when drafting and reserve Apply timestamps for Apply receipts.
+- Give commands drafted by one user gesture a group identity for atomic append and coherent undo,
+  without precommitting to a speculative history tree.
+- Keep folding, persistence, validation, and dispatch authoritative in the headless domain service;
+  renderers consume derived state rather than reproduce it.
+- Preserve Apply and Save receipts instead of clearing the only evidence of the Draft to Applied to
+  Saved pipeline.
 
 ## Decisions that can wait
 

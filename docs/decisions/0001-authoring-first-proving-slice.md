@@ -32,8 +32,10 @@ connection and capability contracts.
 ## Consequences
 
 - `UEShedCore` still owns generic identity and capability discovery.
+- Saved project packages provide a first-class read-only authoring mode through a versioned asset
+  reader boundary; a running editor and companion plugin are not prerequisites for inspection.
 - `UEShedAuthoring` may be implemented before `UEShedObservatory`, but only for authoring-specific
-  operations missing from supported stock APIs.
+  live-state and mutation operations missing from supported stock APIs.
 - The authoring package and CLI must work without Workbench.
 - Fixture and conformance work precedes public authoring API design so engine behavior, rather than a
   desktop architecture, informs the contract.

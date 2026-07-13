@@ -100,3 +100,5 @@ export type ConnectionState =
 			readonly reason: "requested" | "producer-exited" | "transport-lost";
 	  }
 	| { readonly status: "error"; readonly message: string };
+
+export * from "./authoring.js";

@@ -11,6 +11,10 @@ object references, validation, asset saving, and conflict handling are generic U
 suite should offer a polished default workflow for them while keeping project-specific rules in
 schemas, annotations, hooks, and optional extensions.
 
+Inspection is useful without a running editor. UE Shed treats saved project files as a first-class
+read-only authoring source and adds a separately enabled companion when live editor state or mutation
+is needed.
+
 ## What ships as a product
 
 The first-party Data Authoring extension must support an end-to-end loop:
@@ -32,9 +36,11 @@ disk** unmistakable.
 ## Architectural ownership
 
 ```text
-Unreal DataTables + UEShedAuthoring capability
-                    |
-          @ue-shed/authoring
+saved project packages             live editor + UEShedAuthoring
+        |                                      |
+@ue-shed/unreal-assets                  live authoring adapter
+        \                                      /
+                 @ue-shed/authoring
   snapshots + command log + fold + validation
   preflight + conflicts + apply + save
                     |
@@ -46,8 +52,13 @@ extension                    or automation
      Workbench, another host, or CLI
 ```
 
-- `UEShedAuthoring` exposes the smallest generic operations missing from supported stock Unreal APIs.
+- `@ue-shed/unreal-assets` adapts the versioned `uasset` CLI JSON contract and owns no authoring
+  policy. Its authoring result follows the same language-neutral contract as the live companion.
+- `UEShedAuthoring` exposes the smallest generic live-state and mutation operations missing from
+  supported stock Unreal APIs.
 - `@ue-shed/authoring` owns behavior and state transitions; a renderer does not become the authority.
+- The saved-package reader, C++ companion, and TypeScript libraries derive their authoring shapes
+  from one language-neutral contract rather than translating between independent models.
 - `@ue-shed/authoring-sdk` exposes scoped reads and draft operations to first-party and custom UIs.
 - `extensions/data-authoring` is the maintained default product interface.
 - Workbench composes that extension but receives no private authoring endpoint.
@@ -55,17 +66,21 @@ extension                    or automation
 
 ## Session model
 
-Unreal remains canonical. A UE Shed session holds a base snapshot and a command log. Working state is
-derived by folding active commands over that snapshot.
+The selected Unreal authority remains canonical. A read-only project-files session is based on a
+saved package snapshot. A live session is based on editor memory and may differ from disk until Save.
+Every snapshot records its authority and provenance. A UE Shed editing session holds a base snapshot
+and a command log; working state is derived by folding active commands over that snapshot.
 
 ```text
 base snapshot + commands[0..undo pointer] = working table
 ```
 
-Commands carry stable table, row, and field identity plus authorship and dispatch state. Apply uses a
-preflight plan: validate the working state, compare asset fingerprints, classify drift, request
-resolutions for supported conflicts, and send one bounded batch. A failed batch must not pretend that
-some commands succeeded.
+Commands carry stable identity, gesture-group identity, authored-at time, authorship, table and
+session-stable row identity, base fingerprint, and dispatch state. The initial command union is Set
+Cell, Add Row, Remove Row, Rename Row, and Reorder Rows; structured fields and containers are complete
+typed cell values. Apply uses a preflight plan: validate the working state, compare semantic
+fingerprints, classify drift, request resolutions for supported conflicts, and send one bounded
+multi-table batch. A failed batch must not pretend that some commands succeeded.
 
 Apply and Save are separate because they answer different questions:
 
@@ -73,6 +88,10 @@ Apply and Save are separate because they answer different questions:
 - **Save:** should the affected assets be written to disk now?
 
 Source-control checkout is an optional adapter around Save, not a core assumption.
+
+Successful Apply rebases the active draft onto returned live snapshots and records an Apply receipt.
+It does not erase the still-unsaved state. Save records a separate receipt, allowing the Draft to
+Applied to Saved pipeline to survive process restarts and remain reviewable.
 
 ## Default editing scope
 
@@ -124,8 +143,8 @@ the engine contract.
 
 ### A. Read-only spine
 
-Discovery, connection, capability manifest, DataTable listing, schema, snapshots, CLI inspection, and
-the default grid.
+Project and asset discovery, package-reader negotiation, DataTable listing, normalized schema,
+authority-tagged snapshots, CLI inspection, and the default grid. A running editor is optional.
 
 ### B. Safe editing loop
 

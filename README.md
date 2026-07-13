@@ -17,6 +17,15 @@ This is an architectural scaffold, not a release. The first proving domain is th
 DataTable authoring product, beginning with a reproducible Unreal fixture and a headless read-only
 spine. The actor observatory follows as the first data-plane and real-time domain.
 
+The first headless path is executable:
+
+```powershell
+$env:UE_SHED_UASSET_EXECUTABLE = "C:\path\to\uasset.exe"
+pnpm ue-shed authoring inspect fixtures\unreal-project\Content\Fixture\Authoring\DT_Scalars.uasset
+```
+
+Use `pnpm ue-shed help` for persistent session creation, typed cell drafting, undo, and redo commands.
+
 Read [the vision and architecture](docs/vision-and-architecture.md) for the decisions, repository
 shape, first MVP, and open-source guardrails. Read
 [the engineering index](docs/engineering/README.md) for focused guidance on functional design,

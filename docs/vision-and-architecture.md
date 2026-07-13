@@ -87,6 +87,7 @@ packages/
   host/                        # Lifecycle and static extension composition
   unreal-connection/           # Remote Control and companion transports
   engine-discovery/            # Installed engines, projects, processes, sessions
+  unreal-assets/               # Versioned read-only saved-package inspection
   ui-theme/                    # StyleX variables and suite themes
   ui/                          # Shared SolidJS + StyleX primitives
   authoring/                   # Data-authoring domain services
@@ -119,6 +120,8 @@ known. A boundary becomes code when a vertical slice exercises it.
 ## Dependency direction
 
 - Domain packages depend on protocol primitives and narrow connection interfaces, not on a UI.
+- Saved-package parsing is isolated behind `@ue-shed/unreal-assets`; domain packages consume
+  normalized results rather than parser implementation details.
 - Extensions depend on public domain packages and host extension contracts.
 - The CLI and Workbench compose extensions; they do not own domain behavior.
 - Unreal feature plugins depend on `UEShedCore` where shared identity or transport is required, not
@@ -182,11 +185,10 @@ The suite is therefore separately enabled:
 | `UEShedCameras`     | Camera definition metadata, capture, and review artifacts                        |
 | `UEShedScenarios`   | Scenario discovery, parameterization, execution, and results                     |
 
-The first implementation creates `UEShedCore` and the minimum `UEShedAuthoring` surface needed by the
-authoring proving slice. `UEShedObservatory` follows as the first data-plane plugin; the remaining
-plugin directories are roadmap boundaries. Features should stay usable with stock APIs when their
-companion plugin is absent, and degrade through explicit capability states rather than hidden
-failures.
+The first implementation establishes saved-package authoring inspection, then creates `UEShedCore`
+and the minimum `UEShedAuthoring` surface needed for live state and mutation. `UEShedObservatory`
+follows as the first data-plane plugin; the remaining plugin directories are roadmap boundaries.
+Features expose their actual authority and capabilities rather than hiding missing behavior.
 
 ## Generic fixture policy
 
@@ -206,15 +208,16 @@ They are not fixture prerequisites.
 
 Before building a broad UI, establish one thin end-to-end path:
 
-1. Discover a supported installed Unreal editor and the generic fixture project.
-2. Launch or attach without hardcoded machine paths.
-3. Query the `UEShedCore` capability manifest through `unreal-rc`.
-4. Discover fixture DataTables, inspect a reflected schema, and load a typed snapshot through the
-   narrowest supported stock or `UEShedAuthoring` capability.
-5. Expose the same connection and read-only authoring operations from TypeScript libraries and the
-   CLI.
-6. Show connection health and a read-only default table view in Workbench using only those APIs.
-7. Add the safe editing loop, then prove named-pipe hello/health before the actor observatory.
+1. Discover the generic fixture project and its saved DataTable packages.
+2. Inspect those packages through the versioned asset-reader contract and load authority-tagged typed
+   snapshots without launching Unreal.
+3. Expose the same read-only authoring operations from TypeScript libraries and the CLI.
+4. Discover a supported installed Unreal editor, then launch or attach without hardcoded paths.
+5. Query the `UEShedCore` capability manifest and distinguish saved package state from live editor
+   state.
+6. Show a read-only default table view in Workbench using only public authoring APIs.
+7. Add the safe editing loop through `UEShedAuthoring`, then prove named-pipe hello/health before the
+   actor observatory.
 
 This sequence proves install discovery, generic integration, capability negotiation, headless access,
 showcase parity, and a real domain workflow. The later named-pipe step proves the shared data path

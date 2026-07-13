@@ -3,6 +3,27 @@
 This note records engine behavior verified against the stock Unreal Engine 5.7 source tree. It is an
 implementation input, not a public protocol decision.
 
+## Saved package inspection
+
+The `uasset-parser` project provides a read-only `uasset inspect --format json` process boundary for
+classic, uncooked editor packages. Its Rust library is an implementation detail. The current
+versioned inspection JSON established fixture coverage, but the authoring projection should derive
+from the same language-neutral contract as `UEShedAuthoring`, not require TypeScript to reconcile two
+independently designed table models. Generic parser diagnostics and package metadata can remain in a
+source-specific envelope.
+
+Against the generated UE 5.7 fixture, CLI schema version 6 returned `ok` for all eleven assets. The
+results preserved:
+
+- DataTable and Composite DataTable identity, row structure, row order, and composite parents;
+- scalar, enum, text, struct, array, set, map, soft-object, and row-handle values;
+- the deliberately unsupported `FIntPoint` value as an explicit raw value with its byte size and
+  reason, rather than silently dropping it.
+
+This establishes a first-class project-files read authority. It sees saved packages and does not see
+unsaved editor memory. UE Shed must own project asset discovery and map package paths to files; the
+reader contract inspects assets individually.
+
 ## Stock Remote Control
 
 The stock Remote Control HTTP module provides:
@@ -28,7 +49,7 @@ export plus Add and Remove row operations.
 
 Source: `Engine/Source/Runtime/Engine/Classes/Kismet/DataTableFunctionLibrary.h`.
 
-These operations provide useful degraded behavior, but they do not form the complete product
+These operations can supplement a connected editor, but they do not form the complete product
 contract:
 
 - the generic row getter and row adder use custom thunks whose dynamic struct payload is awkward for
@@ -71,8 +92,9 @@ The complete authoring product needs a separately enabled editor capability for:
 - Composite parent inspection;
 - explicit Save results for affected assets.
 
-Stock operations can remain useful as degraded capabilities where their behavior is truthful. The
-public library must not silently swap a precise companion operation for a lossy stock fallback.
+Stock operations can remain useful capabilities where their behavior is truthful. The public library
+must not silently swap one authority for another or substitute a lossy stock operation for a precise
+companion operation.
 
 ## Fixture evidence
 
