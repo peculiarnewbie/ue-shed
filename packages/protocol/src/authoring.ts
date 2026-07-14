@@ -116,3 +116,109 @@ export type AuthoringTableSnapshot = Schema.Schema.Type<typeof AuthoringTableSna
 
 export const decodeAuthoringTableSnapshot = Schema.decodeUnknownSync(AuthoringTableSnapshot);
 export const decodeAuthoringValue = Schema.decodeUnknownSync(AuthoringValue);
+
+export const AuthoringCommand = Schema.Union(
+	Schema.Struct({
+		fieldName: Schema.String,
+		kind: Schema.Literal("set_cell"),
+		newValue: AuthoringValue,
+		oldValue: AuthoringValue,
+		rowId: Schema.String
+	}),
+	Schema.Struct({
+		atIndex: Schema.NonNegativeInt,
+		kind: Schema.Literal("add_row"),
+		row: AuthoringRow
+	}),
+	Schema.Struct({
+		atIndex: Schema.NonNegativeInt,
+		kind: Schema.Literal("remove_row"),
+		row: AuthoringRow
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("rename_row"),
+		newName: Schema.String,
+		oldName: Schema.String,
+		rowId: Schema.String
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("reorder_rows"),
+		newOrder: Schema.Array(Schema.String),
+		oldOrder: Schema.Array(Schema.String)
+	})
+).annotations({ identifier: "AuthoringCommand" });
+export type AuthoringCommand = Schema.Schema.Type<typeof AuthoringCommand>;
+
+const ApplyContract = Schema.Struct({
+	name: Schema.Literal("unreal-authoring-apply"),
+	version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+});
+
+export const AuthoringApplyRequest = Schema.Struct({
+	contract: ApplyContract,
+	operationId: Schema.String,
+	tables: Schema.Array(
+		Schema.Struct({
+			expectedFingerprint: Schema.String,
+			objectPath: Schema.String
+		})
+	),
+	commands: Schema.Array(
+		Schema.Struct({
+			body: AuthoringCommand,
+			id: Schema.String,
+			tableObjectPath: Schema.String
+		})
+	)
+}).annotations({ identifier: "AuthoringApplyRequest" });
+export type AuthoringApplyRequest = Schema.Schema.Type<typeof AuthoringApplyRequest>;
+
+const AuthoringOperationError = Schema.Struct({
+	code: Schema.String,
+	commandId: Schema.optional(Schema.String),
+	message: Schema.String,
+	objectPath: Schema.optional(Schema.String),
+	retrySafe: Schema.Boolean
+});
+
+export const AuthoringApplyResult = Schema.Struct({
+	contract: ApplyContract,
+	errors: Schema.Array(AuthoringOperationError),
+	operationId: Schema.String,
+	snapshots: Schema.Array(AuthoringTableSnapshot),
+	status: Schema.Literal("committed", "rolled_back", "rejected")
+}).annotations({ identifier: "AuthoringApplyResult" });
+export type AuthoringApplyResult = Schema.Schema.Type<typeof AuthoringApplyResult>;
+
+const SaveContract = Schema.Struct({
+	name: Schema.Literal("unreal-authoring-save"),
+	version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+});
+
+export const AuthoringSaveRequest = Schema.Struct({
+	contract: SaveContract,
+	objectPaths: Schema.Array(Schema.String),
+	requestId: Schema.String
+}).annotations({ identifier: "AuthoringSaveRequest" });
+export type AuthoringSaveRequest = Schema.Schema.Type<typeof AuthoringSaveRequest>;
+
+export const AuthoringSaveResult = Schema.Struct({
+	contract: SaveContract,
+	packages: Schema.Array(
+		Schema.Struct({
+			message: Schema.optional(Schema.String),
+			objectPath: Schema.String,
+			packageName: Schema.String,
+			retrySafe: Schema.Boolean,
+			status: Schema.Literal("saved", "failed")
+		})
+	),
+	requestId: Schema.String,
+	status: Schema.Literal("complete", "partial", "failed")
+}).annotations({ identifier: "AuthoringSaveResult" });
+export type AuthoringSaveResult = Schema.Schema.Type<typeof AuthoringSaveResult>;
+
+export const decodeAuthoringApplyRequest = Schema.decodeUnknownSync(AuthoringApplyRequest);
+export const decodeAuthoringApplyResult = Schema.decodeUnknownSync(AuthoringApplyResult);
+export const decodeAuthoringSaveRequest = Schema.decodeUnknownSync(AuthoringSaveRequest);
+export const decodeAuthoringSaveResult = Schema.decodeUnknownSync(AuthoringSaveResult);

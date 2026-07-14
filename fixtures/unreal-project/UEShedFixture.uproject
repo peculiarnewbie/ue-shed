@@ -3,6 +3,9 @@
 	"EngineAssociation": "5.7",
 	"Category": "Development",
 	"Description": "Generic integration fixture for UE Shed.",
+	"AdditionalPluginDirectories": [
+		"../../unreal/Plugins"
+	],
 	"Modules": [
 		{
 			"Name": "UEShedFixture",
@@ -18,6 +21,14 @@
 	"Plugins": [
 		{
 			"Name": "RemoteControl",
+			"Enabled": true
+		},
+		{
+			"Name": "UEShedCore",
+			"Enabled": true
+		},
+		{
+			"Name": "UEShedAuthoring",
 			"Enabled": true
 		}
 	]

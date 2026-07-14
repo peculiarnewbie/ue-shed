@@ -1,0 +1,20 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "UE Shed Authoring",
+	"Description": "Live DataTable authoring capabilities.",
+	"Category": "Developer Tools",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"Plugins": [
+		{ "Name": "UEShedCore", "Enabled": true }
+	],
+	"Modules": [
+		{
+			"Name": "UEShedAuthoring",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

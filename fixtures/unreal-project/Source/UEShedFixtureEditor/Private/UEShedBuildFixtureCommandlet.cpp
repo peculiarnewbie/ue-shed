@@ -14,6 +14,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
+#include "UEShedAuthoringLibrary.h"
 #include "UEShedFixtureTypes.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(UEShedBuildFixtureCommandlet)
@@ -295,8 +296,95 @@ UUEShedBuildFixtureCommandlet::UUEShedBuildFixtureCommandlet()
 
 int32 UUEShedBuildFixtureCommandlet::Main(const FString& Params)
 {
-	const bool VerifyOnly = FParse::Param(*Params, TEXT("VerifyOnly"));
 	const TArray<FFixtureTableDefinition> Definitions = GetTableDefinitions();
+	FString ApplyRequestPath;
+	FString ApplyOutputPath;
+	if (FParse::Value(*Params, TEXT("ApplyRequest="), ApplyRequestPath)
+		&& FParse::Value(*Params, TEXT("ApplyOutput="), ApplyOutputPath))
+	{
+		FString RequestJson;
+		if (!FFileHelper::LoadFileToString(
+			RequestJson, *FPaths::ConvertRelativePathToFull(ApplyRequestPath))) return 1;
+		FString ResultJson;
+		UUEShedAuthoringLibrary::Apply(RequestJson, ResultJson);
+		bool bSucceeded = FFileHelper::SaveStringToFile(
+			ResultJson, *FPaths::ConvertRelativePathToFull(ApplyOutputPath));
+		FString LookupOperation;
+		FString LookupOutput;
+		if (FParse::Value(*Params, TEXT("LookupOperation="), LookupOperation)
+			&& FParse::Value(*Params, TEXT("LookupOutput="), LookupOutput))
+		{
+			FString LookupJson;
+			UUEShedAuthoringLibrary::LookupApplyResult(LookupOperation, LookupJson);
+			bSucceeded = FFileHelper::SaveStringToFile(
+				LookupJson, *FPaths::ConvertRelativePathToFull(LookupOutput)) && bSucceeded;
+		}
+		FString SaveAfterApplyRequest;
+		FString SaveAfterApplyOutput;
+		if (FParse::Value(*Params, TEXT("SaveAfterApplyRequest="), SaveAfterApplyRequest)
+			&& FParse::Value(*Params, TEXT("SaveAfterApplyOutput="), SaveAfterApplyOutput))
+		{
+			FString SaveRequestJson;
+			FString SaveResultJson;
+			bSucceeded = FFileHelper::LoadFileToString(SaveRequestJson,
+				*FPaths::ConvertRelativePathToFull(SaveAfterApplyRequest)) && bSucceeded;
+			UUEShedAuthoringLibrary::Save(SaveRequestJson, SaveResultJson);
+			bSucceeded = FFileHelper::SaveStringToFile(SaveResultJson,
+				*FPaths::ConvertRelativePathToFull(SaveAfterApplyOutput)) && bSucceeded;
+		}
+		return bSucceeded ? 0 : 1;
+	}
+
+	FString SaveRequestPath;
+	FString SaveOutputPath;
+	if (FParse::Value(*Params, TEXT("SaveRequest="), SaveRequestPath)
+		&& FParse::Value(*Params, TEXT("SaveOutput="), SaveOutputPath))
+	{
+		FString RequestJson;
+		if (!FFileHelper::LoadFileToString(
+			RequestJson, *FPaths::ConvertRelativePathToFull(SaveRequestPath))) return 1;
+		FString ResultJson;
+		UUEShedAuthoringLibrary::Save(RequestJson, ResultJson);
+		return FFileHelper::SaveStringToFile(
+			ResultJson, *FPaths::ConvertRelativePathToFull(SaveOutputPath)) ? 0 : 1;
+	}
+
+	FString SnapshotDirectory;
+	if (FParse::Value(*Params, TEXT("SnapshotDirectory="), SnapshotDirectory))
+	{
+		const FString OutputDirectory = FPaths::ConvertRelativePathToFull(SnapshotDirectory);
+		IFileManager::Get().MakeDirectory(*OutputDirectory, true);
+		bool bSucceeded = true;
+		for (const FFixtureTableDefinition& Definition : Definitions)
+		{
+			FString SnapshotJson;
+			UUEShedAuthoringLibrary::GetTableSnapshot(ObjectPath(Definition), SnapshotJson);
+			bSucceeded = FFileHelper::SaveStringToFile(
+				SnapshotJson, *FPaths::Combine(OutputDirectory,
+					FString(Definition.AssetName) + TEXT(".json"))) && bSucceeded;
+		}
+		FString CompositeJson;
+		UUEShedAuthoringLibrary::GetTableSnapshot(
+			TEXT("/Game/Fixture/Authoring/CDT_Scalars.CDT_Scalars"), CompositeJson);
+		bSucceeded = FFileHelper::SaveStringToFile(
+			CompositeJson, *FPaths::Combine(OutputDirectory, TEXT("CDT_Scalars.json")))
+			&& bSucceeded;
+		return bSucceeded ? 0 : 1;
+	}
+
+	FString SnapshotTable;
+	FString SnapshotOutput;
+	if (FParse::Value(*Params, TEXT("SnapshotTable="), SnapshotTable)
+		&& FParse::Value(*Params, TEXT("SnapshotOutput="), SnapshotOutput))
+	{
+		FString SnapshotJson;
+		UUEShedAuthoringLibrary::GetTableSnapshot(SnapshotTable, SnapshotJson);
+		const FString OutputPath = FPaths::ConvertRelativePathToFull(SnapshotOutput);
+		IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutputPath), true);
+		return FFileHelper::SaveStringToFile(SnapshotJson, *OutputPath) ? 0 : 1;
+	}
+
+	const bool VerifyOnly = FParse::Param(*Params, TEXT("VerifyOnly"));
 
 	bool Succeeded = true;
 	if (!VerifyOnly)

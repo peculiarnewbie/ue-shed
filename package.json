@@ -7,7 +7,10 @@
 	"scripts": {
 		"check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
+		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
 		"fixture:generate": "node scripts/unreal-fixture.mjs generate",
+		"fixture:snapshot": "node scripts/unreal-fixture.mjs snapshot",
+		"fixture:save": "node scripts/unreal-fixture.mjs save",
 		"fixture:verify": "node scripts/unreal-fixture.mjs verify",
 		"typecheck": "pnpm -r --if-present typecheck",
 		"lint": "oxlint .",

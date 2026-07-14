@@ -170,6 +170,6 @@ describe("fixture project", () => {
 		const pluginNames = project.Plugins.flatMap((plugin) =>
 			isRecord(plugin) && typeof plugin.Name === "string" ? [plugin.Name] : []
 		);
-		expect(pluginNames).toEqual(["RemoteControl"]);
+		expect(pluginNames).toEqual(["RemoteControl", "UEShedCore", "UEShedAuthoring"]);
 	});
 });

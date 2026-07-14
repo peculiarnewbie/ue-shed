@@ -1,8 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { JSONSchema } from "effect";
+import { JSONSchema, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { AuthoringTableSnapshot, decodeAuthoringTableSnapshot } from "./authoring.js";
+import {
+	AuthoringApplyRequest,
+	AuthoringApplyResult,
+	AuthoringSaveRequest,
+	AuthoringSaveResult,
+	AuthoringTableSnapshot,
+	decodeAuthoringTableSnapshot
+} from "./authoring.js";
 
 describe("authoring wire contract", () => {
 	it("accepts recursive typed values and explicit unsupported evidence", () => {
@@ -49,13 +56,22 @@ describe("authoring wire contract", () => {
 	});
 
 	it("keeps the checked-in language-neutral schema derived from the runtime contract", async () => {
-		const path = fileURLToPath(
-			new URL("../contracts/authoring/v1/table-snapshot.schema.json", import.meta.url)
-		);
-		const checkedIn: unknown = JSON.parse(await readFile(path, "utf8"));
-		const derived = JSONSchema.make(AuthoringTableSnapshot, {
-			target: "jsonSchema2020-12"
-		});
-		expect(checkedIn).toEqual(derived);
+		const check = async (name: string, contract: Schema.Schema.Any) => {
+			const path = fileURLToPath(
+				new URL(`../contracts/authoring/v1/${name}.schema.json`, import.meta.url)
+			);
+			const checkedIn: unknown = JSON.parse(await readFile(path, "utf8"));
+			const derived = JSONSchema.make(contract, { target: "jsonSchema2020-12" });
+			expect(checkedIn, name).toEqual(derived);
+		};
+		for (const [name, contract] of [
+			["table-snapshot", AuthoringTableSnapshot],
+			["apply-request", AuthoringApplyRequest],
+			["apply-result", AuthoringApplyResult],
+			["save-request", AuthoringSaveRequest],
+			["save-result", AuthoringSaveResult]
+		] as const) {
+			await check(name, contract);
+		}
 	});
 });

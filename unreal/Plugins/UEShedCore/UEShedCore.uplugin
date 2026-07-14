@@ -1,0 +1,17 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "UE Shed Core",
+	"Description": "Capability discovery for external Unreal development tools.",
+	"Category": "Developer Tools",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"Modules": [
+		{
+			"Name": "UEShedCore",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

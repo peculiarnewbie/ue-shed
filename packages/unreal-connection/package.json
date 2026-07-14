@@ -1,5 +1,5 @@
 {
-	"name": "@ue-shed/unreal-assets",
+	"name": "@ue-shed/unreal-connection",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
@@ -15,8 +15,5 @@
 	"dependencies": {
 		"@ue-shed/protocol": "workspace:*",
 		"effect": "^3.22.0"
-	},
-	"devDependencies": {
-		"@ue-shed/authoring": "workspace:*"
 	}
 }

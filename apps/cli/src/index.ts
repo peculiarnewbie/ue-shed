@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
 	appendCommandGroup,
+	acceptSaveResult,
+	buildSaveRequest,
 	buildSetCellCommand,
 	createDraftSession,
+	dispatchApply,
 	fingerprintTable,
 	loadDraftSession,
 	redo,
@@ -12,17 +15,23 @@ import {
 } from "@ue-shed/authoring";
 import { CURRENT_PROTOCOL_VERSION, decodeAuthoringValue } from "@ue-shed/protocol";
 import { readSavedTable } from "@ue-shed/unreal-assets";
+import { connectUnrealAuthoring } from "@ue-shed/unreal-connection";
 import { Effect } from "effect";
 
 const help = `UE Shed — External tools for Unreal Engine development.
 
 Usage:
   ue-shed authoring inspect <asset> [--reader <path>]
+  ue-shed authoring live inspect <endpoint> <table>
   ue-shed authoring session create <asset> <session-file> [--reader <path>]
+  ue-shed authoring session create-live <endpoint> <table> <session-file>
   ue-shed authoring session show <session-file>
   ue-shed authoring draft set-cell <session-file> <table> <row> <field> <value-json>
   ue-shed authoring draft undo <session-file>
   ue-shed authoring draft redo <session-file>
+  ue-shed authoring apply <session-file> <endpoint>
+  ue-shed authoring apply-status <endpoint> <operation-id>
+  ue-shed authoring save <session-file> <endpoint>
   ue-shed version
   ue-shed help
 
@@ -54,6 +63,14 @@ async function authoring(args: readonly string[]): Promise<void> {
 		printJson({ fingerprint: fingerprintTable(snapshot), snapshot });
 		return;
 	}
+	if (area === "live" && action === "inspect") {
+		const [endpoint, tablePath] = rest;
+		if (!endpoint || !tablePath) throw new Error("live inspect requires endpoint and table");
+		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		const snapshot = await Effect.runPromise(connection.getTableSnapshot(tablePath));
+		printJson({ fingerprint: fingerprintTable(snapshot), snapshot });
+		return;
+	}
 	if (area === "session" && action === "create") {
 		const [assetPath, sessionPath] = rest;
 		if (!assetPath || !sessionPath) {
@@ -71,6 +88,18 @@ async function authoring(args: readonly string[]): Promise<void> {
 		const [sessionPath] = rest;
 		if (!sessionPath) throw new Error("session show requires a session file");
 		printJson(await Effect.runPromise(loadDraftSession(sessionPath)));
+		return;
+	}
+	if (area === "session" && action === "create-live") {
+		const [endpoint, tablePath, sessionPath] = rest;
+		if (!endpoint || !tablePath || !sessionPath) {
+			throw new Error("session create-live requires endpoint, table, and session file");
+		}
+		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		const snapshot = await Effect.runPromise(connection.getTableSnapshot(tablePath));
+		const session = createDraftSession(randomUUID(), [snapshot], fingerprintTable);
+		await Effect.runPromise(saveDraftSession(sessionPath, session));
+		printJson(session);
 		return;
 	}
 	if (area === "draft" && action === "set-cell") {
@@ -101,6 +130,44 @@ async function authoring(args: readonly string[]): Promise<void> {
 		const next = action === "undo" ? undo(session) : redo(session);
 		await Effect.runPromise(saveDraftSession(sessionPath, next));
 		printJson(next);
+		return;
+	}
+	if (area === "apply") {
+		const [sessionPath, endpoint] = [action, ...rest];
+		if (!sessionPath || !endpoint) throw new Error("apply requires session and endpoint");
+		const session = await Effect.runPromise(loadDraftSession(sessionPath));
+		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		const outcome = await Effect.runPromise(
+			dispatchApply({
+				appliedAt: new Date().toISOString(),
+				operationId: randomUUID(),
+				port: connection,
+				session
+			})
+		);
+		await Effect.runPromise(saveDraftSession(sessionPath, outcome.session));
+		printJson(outcome);
+		return;
+	}
+	if (area === "apply-status") {
+		const [endpoint, operationId] = [action, ...rest];
+		if (!endpoint || !operationId) {
+			throw new Error("apply-status requires endpoint and operation ID");
+		}
+		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		printJson(await Effect.runPromise(connection.lookupApplyResult(operationId)));
+		return;
+	}
+	if (area === "save") {
+		const [sessionPath, endpoint] = [action, ...rest];
+		if (!sessionPath || !endpoint) throw new Error("save requires session and endpoint");
+		const session = await Effect.runPromise(loadDraftSession(sessionPath));
+		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		const request = buildSaveRequest(session, randomUUID());
+		const result = await Effect.runPromise(connection.save(request));
+		const next = acceptSaveResult(session, result, new Date().toISOString());
+		await Effect.runPromise(saveDraftSession(sessionPath, next));
+		printJson({ result, session: next });
 		return;
 	}
 	throw new Error(`Unknown authoring command\n\n${help}`);

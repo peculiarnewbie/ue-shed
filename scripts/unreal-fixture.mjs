@@ -100,8 +100,10 @@ function runCommandlet(tools, extraArgs = []) {
 }
 
 const action = process.argv[2];
-if (!new Set(["build", "generate", "verify"]).has(action)) {
-	throw new Error("Usage: node scripts/unreal-fixture.mjs <build|generate|verify>");
+if (!new Set(["apply", "build", "generate", "save", "verify", "snapshot"]).has(action)) {
+	throw new Error(
+		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|save|verify|snapshot> [input] [output]"
+	);
 }
 
 const tools = engineTools(discoverEngineRoot());
@@ -111,4 +113,33 @@ if (action === "generate" || action === "verify") {
 }
 if (action === "verify") {
 	runCommandlet(tools, ["-VerifyOnly"]);
+}
+if (action === "snapshot") {
+	const output = process.argv[3];
+	if (!output) {
+		throw new Error("snapshot requires an output directory");
+	}
+	runCommandlet(tools, [`-SnapshotDirectory=${resolve(output)}`]);
+}
+if (action === "apply" || action === "save") {
+	const input = process.argv[3];
+	const output = process.argv[4];
+	if (!input || !output) {
+		throw new Error(`${action} requires input and output JSON paths`);
+	}
+	const prefix = action === "apply" ? "Apply" : "Save";
+	const args = [`-${prefix}Request=${resolve(input)}`, `-${prefix}Output=${resolve(output)}`];
+	if (action === "apply" && process.argv[5] && process.argv[6]) {
+		args.push(
+			`-SaveAfterApplyRequest=${resolve(process.argv[5])}`,
+			`-SaveAfterApplyOutput=${resolve(process.argv[6])}`
+		);
+	}
+	if (action === "apply" && process.argv[7] && process.argv[8]) {
+		args.push(
+			`-LookupOperation=${process.argv[7]}`,
+			`-LookupOutput=${resolve(process.argv[8])}`
+		);
+	}
+	runCommandlet(tools, args);
 }

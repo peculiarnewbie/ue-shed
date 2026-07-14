@@ -20,11 +20,20 @@ From the repository root:
 pnpm fixture:build
 pnpm fixture:generate
 pnpm fixture:verify
+pnpm fixture:snapshot .tmp/live-snapshots
 ```
 
 `fixture:generate` compiles the project and regenerates the committed DataTables from JSON under
 `FixtureSource/Authoring`. `fixture:verify` regenerates them, reloads every asset in a fresh commandlet
 process, and compares their row structures and row names with `fixture-contract.json`.
+
+The fixture enables the separately packaged core and authoring companions plus stock Remote Control.
+Remote Control binds to loopback on ports 30001 and 30002. A full editor used for live HTTP tests
+must retain rendering capability; `-RenderOffScreen` is suitable, while `-NullRHI` intentionally
+prevents Unreal's web Remote Control module from starting. Commandlet conformance remains headless.
+
+`fixture:apply` and `fixture:save` are low-level conformance runners for checked-in protocol requests.
+Normal users should use the public libraries or the `ue-shed authoring` CLI flows.
 
 ## Contract
 

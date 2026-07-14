@@ -1,0 +1,77 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$defs": {
+		"AuthoringSaveResult": {
+			"type": "object",
+			"required": ["contract", "packages", "requestId", "status"],
+			"properties": {
+				"contract": {
+					"type": "object",
+					"required": ["name", "version"],
+					"properties": {
+						"name": {
+							"type": "string",
+							"enum": ["unreal-authoring-save"]
+						},
+						"version": {
+							"type": "object",
+							"required": ["major", "minor"],
+							"properties": {
+								"major": {
+									"type": "number",
+									"enum": [1]
+								},
+								"minor": {
+									"$ref": "#/$defs/NonNegativeInt"
+								}
+							},
+							"additionalProperties": false
+						}
+					},
+					"additionalProperties": false
+				},
+				"packages": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"required": ["objectPath", "packageName", "retrySafe", "status"],
+						"properties": {
+							"message": {
+								"type": "string"
+							},
+							"objectPath": {
+								"type": "string"
+							},
+							"packageName": {
+								"type": "string"
+							},
+							"retrySafe": {
+								"type": "boolean"
+							},
+							"status": {
+								"type": "string",
+								"enum": ["saved", "failed"]
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"requestId": {
+					"type": "string"
+				},
+				"status": {
+					"type": "string",
+					"enum": ["complete", "partial", "failed"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"NonNegativeInt": {
+			"type": "integer",
+			"description": "an integer",
+			"title": "int",
+			"minimum": 0
+		}
+	},
+	"$ref": "#/$defs/AuthoringSaveResult"
+}

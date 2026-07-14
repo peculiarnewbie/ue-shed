@@ -10,5 +10,6 @@ editor state and mutation. The domain package does not invoke parser or transpor
 
 The implemented headless kernel includes semantic table fingerprints, persistent versioned sessions,
 the five canonical command shapes, strict command folding, grouped append/undo/redo, pure inversion,
-and atomic session-file replacement. Apply and Save receipts are part of the session shape even
-though live dispatch is a later slice.
+and atomic session-file replacement. It builds bounded multi-table Apply plans through a narrow live
+port, rebases committed drafts from returned snapshots, preserves indeterminate outcomes without
+automatic replay, and records Apply and Save as separate durable receipts.

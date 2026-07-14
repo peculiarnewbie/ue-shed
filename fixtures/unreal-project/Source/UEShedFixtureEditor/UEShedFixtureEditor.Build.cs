@@ -14,6 +14,7 @@ public class UEShedFixtureEditor : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"Json",
+				"UEShedAuthoring",
 				"UEShedFixture",
 				"UnrealEd"
 			}

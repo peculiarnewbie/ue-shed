@@ -1,35 +1,14 @@
 import {
-	AuthoringRow as AuthoringRowSchema,
+	AuthoringCommand as AuthoringCommandSchema,
 	AuthoringTableSnapshot as AuthoringTableSnapshotSchema,
-	AuthoringValue as AuthoringValueSchema,
 	type AuthoringFieldValue,
-	type AuthoringRow,
+	type AuthoringCommand,
 	type AuthoringTableSnapshot,
 	type AuthoringValue
 } from "@ue-shed/protocol";
 import { Data, Schema } from "effect";
 
-export type AuthoringCommand =
-	| {
-			readonly kind: "set_cell";
-			readonly rowId: string;
-			readonly fieldName: string;
-			readonly oldValue: AuthoringValue;
-			readonly newValue: AuthoringValue;
-	  }
-	| { readonly kind: "add_row"; readonly row: AuthoringRow; readonly atIndex: number }
-	| { readonly kind: "remove_row"; readonly row: AuthoringRow; readonly atIndex: number }
-	| {
-			readonly kind: "rename_row";
-			readonly rowId: string;
-			readonly oldName: string;
-			readonly newName: string;
-	  }
-	| {
-			readonly kind: "reorder_rows";
-			readonly oldOrder: readonly string[];
-			readonly newOrder: readonly string[];
-	  };
+export type { AuthoringCommand } from "@ue-shed/protocol";
 
 export interface CommandEnvelope {
 	readonly id: string;
@@ -42,13 +21,14 @@ export interface CommandEnvelope {
 }
 
 export interface DraftSession {
-	readonly version: 1;
+	readonly version: 2;
 	readonly id: string;
 	readonly base: Readonly<Record<string, AuthoringTableSnapshot>>;
 	readonly fingerprints: Readonly<Record<string, string>>;
 	readonly commands: readonly CommandEnvelope[];
 	readonly undoPointer: number;
 	readonly applyReceipts: readonly ApplyReceipt[];
+	readonly saveReceipts: readonly SaveReceipt[];
 	readonly awaitingSave: readonly string[];
 }
 
@@ -59,36 +39,18 @@ export interface ApplyReceipt {
 	readonly status: "committed" | "rolled_back" | "rejected" | "indeterminate";
 }
 
-const AuthoringCommandSchema = Schema.Union(
-	Schema.Struct({
-		fieldName: Schema.String,
-		kind: Schema.Literal("set_cell"),
-		newValue: AuthoringValueSchema,
-		oldValue: AuthoringValueSchema,
-		rowId: Schema.String
-	}),
-	Schema.Struct({
-		atIndex: Schema.NonNegativeInt,
-		kind: Schema.Literal("add_row"),
-		row: AuthoringRowSchema
-	}),
-	Schema.Struct({
-		atIndex: Schema.NonNegativeInt,
-		kind: Schema.Literal("remove_row"),
-		row: AuthoringRowSchema
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("rename_row"),
-		newName: Schema.String,
-		oldName: Schema.String,
-		rowId: Schema.String
-	}),
-	Schema.Struct({
-		kind: Schema.Literal("reorder_rows"),
-		newOrder: Schema.Array(Schema.String),
-		oldOrder: Schema.Array(Schema.String)
-	})
-);
+export interface SaveReceipt {
+	readonly requestId: string;
+	readonly savedAt: string;
+	readonly status: "complete" | "partial" | "failed";
+	readonly packages: readonly {
+		readonly objectPath: string;
+		readonly packageName: string;
+		readonly status: "saved" | "failed";
+		readonly retrySafe: boolean;
+		readonly message?: string | undefined;
+	}[];
+}
 
 const CommandEnvelopeSchema = Schema.Struct({
 	author: Schema.optional(Schema.String),
@@ -100,15 +62,17 @@ const CommandEnvelopeSchema = Schema.Struct({
 	tableObjectPath: Schema.String
 });
 
-export const DraftSessionSchema = Schema.Struct({
-	applyReceipts: Schema.Array(
-		Schema.Struct({
-			appliedAt: Schema.String,
-			operationId: Schema.String,
-			status: Schema.Literal("committed", "rolled_back", "rejected", "indeterminate"),
-			tableObjectPaths: Schema.Array(Schema.String)
-		})
-	),
+const ApplyReceiptsSchema = Schema.Array(
+	Schema.Struct({
+		appliedAt: Schema.String,
+		operationId: Schema.String,
+		status: Schema.Literal("committed", "rolled_back", "rejected", "indeterminate"),
+		tableObjectPaths: Schema.Array(Schema.String)
+	})
+);
+
+const DraftSessionV1Schema = Schema.Struct({
+	applyReceipts: ApplyReceiptsSchema,
 	awaitingSave: Schema.Array(Schema.String),
 	base: Schema.Record({ key: Schema.String, value: AuthoringTableSnapshotSchema }),
 	commands: Schema.Array(CommandEnvelopeSchema),
@@ -118,7 +82,41 @@ export const DraftSessionSchema = Schema.Struct({
 	version: Schema.Literal(1)
 });
 
-export const decodeDraftSession = Schema.decodeUnknownSync(DraftSessionSchema);
+export const DraftSessionSchema = Schema.Struct({
+	applyReceipts: ApplyReceiptsSchema,
+	awaitingSave: Schema.Array(Schema.String),
+	base: Schema.Record({ key: Schema.String, value: AuthoringTableSnapshotSchema }),
+	commands: Schema.Array(CommandEnvelopeSchema),
+	fingerprints: Schema.Record({ key: Schema.String, value: Schema.String }),
+	id: Schema.String,
+	saveReceipts: Schema.Array(
+		Schema.Struct({
+			packages: Schema.Array(
+				Schema.Struct({
+					message: Schema.optional(Schema.String),
+					objectPath: Schema.String,
+					packageName: Schema.String,
+					retrySafe: Schema.Boolean,
+					status: Schema.Literal("saved", "failed")
+				})
+			),
+			requestId: Schema.String,
+			savedAt: Schema.String,
+			status: Schema.Literal("complete", "partial", "failed")
+		})
+	),
+	undoPointer: Schema.NonNegativeInt,
+	version: Schema.Literal(2)
+});
+
+const decodePersistedDraftSession = Schema.decodeUnknownSync(
+	Schema.Union(DraftSessionV1Schema, DraftSessionSchema)
+);
+
+export function decodeDraftSession(input: unknown): DraftSession {
+	const session = decodePersistedDraftSession(input);
+	return session.version === 1 ? { ...session, saveReceipts: [], version: 2 } : session;
+}
 
 export class DraftFoldError extends Data.TaggedError("DraftFoldError")<{
 	readonly commandId: string;
@@ -279,8 +277,9 @@ export function createDraftSession(
 		commands: [],
 		fingerprints,
 		id,
+		saveReceipts: [],
 		undoPointer: 0,
-		version: 1
+		version: 2
 	};
 }
 

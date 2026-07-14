@@ -38,6 +38,9 @@ importers:
       '@ue-shed/unreal-assets':
         specifier: workspace:*
         version: link:../../packages/unreal-assets
+      '@ue-shed/unreal-connection':
+        specifier: workspace:*
+        version: link:../../packages/unreal-connection
       effect:
         specifier: ^3.22.0
         version: 3.22.0
@@ -61,6 +64,19 @@ importers:
         version: 3.22.0
 
   packages/unreal-assets:
+    dependencies:
+      '@ue-shed/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      effect:
+        specifier: ^3.22.0
+        version: 3.22.0
+    devDependencies:
+      '@ue-shed/authoring':
+        specifier: workspace:*
+        version: link:../authoring
+
+  packages/unreal-connection:
     dependencies:
       '@ue-shed/protocol':
         specifier: workspace:*

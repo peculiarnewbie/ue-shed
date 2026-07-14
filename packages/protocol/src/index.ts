@@ -102,3 +102,4 @@ export type ConnectionState =
 	| { readonly status: "error"; readonly message: string };
 
 export * from "./authoring.js";
+export * from "./companion.js";

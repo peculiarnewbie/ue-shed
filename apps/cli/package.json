@@ -10,6 +10,7 @@
 		"@ue-shed/authoring": "workspace:*",
 		"@ue-shed/protocol": "workspace:*",
 		"@ue-shed/unreal-assets": "workspace:*",
+		"@ue-shed/unreal-connection": "workspace:*",
 		"effect": "^3.22.0"
 	}
 }

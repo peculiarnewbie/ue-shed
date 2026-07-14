@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
 	DraftFoldError,
 	appendCommandGroup,
+	decodeDraftSession,
 	fingerprintTable,
 	foldTable,
 	invertCommand,
@@ -103,8 +104,9 @@ describe("draft command log", () => {
 			commands: [],
 			fingerprints: { [base.table.objectPath]: fingerprintTable(base) },
 			id: "draft",
+			saveReceipts: [],
 			undoPointer: 0,
-			version: 1
+			version: 2
 		};
 		const commands = [
 			envelope("1", "gesture", {
@@ -174,8 +176,9 @@ describe("draft command log", () => {
 			commands: [],
 			fingerprints: { [base.table.objectPath]: fingerprintTable(base) },
 			id: "persisted",
+			saveReceipts: [],
 			undoPointer: 0,
-			version: 1
+			version: 2
 		};
 		try {
 			await Effect.runPromise(saveDraftSession(path, session));
@@ -183,5 +186,21 @@ describe("draft command log", () => {
 		} finally {
 			await rm(directory, { force: true, recursive: true });
 		}
+	});
+
+	it("migrates version 1 sessions with an empty Save receipt history", () => {
+		const base = snapshot({ kind: "project_files", packageName: "/Game/Fixture/DT_Test" });
+		const migrated = decodeDraftSession({
+			applyReceipts: [],
+			awaitingSave: [],
+			base: { [base.table.objectPath]: base },
+			commands: [],
+			fingerprints: { [base.table.objectPath]: fingerprintTable(base) },
+			id: "legacy",
+			undoPointer: 0,
+			version: 1
+		});
+		expect(migrated.version).toBe(2);
+		expect(migrated.saveReceipts).toEqual([]);
 	});
 });
