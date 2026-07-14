@@ -11,3 +11,6 @@ their domain models separate.
 
 They are vision documents, not commitments to implement every mechanism exactly as first described.
 Risky decisions are intentionally earned through vertical slices and engine-source verification.
+
+A separate [ranked catalog](catalog.md) collects a different family — corpus tools and analytical
+surfaces over authored project data. Promising entries graduate to their own vision documents.
