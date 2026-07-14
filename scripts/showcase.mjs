@@ -7,6 +7,7 @@ import { ensureUassetExecutable } from "./native-tools.mjs";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fixtureRoot = join(repositoryRoot, "fixtures", "unreal-project");
 const rules = join(fixtureRoot, "FixtureSource", "Audits", "texture-rules.json");
+const authoringAsset = join(fixtureRoot, "Content", "Fixture", "Authoring", "DT_Scalars.uasset");
 const pnpmScript = process.env.npm_execpath;
 const pnpmScriptIsJavaScript = pnpmScript ? /\.(?:c|m)?js$/i.test(pnpmScript) : false;
 const command = pnpmScriptIsJavaScript
@@ -20,6 +21,7 @@ const environment = {
 	...process.env,
 	UE_SHED_PROJECT_NAME: process.env.UE_SHED_PROJECT_NAME ?? "UEShedFixture",
 	UE_SHED_PROJECT_ROOT: process.env.UE_SHED_PROJECT_ROOT ?? fixtureRoot,
+	UE_SHED_AUTHORING_ASSET: process.env.UE_SHED_AUTHORING_ASSET ?? authoringAsset,
 	UE_SHED_REPOSITORY_ROOT: repositoryRoot,
 	UE_SHED_TEXTURE_AUDIT_RULES: process.env.UE_SHED_TEXTURE_AUDIT_RULES ?? rules,
 	UE_SHED_UASSET_EXECUTABLE: ensureUassetExecutable(process.env)

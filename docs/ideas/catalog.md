@@ -36,7 +36,7 @@ authoring session model, git, and capture spines).
 
 | Rank | Idea                                                                                    | One-line promise                                                 | Spine                     |
 | ---- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------- |
-| 1    | [Game text workbench](#1-game-text-workbench)                                           | All player-facing text as one searchable, editable corpus        | packages + sessions       |
+| 1    | [Game text workbench](game-text-workbench.md)                                           | All player-facing text as one searchable, editable corpus        | packages + sessions       |
 | 2    | [Balance analytics](#2-balance-analytics)                                               | Charts and pivots folded over the live draft, not just the save  | authoring sessions        |
 | 3    | [Queryable world](#3-queryable-world)                                                   | Placed actors as a database with spatial queries and charts      | packages (OFPA)           |
 | 4    | [Project cartography](#4-project-cartography)                                           | Whole-project dependency, size, and reference atlas              | asset registry            |
@@ -59,7 +59,7 @@ authoring session model, git, and capture spines).
 
 ## Entries
 
-### 1. Game text workbench
+### 1. [Game text workbench](game-text-workbench.md)
 
 All player-facing text — string tables, loc archives, FText properties surfaced by the package
 reader — as one corpus. Full-text search across the game, in-context editing through the authoring

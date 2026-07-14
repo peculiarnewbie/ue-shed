@@ -62,9 +62,15 @@ importers:
       '@ue-shed/extension-asset-audits':
         specifier: workspace:*
         version: link:../../extensions/asset-audits
+      '@ue-shed/extension-data-authoring':
+        specifier: workspace:*
+        version: link:../../extensions/data-authoring
       '@ue-shed/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ue-shed/unreal-assets':
+        specifier: workspace:*
+        version: link:../../packages/unreal-assets
       effect:
         specifier: ^3.22.0
         version: 3.22.0
@@ -96,6 +102,18 @@ importers:
       '@ue-shed/asset-audits':
         specifier: workspace:*
         version: link:../../packages/asset-audits
+      solid-js:
+        specifier: ^1.9.14
+        version: 1.9.14
+
+  extensions/data-authoring:
+    dependencies:
+      '@stylexjs/stylex':
+        specifier: ^0.19.0
+        version: 0.19.0
+      '@ue-shed/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       solid-js:
         specifier: ^1.9.14
         version: 1.9.14

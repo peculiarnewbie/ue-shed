@@ -16,7 +16,6 @@ export interface WorkbenchCameraMetrics extends CameraFeedMetrics {
 }
 
 export interface ShowcaseContext {
-	readonly authoringCommand: string;
 	readonly fixtureConfigured: boolean;
 	readonly projectRoot?: string;
 	readonly reader: "configured" | "path";
@@ -33,8 +32,7 @@ export type FixtureLaunchResult =
 
 contextBridge.exposeInMainWorld("ueShed", {
 	showcase: {
-		context: (): Promise<ShowcaseContext> => ipcRenderer.invoke("showcase:context"),
-		copy: (value: string): Promise<void> => ipcRenderer.invoke("showcase:copy", value)
+		context: (): Promise<ShowcaseContext> => ipcRenderer.invoke("showcase:context")
 	},
 	assetAudits: {
 		loadConfiguredProject: (): Promise<unknown> =>
@@ -43,6 +41,11 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("asset-audits:textures:choose-and-scan"),
 		preview: (objectPath: string): Promise<unknown> =>
 			ipcRenderer.invoke("asset-audits:textures:preview", objectPath)
+	},
+	authoring: {
+		loadConfiguredTable: (): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:configured-table"),
+		chooseTable: (): Promise<unknown> => ipcRenderer.invoke("authoring:choose-table")
 	},
 	fixture: {
 		launch: (): Promise<FixtureLaunchResult> => ipcRenderer.invoke("fixture:launch")

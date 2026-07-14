@@ -22,6 +22,7 @@ reviewable corpora while keeping their headless capabilities independently usabl
 - [Content observatory](content-observatory.md)
 - [Asset audits](asset-audits.md)
 - [Asset lookbook](asset-lookbook.md)
+- [Game text workbench](game-text-workbench.md)
 
 A separate [ranked catalog](catalog.md) collects a different family — corpus tools and analytical
 surfaces over authored project data. Promising entries graduate to their own vision documents.

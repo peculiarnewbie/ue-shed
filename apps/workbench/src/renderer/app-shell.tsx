@@ -1,12 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
+import { AuthoringRoute } from "@ue-shed/extension-data-authoring";
 import { TextureAuditRoute } from "@ue-shed/extension-asset-audits";
 import { For, Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js";
 import type { ShowcaseContext } from "../main/preload.js";
 import { assetAuditsClient } from "./asset-audits-client.js";
+import { authoringClient } from "./authoring-client.js";
 import { CameraLab } from "./camera-lab.js";
 
 const routes = [
 	{ href: "#/", label: "Showcase", route: "#/" },
+	{ href: "#/authoring", label: "Data Authoring", route: "#/authoring" },
 	{ href: "#/asset-audits/textures", label: "Texture Audit", route: "#/asset-audits/textures" },
 	{ href: "#/camera-lab", label: "Camera Lab", route: "#/camera-lab" }
 ] as const;
@@ -82,6 +85,9 @@ export function AppShell() {
 				<span {...stylex.props(styles.version)}>WORKBENCH / 0.0.0</span>
 			</nav>
 			<Switch fallback={<ShowcaseHome />}>
+				<Match when={route() === "#/authoring"}>
+					<AuthoringRoute client={authoringClient} />
+				</Match>
 				<Match when={route() === "#/asset-audits/textures"}>
 					<TextureAuditRoute client={assetAuditsClient} />
 				</Match>
@@ -96,7 +102,6 @@ export function AppShell() {
 function ShowcaseHome() {
 	const [context, setContext] = createSignal<ShowcaseContext>();
 	const [cameraConnected, setCameraConnected] = createSignal(false);
-	const [copied, setCopied] = createSignal(false);
 	onMount(() => {
 		void window.ueShed.showcase.context().then(setContext);
 		void window.ueShed
@@ -104,13 +109,6 @@ function ShowcaseHome() {
 			.then(() => setCameraConnected(true))
 			.catch(() => setCameraConnected(false));
 	});
-	const copyAuthoringCommand = async () => {
-		const command = context()?.authoringCommand;
-		if (!command) return;
-		await window.ueShed.showcase.copy(command);
-		setCopied(true);
-		window.setTimeout(() => setCopied(false), 1_500);
-	};
 	return (
 		<main {...stylex.props(styles.home)}>
 			<header {...stylex.props(styles.hero)}>
@@ -165,13 +163,9 @@ function ShowcaseHome() {
 								<For each={demo.capabilities}>{(item) => <li>{item}</li>}</For>
 							</ul>
 							<Show when={demo.index === "01"}>
-								<button
-									type="button"
-									onClick={() => void copyAuthoringCommand()}
-									{...stylex.props(styles.action)}
-								>
-									{copied() ? "COMMAND COPIED" : "COPY CLI DEMO"} <span>↗</span>
-								</button>
+								<a href="#/authoring" {...stylex.props(styles.action)}>
+									OPEN TABLE <span>→</span>
+								</a>
 							</Show>
 							<Show when={demo.index === "02"}>
 								<a href="#/asset-audits/textures" {...stylex.props(styles.action)}>

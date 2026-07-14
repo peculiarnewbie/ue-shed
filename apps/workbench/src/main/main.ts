@@ -13,6 +13,7 @@ import {
 	type TextureAuditScanError
 } from "@ue-shed/asset-audits";
 import { decodeCompanionCapabilityManifest, type CameraScheduleConfig } from "@ue-shed/protocol";
+import { readSavedTable } from "@ue-shed/unreal-assets";
 import { Effect } from "effect";
 import {
 	BrowserWindow,
@@ -21,7 +22,6 @@ import {
 	ipcMain,
 	type BrowserWindow as BrowserWindowInstance
 } from "electron/main";
-import { clipboard } from "electron";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +38,42 @@ let presentationReplacements = 0;
 let presentationBudgetMbPerSecond = 80;
 let nextPresentationAt = 0;
 let fixtureLaunch: Promise<FixtureLaunchResult> | undefined;
+
+type AuthoringIpcResult =
+	| { readonly status: "ready"; readonly snapshot: unknown }
+	| { readonly status: "not_configured" }
+	| { readonly status: "cancelled" }
+	| {
+			readonly status: "failed";
+			readonly error: {
+				readonly code: "reader_failure";
+				readonly message: string;
+				readonly recovery: string;
+				readonly retrySafe: boolean;
+			};
+	  };
+
+async function loadAuthoringTable(assetPath: string): Promise<AuthoringIpcResult> {
+	try {
+		const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
+		const snapshot = await Effect.runPromise(
+			readSavedTable({ assetPath, ...(executable ? { executable } : {}) })
+		);
+		return { status: "ready", snapshot };
+	} catch (cause) {
+		const message = cause instanceof Error ? cause.message : String(cause);
+		return {
+			status: "failed",
+			error: {
+				code: "reader_failure",
+				message: `Could not read the saved DataTable: ${message}`,
+				recovery:
+					"Choose a DataTable .uasset from a supported Unreal project and verify the saved-asset reader is available.",
+				retrySafe: true
+			}
+		};
+	}
+}
 
 function unavailablePreview(
 	objectPath: string,
@@ -159,8 +195,6 @@ ipcMain.handle("showcase:context", (): ShowcaseContext => {
 	const ruleFile = process.env.UE_SHED_TEXTURE_AUDIT_RULES;
 	const readerExecutable = process.env.UE_SHED_UASSET_EXECUTABLE;
 	return {
-		authoringCommand:
-			"pnpm ue-shed authoring inspect fixtures\\unreal-project\\Content\\Fixture\\Authoring\\DT_Scalars.uasset",
 		fixtureConfigured: Boolean(
 			projectRoot && ruleFile && existsSync(projectRoot) && existsSync(ruleFile)
 		),
@@ -168,13 +202,6 @@ ipcMain.handle("showcase:context", (): ShowcaseContext => {
 		reader: readerExecutable ? "configured" : "path",
 		...(ruleFile ? { ruleFile } : {})
 	};
-});
-
-ipcMain.handle("showcase:copy", (_event, value: unknown): void => {
-	if (typeof value !== "string" || value.length > 4_096) {
-		throw new TypeError("Copy text must be a string no longer than 4,096 characters");
-	}
-	clipboard.writeText(value);
 });
 
 function schedulePresentationFrame() {
@@ -307,6 +334,21 @@ ipcMain.handle(
 		return runTextureScan(projectRoot, ruleFile);
 	}
 );
+
+ipcMain.handle("authoring:configured-table", async (): Promise<AuthoringIpcResult> => {
+	const assetPath = process.env.UE_SHED_AUTHORING_ASSET;
+	return assetPath ? loadAuthoringTable(assetPath) : { status: "not_configured" };
+});
+
+ipcMain.handle("authoring:choose-table", async (): Promise<AuthoringIpcResult> => {
+	const choice = await dialog.showOpenDialog(window!, {
+		filters: [{ name: "Unreal saved assets", extensions: ["uasset"] }],
+		properties: ["openFile"],
+		title: "Open a saved Unreal DataTable"
+	});
+	const assetPath = choice.filePaths[0];
+	return choice.canceled || !assetPath ? { status: "cancelled" } : loadAuthoringTable(assetPath);
+});
 
 ipcMain.handle("camera:metrics", () => {
 	const metrics = feed?.getMetrics();

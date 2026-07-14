@@ -11,12 +11,15 @@ declare global {
 		readonly ueShed: {
 			readonly showcase: {
 				readonly context: () => Promise<ShowcaseContext>;
-				readonly copy: (value: string) => Promise<void>;
 			};
 			readonly assetAudits: {
 				readonly loadConfiguredProject: () => Promise<unknown>;
 				readonly chooseProjectAndScan: () => Promise<unknown>;
 				readonly preview: (objectPath: string) => Promise<unknown>;
+			};
+			readonly authoring: {
+				readonly loadConfiguredTable: () => Promise<unknown>;
+				readonly chooseTable: () => Promise<unknown>;
 			};
 			readonly fixture: {
 				readonly launch: () => Promise<FixtureLaunchResult>;

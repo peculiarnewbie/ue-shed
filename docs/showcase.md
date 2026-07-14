@@ -34,8 +34,12 @@ available. A missing live endpoint does not prevent the saved-asset demos from o
 
 ## Demo 1: DataTable authoring
 
-Use **Copy CLI demo** on the showcase home, then run the copied command from a repository shell. The
-first command inspects the committed scalar table without opening Unreal:
+Choose **Open table** on the showcase home. Workbench reads the committed scalar table directly from
+its saved package, presents its typed rows and fields, and keeps authority and partial-package
+diagnostics visible without opening Unreal. Use **Open saved table** to inspect another DataTable
+`.uasset`.
+
+The same public capability remains available from a repository shell:
 
 ```powershell
 pnpm ue-shed authoring inspect fixtures\unreal-project\Content\Fixture\Authoring\DT_Scalars.uasset
