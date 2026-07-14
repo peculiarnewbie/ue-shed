@@ -34,6 +34,10 @@
 		{
 			"Name": "UEShedCameras",
 			"Enabled": true
+		},
+		{
+			"Name": "UEShedAssetAudits",
+			"Enabled": true
 		}
 	]
 }

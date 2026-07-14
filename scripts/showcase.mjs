@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureUassetExecutable } from "./native-tools.mjs";
@@ -13,17 +14,37 @@ const command = pnpmScriptIsJavaScript
 	: (pnpmScript ?? (process.platform === "win32" ? "pnpm.cmd" : "pnpm"));
 const commandPrefix = pnpmScriptIsJavaScript && pnpmScript ? [pnpmScript] : [];
 const buildOnly = process.argv.includes("--build-only");
-const workbenchOnly = process.argv.includes("--workbench-only");
-const remoteControlEndpoint =
-	process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT ?? "http://127.0.0.1:30001";
 const commandNeedsShell =
 	process.platform === "win32" && (!pnpmScript || /\.(?:cmd|bat)$/i.test(pnpmScript));
 const environment = {
 	...process.env,
+	UE_SHED_PROJECT_NAME: process.env.UE_SHED_PROJECT_NAME ?? "UEShedFixture",
 	UE_SHED_PROJECT_ROOT: process.env.UE_SHED_PROJECT_ROOT ?? fixtureRoot,
+	UE_SHED_REPOSITORY_ROOT: repositoryRoot,
 	UE_SHED_TEXTURE_AUDIT_RULES: process.env.UE_SHED_TEXTURE_AUDIT_RULES ?? rules,
 	UE_SHED_UASSET_EXECUTABLE: ensureUassetExecutable(process.env)
 };
+
+async function firstAvailableRemoteControlEndpoint() {
+	if (process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT) {
+		return process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT;
+	}
+	const portAvailable = (port) =>
+		new Promise((resolveAvailable) => {
+			const server = createServer();
+			server.unref();
+			server.once("error", () => resolveAvailable(false));
+			server.listen(port, "127.0.0.1", () => server.close(() => resolveAvailable(true)));
+		});
+	for (let port = 30_001; port <= 30_019; port += 2) {
+		if ((await portAvailable(port)) && (await portAvailable(port + 1))) {
+			return `http://127.0.0.1:${port}`;
+		}
+	}
+	throw new Error("Could not reserve a Remote Control port between 30001 and 30020.");
+}
+
+environment.UE_SHED_REMOTE_CONTROL_ENDPOINT = await firstAvailableRemoteControlEndpoint();
 
 function run(args) {
 	const result = spawnSync(command, [...commandPrefix, ...args], {
@@ -37,38 +58,5 @@ function run(args) {
 	if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-async function remoteControlAvailable() {
-	try {
-		const response = await fetch(new URL("/remote/info", remoteControlEndpoint), {
-			signal: AbortSignal.timeout(750)
-		});
-		return response.ok;
-	} catch {
-		return false;
-	}
-}
-
-async function waitForRemoteControl() {
-	const deadline = Date.now() + 180_000;
-	while (Date.now() < deadline) {
-		if (await remoteControlAvailable()) return;
-		await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
-	}
-	throw new Error(
-		`The fixture launched, but Remote Control did not become ready at ${remoteControlEndpoint} ` +
-			"within three minutes. " +
-			"Check the Unreal process and Saved/Logs/UEShedFixture.log."
-	);
-}
-
 run(["--filter", "@ue-shed/workbench", "build"]);
-if (!buildOnly && !workbenchOnly) {
-	if (!(await remoteControlAvailable())) {
-		console.log("[showcase] Preparing and launching the Unreal fixture…");
-		run(["run", "fixture:launch"]);
-		console.log(`[showcase] Waiting for fixture Remote Control at ${remoteControlEndpoint}…`);
-		await waitForRemoteControl();
-	}
-	console.log("[showcase] Unreal fixture is ready.");
-}
 if (!buildOnly) run(["--filter", "@ue-shed/workbench", "start"]);

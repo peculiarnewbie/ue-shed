@@ -1,0 +1,74 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://ue-shed.dev/contracts/asset-audits/v1/texture-preview.schema.json",
+	"title": "UE Shed texture preview result",
+	"oneOf": [
+		{
+			"type": "object",
+			"required": [
+				"contract",
+				"status",
+				"authority",
+				"objectPath",
+				"mimeType",
+				"width",
+				"height",
+				"dataBase64"
+			],
+			"properties": {
+				"contract": { "$ref": "#/$defs/contract" },
+				"status": { "const": "available" },
+				"authority": { "const": "live_editor" },
+				"objectPath": { "type": "string", "minLength": 1 },
+				"mimeType": { "const": "image/png" },
+				"width": { "type": "integer", "minimum": 1, "maximum": 512 },
+				"height": { "type": "integer", "minimum": 1, "maximum": 512 },
+				"dataBase64": { "type": "string", "maxLength": 5592408 }
+			},
+			"additionalProperties": false
+		},
+		{
+			"type": "object",
+			"required": ["contract", "status", "objectPath", "reason", "message", "retrySafe"],
+			"properties": {
+				"contract": { "$ref": "#/$defs/contract" },
+				"status": { "const": "unavailable" },
+				"objectPath": { "type": "string" },
+				"reason": {
+					"enum": [
+						"invalid_request",
+						"texture_not_found",
+						"source_unavailable",
+						"source_too_large",
+						"decode_failed",
+						"encode_failed",
+						"preview_too_large",
+						"editor_data_unavailable"
+					]
+				},
+				"message": { "type": "string", "minLength": 1 },
+				"retrySafe": { "type": "boolean" }
+			},
+			"additionalProperties": false
+		}
+	],
+	"$defs": {
+		"contract": {
+			"type": "object",
+			"required": ["name", "version"],
+			"properties": {
+				"name": { "const": "texture-preview" },
+				"version": {
+					"type": "object",
+					"required": ["major", "minor"],
+					"properties": {
+						"major": { "const": 1 },
+						"minor": { "const": 0 }
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}
+	}
+}

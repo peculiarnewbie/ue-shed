@@ -32,6 +32,10 @@ The deletion test is an architectural acceptance criterion: if `apps/workbench` 
 capability must remain usable and testable through public libraries or the CLI. The Workbench gets no
 private transport, privileged endpoint, or direct project knowledge.
 
+Workbench launch is demand-driven. Opening the showcase must not start Unreal; a feature requests a
+separately enabled live capability when the user enters that workflow or explicitly launches it.
+Saved-package operations remain available while live capabilities are absent.
+
 ```text
                      optional clients
           CLI       Workbench       studio-specific UI

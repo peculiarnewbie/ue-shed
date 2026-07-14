@@ -143,6 +143,11 @@ export function CameraLab() {
 	const [controlState, setControlState] = createSignal<"connected" | "unavailable" | "updating">(
 		"unavailable"
 	);
+	const [fixtureLaunch, setFixtureLaunch] = createSignal<
+		| { readonly status: "idle" }
+		| { readonly status: "launching" }
+		| { readonly status: "failed"; readonly message: string }
+	>({ status: "idle" });
 	const activeFeeds = createMemo(
 		() => [...frames().keys()].filter((index) => index < config().activeCameraCount).length
 	);
@@ -214,6 +219,30 @@ export function CameraLab() {
 		}
 	};
 
+	const launchFixture = async () => {
+		setFixtureLaunch({ status: "launching" });
+		const result = await window.ueShed.fixture.launch();
+		if (result.status === "failed") {
+			setFixtureLaunch({
+				status: "failed",
+				message: `${result.message} ${result.recovery}`
+			});
+			return;
+		}
+		try {
+			const nextStatus = await window.ueShed.getStatus();
+			setStatus(nextStatus);
+			setConfig(nextStatus.config);
+			setControlState("connected");
+			setFixtureLaunch({ status: "idle" });
+		} catch (cause) {
+			setFixtureLaunch({
+				status: "failed",
+				message: `Unreal launched, but Camera Load Lab could not connect: ${String(cause)}`
+			});
+		}
+	};
+
 	onMount(() => {
 		const unsubscribe = window.ueShed.onFrame((frame) => {
 			setFrames((current) => {
@@ -260,10 +289,32 @@ export function CameraLab() {
 					<p {...stylex.props(styles.eyebrow)}>UE SHED / OBSERVATION SYSTEMS</p>
 					<h1 {...stylex.props(styles.title)}>CAMERA LOAD LAB</h1>
 				</div>
-				<div {...stylex.props(styles.systemState)}>
-					<span {...stylex.props(styles.pulse)} />
-					{activeFeeds()}/{config().activeCameraCount} streaming ·{" "}
-					{visibleCameraIndices().length} shown · {controlState()}
+				<div {...stylex.props(styles.systemActions)}>
+					<div {...stylex.props(styles.systemState)}>
+						<span {...stylex.props(styles.pulse)} />
+						{activeFeeds()}/{config().activeCameraCount} streaming ·{" "}
+						{visibleCameraIndices().length} shown · {controlState()}
+					</div>
+					<Show when={controlState() === "unavailable"}>
+						<button
+							type="button"
+							disabled={fixtureLaunch().status === "launching"}
+							onClick={() => void launchFixture()}
+							{...stylex.props(styles.launchButton)}
+						>
+							{fixtureLaunch().status === "launching"
+								? "BUILDING + LAUNCHING…"
+								: "LAUNCH CAMERA FIXTURE"}
+						</button>
+					</Show>
+					<Show when={fixtureLaunch().status === "failed"}>
+						<small {...stylex.props(styles.launchError)}>
+							{(() => {
+								const current = fixtureLaunch();
+								return current.status === "failed" ? current.message : "";
+							})()}
+						</small>
+					</Show>
 				</div>
 			</header>
 
@@ -652,6 +703,27 @@ const styles = stylex.create({
 		gap: "9px",
 		textTransform: "uppercase"
 	},
+	systemActions: {
+		display: "flex",
+		alignItems: "flex-end",
+		flexDirection: "column",
+		gap: 8,
+		maxWidth: 520
+	},
+	launchButton: {
+		padding: "9px 13px",
+		border: "1px solid #46d0ac",
+		backgroundColor: { default: "#102a25", ":hover": "#16362f" },
+		color: "#74e6c4",
+		fontFamily: "monospace",
+		fontSize: 10,
+		fontWeight: 700,
+		letterSpacing: "0.08em",
+		cursor: "pointer",
+		transition: "transform 140ms cubic-bezier(0.23, 1, 0.32, 1)",
+		transform: { default: "scale(1)", ":active": "scale(0.97)" }
+	},
+	launchError: { color: "#ff8b7b", fontFamily: "monospace", textAlign: "right" },
 	pulse: {
 		width: "7px",
 		height: "7px",

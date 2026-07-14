@@ -51,11 +51,11 @@ pnpm install
 pnpm showcase
 ```
 
-The showcase builds and launches the Unreal fixture, waits for its Remote Control endpoint, and opens
-the Workbench catalog with all three executable slices: headless DataTable authoring, saved-asset
-texture audits, and the live Camera Load Lab. It incrementally builds the in-repo `uasset` reader for
-the saved-asset slices. See [the showcase walkthrough](docs/showcase.md) for prerequisites, the
-Workbench-only mode, and exact demo flows.
+The showcase builds and opens Workbench without launching Unreal. Headless DataTable inspection and
+saved-asset texture audits are immediately available; live texture previews and Camera Load Lab offer
+in-product actions that build and launch the fixture only when requested. The source checkout also
+incrementally builds its in-repo `uasset` reader. See
+[the showcase walkthrough](docs/showcase.md) for prerequisites and exact demo flows.
 
 For development and headless use:
 

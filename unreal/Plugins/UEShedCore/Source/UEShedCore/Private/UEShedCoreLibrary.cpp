@@ -1,6 +1,7 @@
 #include "UEShedCoreLibrary.h"
 
 #include "Dom/JsonObject.h"
+#include "Misc/App.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Modules/ModuleManager.h"
@@ -10,6 +11,7 @@ void UUEShedCoreLibrary::GetCapabilityManifest(FString& ResultJson)
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetNumberField(TEXT("schemaVersion"), 1);
 	Root->SetStringField(TEXT("producerKind"), TEXT("unreal_editor"));
+	Root->SetStringField(TEXT("projectName"), FApp::GetProjectName());
 	Root->SetStringField(
 		TEXT("authoringObjectPath"),
 		TEXT("/Script/UEShedAuthoring.Default__UEShedAuthoringLibrary"));
@@ -25,6 +27,12 @@ void UUEShedCoreLibrary::GetCapabilityManifest(FString& ResultJson)
 			TEXT("/Script/UEShedCameras.Default__UEShedCameraLibrary"));
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("cameras.control.v1")));
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("cameras.frames.bgra8.pipe.v1")));
+	}
+	if (FModuleManager::Get().ModuleExists(TEXT("UEShedAssetAudits")))
+	{
+		Root->SetStringField(TEXT("assetAuditsObjectPath"),
+			TEXT("/Script/UEShedAssetAudits.Default__UEShedAssetAuditsLibrary"));
+		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("asset-audits.texture-preview.v1")));
 	}
 	Root->SetArrayField(TEXT("capabilities"), Capabilities);
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ResultJson);

@@ -101,7 +101,11 @@ function runCommandlet(tools, extraArgs = []) {
 }
 
 function launch(tools) {
-	const process = spawn(
+	const remoteControlPort = new URL(
+		process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT ?? "http://127.0.0.1:30001"
+	).port;
+	const remoteControlWebSocketPort = String(Number(remoteControlPort) + 1);
+	const child = spawn(
 		tools.editor,
 		[
 			projectFile,
@@ -111,6 +115,8 @@ function launch(tools) {
 			"-ResX=1280",
 			"-ResY=720",
 			"-RCWebControlEnable",
+			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlHttpServerPort=${remoteControlPort}`,
+			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlWebSocketServerPort=${remoteControlWebSocketPort}`,
 			"-NoLiveCoding",
 			"-nop4",
 			"-nosplash"
@@ -122,7 +128,7 @@ function launch(tools) {
 			windowsHide: false
 		}
 	);
-	process.unref();
+	child.unref();
 }
 
 const action = process.argv[2];

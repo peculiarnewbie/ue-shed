@@ -247,7 +247,7 @@ describe("generic Unreal fixture contract", () => {
 });
 
 describe("fixture project", () => {
-	it("enables the stock Remote Control plugin without private dependencies", () => {
+	it("enables the stock Remote Control and UE Shed capability plugins", () => {
 		const project = readJson(join(fixtureRoot, "UEShedFixture.uproject"));
 		if (!isRecord(project) || !Array.isArray(project.Plugins)) {
 			throw new Error("UEShedFixture.uproject has no plugin list");
@@ -259,7 +259,8 @@ describe("fixture project", () => {
 			"RemoteControl",
 			"UEShedCore",
 			"UEShedAuthoring",
-			"UEShedCameras"
+			"UEShedCameras",
+			"UEShedAssetAudits"
 		]);
 	});
 });

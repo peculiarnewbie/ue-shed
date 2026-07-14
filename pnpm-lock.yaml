@@ -102,6 +102,9 @@ importers:
 
   packages/asset-audits:
     dependencies:
+      '@ue-shed/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@ue-shed/unreal-assets':
         specifier: workspace:*
         version: link:../unreal-assets

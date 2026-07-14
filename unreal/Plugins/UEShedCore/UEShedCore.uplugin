@@ -10,7 +10,7 @@
 	"Modules": [
 		{
 			"Name": "UEShedCore",
-			"Type": "Editor",
+			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}
 	]

@@ -6,24 +6,20 @@ optional capability.
 
 ## Open the Workbench
 
-Requirements are Node.js 22.14 or newer, pnpm 10, and Rust 1.85 or newer. The live Camera Load Lab
-also requires Unreal Engine 5.7 and Visual Studio 2022 with the Unreal Engine C++ workload. The
-Workbench-only mode does not require Unreal or Visual Studio. From the repository root:
+Requirements are Node.js 22.14 or newer, pnpm 10, and Rust 1.85 or newer. Live actions additionally
+require Unreal Engine 5.7 and Visual Studio 2022 with the Unreal Engine C++ workload. The initial
+Workbench and saved-package audit do not require Unreal or Visual Studio. From the repository root:
 
 ```powershell
 pnpm install
 pnpm showcase
 ```
 
-`showcase` incrementally builds the in-repo `uasset` reader and Workbench, builds and launches the
-Unreal fixture on its committed camera map, waits for Remote Control, and then opens the showcase
-catalog. It also configures the fixture project and texture-audit rules for saved-asset demos.
-
-To skip Unreal and open only the saved-asset side of Workbench:
-
-```powershell
-pnpm showcase -- --workbench-only
-```
+`showcase` incrementally builds the in-repo `uasset` reader and Workbench, configures the fixture
+project and texture-audit rules, and opens the catalog. It does not build or launch Unreal up front.
+Texture Audit and Camera Load Lab each expose a launch action when their optional live capability is
+needed. If another process occupies the default Remote Control port, the showcase reserves the next
+available port for its fixture.
 
 The source-checkout flow uses `target/debug/uasset.exe` (`target/debug/uasset` on other platforms).
 To exercise another compatible reader build instead, override it before launching:
@@ -53,14 +49,16 @@ Live apply and save use the same session model after the fixture editor is runni
 Choose **Open audit**. The route immediately scans the committed texture corpus using
 `FixtureSource/Audits/texture-rules.json`; use **Rescan** to repeat it. It demonstrates whole-corpus
 distributions, per-asset serialized evidence, findings, and partial-package diagnostics without
-launching Unreal.
+launching Unreal. Selecting a texture requests an optional bounded live preview. Choose **Launch
+Unreal for preview** to build and start the fixture only when that visual evidence is wanted. Preview
+authority is labeled separately because an editor can contain unsaved state.
 
 ## Demo 3: Camera Load Lab
 
-Camera Load Lab is the live slice. The default `pnpm showcase` flow discovers Unreal Engine 5.7,
-incrementally builds the fixture editor target, and launches `/Game/Fixture/Cameras/L_CameraLoad` as
-a windowed Game world. Stock Remote Control starts on loopback port `30001`; Workbench opens after
-that endpoint is ready.
+Camera Load Lab is the live slice. Open it and choose **Launch Camera Fixture**. Workbench then
+discovers Unreal Engine 5.7, incrementally builds the fixture editor target, launches
+`/Game/Fixture/Cameras/L_CameraLoad` as a windowed Game world, and waits for the negotiated Remote
+Control endpoint.
 
 The lab connects automatically and reports scheduler, render/readback, transport, and presentation
 measurements separately. If you already have a process listening on the configured fixture endpoint,

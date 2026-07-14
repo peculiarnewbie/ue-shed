@@ -6,11 +6,13 @@ import {
 	type CameraFrame
 } from "@ue-shed/cameras";
 import {
+	readLiveTexturePreview,
 	scanTextureAudit,
+	type TexturePreviewResult,
 	type TextureAuditRunResult,
 	type TextureAuditScanError
 } from "@ue-shed/asset-audits";
-import type { CameraScheduleConfig } from "@ue-shed/protocol";
+import { decodeCompanionCapabilityManifest, type CameraScheduleConfig } from "@ue-shed/protocol";
 import { Effect } from "effect";
 import {
 	BrowserWindow,
@@ -20,9 +22,10 @@ import {
 	type BrowserWindow as BrowserWindowInstance
 } from "electron/main";
 import { clipboard } from "electron";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ShowcaseContext } from "./preload.js";
+import type { FixtureLaunchResult, ShowcaseContext } from "./preload.js";
 
 const remoteControlEndpoint =
 	process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT ?? "http://127.0.0.1:30001";
@@ -34,6 +37,122 @@ let presentationFramesSent = 0;
 let presentationReplacements = 0;
 let presentationBudgetMbPerSecond = 80;
 let nextPresentationAt = 0;
+let fixtureLaunch: Promise<FixtureLaunchResult> | undefined;
+
+function unavailablePreview(
+	objectPath: string,
+	message: string,
+	reason: "invalid_request" | "not_connected" = "not_connected"
+): TexturePreviewResult {
+	return {
+		contract: { name: "texture-preview", version: { major: 1, minor: 0 } },
+		status: "unavailable",
+		objectPath,
+		reason,
+		message,
+		retrySafe: reason === "not_connected"
+	};
+}
+
+async function remoteControlAvailable(): Promise<boolean> {
+	try {
+		const response = await fetch(new URL("/remote/object/call", remoteControlEndpoint), {
+			body: JSON.stringify({
+				generateTransaction: false,
+				functionName: "GetCapabilityManifest",
+				objectPath: "/Script/UEShedCore.Default__UEShedCoreLibrary",
+				parameters: {}
+			}),
+			headers: { "content-type": "application/json" },
+			method: "PUT",
+			signal: AbortSignal.timeout(1_500)
+		});
+		if (!response.ok) return false;
+		const envelope: unknown = await response.json();
+		if (
+			typeof envelope !== "object" ||
+			envelope === null ||
+			!("ResultJson" in envelope) ||
+			typeof envelope.ResultJson !== "string"
+		) {
+			return false;
+		}
+		const manifest = decodeCompanionCapabilityManifest(JSON.parse(envelope.ResultJson));
+		const expectedProject = process.env.UE_SHED_PROJECT_NAME;
+		return (
+			manifest.producerKind === "unreal_editor" &&
+			(!expectedProject || manifest.projectName === expectedProject)
+		);
+	} catch {
+		return false;
+	}
+}
+
+async function launchConfiguredFixture(): Promise<FixtureLaunchResult> {
+	if (await remoteControlAvailable()) return { status: "ready" };
+	const repositoryRoot = process.env.UE_SHED_REPOSITORY_ROOT;
+	const launchScript = repositoryRoot
+		? join(repositoryRoot, "scripts", "unreal-fixture.mjs")
+		: undefined;
+	if (!launchScript || !existsSync(launchScript)) {
+		return {
+			status: "failed",
+			message: "This Workbench session has no source-checkout fixture launcher.",
+			recovery: "Start Workbench with pnpm showcase from the UE Shed repository."
+		};
+	}
+
+	const launched = await new Promise<FixtureLaunchResult>((resolveLaunch) => {
+		const child = spawn(process.execPath, [launchScript, "launch"], {
+			cwd: repositoryRoot,
+			env: process.env,
+			stdio: ["ignore", "ignore", "pipe"],
+			windowsHide: true
+		});
+		let stderr = "";
+		child.stderr?.setEncoding("utf8");
+		child.stderr?.on("data", (chunk: string) => {
+			stderr = (stderr + chunk).slice(-16_384);
+		});
+		child.once("error", (cause) =>
+			resolveLaunch({
+				status: "failed",
+				message: `Could not start the fixture launcher: ${String(cause)}`,
+				recovery: "Verify the configured Unreal installation and source checkout."
+			})
+		);
+		child.once("exit", (code) => {
+			if (code === 0) resolveLaunch({ status: "ready" });
+			else {
+				resolveLaunch({
+					status: "failed",
+					message:
+						stderr.trim() || `Fixture launcher exited with code ${code ?? "unknown"}.`,
+					recovery: "Check the Unreal build output and Saved/Logs/UEShedFixture.log."
+				});
+			}
+		});
+	});
+	if (launched.status === "failed") return launched;
+
+	const deadline = Date.now() + 180_000;
+	while (Date.now() < deadline) {
+		if (await remoteControlAvailable()) return { status: "ready" };
+		await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+	}
+	return {
+		status: "failed",
+		message: "Unreal launched, but Remote Control did not become ready within three minutes.",
+		recovery: "Check the Unreal process and Saved/Logs/UEShedFixture.log."
+	};
+}
+
+ipcMain.handle("fixture:launch", async (): Promise<FixtureLaunchResult> => {
+	fixtureLaunch ??= launchConfiguredFixture().finally(() => {
+		fixtureLaunch = undefined;
+	});
+	return fixtureLaunch;
+});
 
 ipcMain.handle("showcase:context", (): ShowcaseContext => {
 	const projectRoot = process.env.UE_SHED_PROJECT_ROOT;
@@ -135,6 +254,34 @@ ipcMain.handle(
 		const ruleFile = process.env.UE_SHED_TEXTURE_AUDIT_RULES;
 		if (!projectRoot || !ruleFile) return { status: "not_configured" };
 		return runTextureScan(projectRoot, ruleFile);
+	}
+);
+
+ipcMain.handle(
+	"asset-audits:textures:preview",
+	async (_event, objectPath: unknown): Promise<TexturePreviewResult> => {
+		if (
+			typeof objectPath !== "string" ||
+			objectPath.length === 0 ||
+			objectPath.length > 1_024 ||
+			!objectPath.startsWith("/Game/")
+		) {
+			return unavailablePreview(
+				"",
+				"Texture preview requires a valid /Game object path.",
+				"invalid_request"
+			);
+		}
+		try {
+			return await Effect.runPromise(
+				readLiveTexturePreview({ endpoint: remoteControlEndpoint, objectPath })
+			);
+		} catch (cause) {
+			return unavailablePreview(
+				objectPath,
+				`Live Unreal preview unavailable: ${String(cause)}`
+			);
+		}
 	}
 );
 

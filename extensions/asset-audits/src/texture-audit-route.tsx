@@ -4,6 +4,7 @@ import {
 	type DistributionSelection,
 	type TextureAuditReport,
 	type TextureAuditRunResult,
+	type TexturePreviewResult,
 	type TextureRecord
 } from "@ue-shed/asset-audits/browser";
 import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
@@ -11,6 +12,11 @@ import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "sol
 export interface TextureAuditClient {
 	readonly loadConfiguredProject: () => Promise<TextureAuditRunResult>;
 	readonly chooseProjectAndScan: () => Promise<TextureAuditRunResult>;
+	readonly loadPreview: (objectPath: string) => Promise<TexturePreviewResult>;
+	readonly launchUnreal: () => Promise<
+		| { readonly status: "ready" }
+		| { readonly status: "failed"; readonly message: string; readonly recovery: string }
+	>;
 }
 
 type ViewState =
@@ -22,6 +28,18 @@ type ViewState =
 			readonly result: Extract<TextureAuditRunResult, { status: "failed" }>;
 	  }
 	| { readonly status: "ready"; readonly report: TextureAuditReport };
+
+type PreviewState =
+	| { readonly status: "idle" }
+	| { readonly status: "loading" }
+	| {
+			readonly status: "available";
+			readonly preview: TexturePreviewResult & { status: "available" };
+	  }
+	| {
+			readonly status: "unavailable";
+			readonly preview: TexturePreviewResult & { status: "unavailable" };
+	  };
 
 function shortName(objectPath: string): string {
 	return objectPath.slice(objectPath.lastIndexOf("/") + 1).split(".")[0] ?? objectPath;
@@ -112,14 +130,53 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 	const [selectedPath, setSelectedPath] = createSignal<string>();
 	const [query, setQuery] = createSignal("");
 	const [findingsOnly, setFindingsOnly] = createSignal(false);
+	const [preview, setPreview] = createSignal<PreviewState>({ status: "idle" });
+	const [launching, setLaunching] = createSignal(false);
+	const [launchFailure, setLaunchFailure] = createSignal<string>();
+	let previewRequest = 0;
+
+	const loadPreview = async (objectPath: string) => {
+		const request = ++previewRequest;
+		setPreview({ status: "loading" });
+		const result = await props.client.loadPreview(objectPath);
+		if (request !== previewRequest) return;
+		setPreview(
+			result.status === "available"
+				? { status: "available", preview: result }
+				: { status: "unavailable", preview: result }
+		);
+	};
+
+	const selectRecord = (record: TextureRecord) => {
+		setSelectedPath(record.objectPath);
+		setLaunchFailure();
+		void loadPreview(record.objectPath);
+	};
+
+	const launchUnreal = async () => {
+		setLaunching(true);
+		setLaunchFailure();
+		const result = await props.client.launchUnreal();
+		setLaunching(false);
+		if (result.status === "failed") {
+			setLaunchFailure(`${result.message} ${result.recovery}`);
+			return;
+		}
+		const objectPath = selectedPath();
+		if (objectPath) await loadPreview(objectPath);
+	};
 
 	const applyResult = (result: TextureAuditRunResult) => {
-		if (result.status === "completed") setState({ status: "ready", report: result.report });
-		else if (result.status === "failed") setState({ status: "failed", result });
+		if (result.status === "completed") {
+			setState({ status: "ready", report: result.report });
+			const first = result.report.records[0];
+			if (first) selectRecord(first);
+		} else if (result.status === "failed") setState({ status: "failed", result });
 		else setState({ status: result.status });
 	};
 	const run = async (choose: boolean) => {
 		setState({ status: "loading" });
+		setPreview({ status: "idle" });
 		applyResult(
 			await (choose
 				? props.client.chooseProjectAndScan()
@@ -347,9 +404,7 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 													return (
 														<button
 															type="button"
-															onClick={() =>
-																setSelectedPath(record.objectPath)
-															}
+															onClick={() => selectRecord(record)}
 															{...stylex.props(
 																styles.tableRow,
 																selected()?.objectPath ===
@@ -418,6 +473,119 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 													<p {...stylex.props(styles.objectPath)}>
 														{record().objectPath}
 													</p>
+													<div {...stylex.props(styles.previewFrame)}>
+														<Switch>
+															<Match
+																when={
+																	preview().status === "loading"
+																}
+															>
+																<div
+																	{...stylex.props(
+																		styles.previewEmpty
+																	)}
+																>
+																	<span
+																		{...stylex.props(
+																			styles.pulse
+																		)}
+																	/>
+																	Decoding in Unreal…
+																</div>
+															</Match>
+															<Match
+																when={
+																	preview().status === "available"
+																}
+															>
+																{(() => {
+																	const current = preview();
+																	if (
+																		current.status !==
+																		"available"
+																	)
+																		return null;
+																	return (
+																		<>
+																			<img
+																				src={`data:${current.preview.mimeType};base64,${current.preview.dataBase64}`}
+																				alt={`Live preview of ${shortName(current.preview.objectPath)}`}
+																				{...stylex.props(
+																					styles.previewImage
+																				)}
+																			/>
+																			<span
+																				{...stylex.props(
+																					styles.previewBadge
+																				)}
+																			>
+																				LIVE EDITOR ·{" "}
+																				{
+																					current.preview
+																						.width
+																				}{" "}
+																				×{" "}
+																				{
+																					current.preview
+																						.height
+																				}
+																			</span>
+																		</>
+																	);
+																})()}
+															</Match>
+															<Match
+																when={
+																	preview().status ===
+																	"unavailable"
+																}
+															>
+																<div
+																	{...stylex.props(
+																		styles.previewEmpty
+																	)}
+																>
+																	<strong>
+																		Live preview is offline.
+																	</strong>
+																	<span>
+																		{(() => {
+																			const current =
+																				preview();
+																			return current.status ===
+																				"unavailable"
+																				? current.preview
+																						.message
+																				: "Unreal is not connected.";
+																		})()}
+																	</span>
+																	<button
+																		type="button"
+																		disabled={launching()}
+																		onClick={() =>
+																			void launchUnreal()
+																		}
+																		{...stylex.props(
+																			styles.launchButton
+																		)}
+																	>
+																		{launching()
+																			? "Launching fixture…"
+																			: "Launch Unreal for preview"}
+																	</button>
+																	<Show when={launchFailure()}>
+																		<small
+																			{...stylex.props(
+																				styles.launchError
+																			)}
+																		>
+																			{launchFailure()}
+																		</small>
+																	</Show>
+																</div>
+															</Match>
+														</Switch>
+													</div>
 													<div {...stylex.props(styles.dimensionHero)}>
 														<DimensionsHero
 															dimensions={record().dimensions}
@@ -706,6 +874,56 @@ const styles = stylex.create({
 		margin: "7px 0 4px",
 		overflowWrap: "anywhere"
 	},
+	previewFrame: {
+		position: "relative",
+		minHeight: 188,
+		margin: "16px 0 12px",
+		border: "1px solid #3f413b",
+		backgroundColor: "#090b0a",
+		overflow: "hidden",
+		display: "grid",
+		placeItems: "center"
+	},
+	previewImage: {
+		display: "block",
+		width: "100%",
+		height: 220,
+		objectFit: "contain",
+		imageRendering: "auto"
+	},
+	previewBadge: {
+		position: "absolute",
+		left: 8,
+		bottom: 8,
+		padding: "5px 7px",
+		backgroundColor: "#0b0d0dd9",
+		border: "1px solid #4d5148",
+		color: "#b9c5b5",
+		fontSize: 9,
+		letterSpacing: "0.1em"
+	},
+	previewEmpty: {
+		padding: 20,
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "center",
+		textAlign: "center",
+		gap: 9,
+		color: "#858981",
+		fontSize: 11
+	},
+	launchButton: {
+		marginTop: 4,
+		padding: "9px 12px",
+		border: "1px solid #b86f3d",
+		backgroundColor: { default: "#2f2119", ":hover": "#3b281d" },
+		color: "#efaa76",
+		fontWeight: 700,
+		cursor: "pointer",
+		transition: "transform 140ms cubic-bezier(0.23, 1, 0.32, 1)",
+		transform: { default: "scale(1)", ":active": "scale(0.97)" }
+	},
+	launchError: { color: "#d98172", lineHeight: 1.4 },
 	objectPath: { color: "#777a73", fontSize: 9, overflowWrap: "anywhere", margin: 0 },
 	dimensionHero: {
 		margin: "19px 0",

@@ -23,6 +23,14 @@ export interface ShowcaseContext {
 	readonly ruleFile?: string;
 }
 
+export type FixtureLaunchResult =
+	| { readonly status: "ready" }
+	| {
+			readonly status: "failed";
+			readonly message: string;
+			readonly recovery: string;
+	  };
+
 contextBridge.exposeInMainWorld("ueShed", {
 	showcase: {
 		context: (): Promise<ShowcaseContext> => ipcRenderer.invoke("showcase:context"),
@@ -32,7 +40,12 @@ contextBridge.exposeInMainWorld("ueShed", {
 		loadConfiguredProject: (): Promise<unknown> =>
 			ipcRenderer.invoke("asset-audits:textures:configured-scan"),
 		chooseProjectAndScan: (): Promise<unknown> =>
-			ipcRenderer.invoke("asset-audits:textures:choose-and-scan")
+			ipcRenderer.invoke("asset-audits:textures:choose-and-scan"),
+		preview: (objectPath: string): Promise<unknown> =>
+			ipcRenderer.invoke("asset-audits:textures:preview", objectPath)
+	},
+	fixture: {
+		launch: (): Promise<FixtureLaunchResult> => ipcRenderer.invoke("fixture:launch")
 	},
 	configure: (config: CameraScheduleConfig): Promise<CameraStatus> =>
 		ipcRenderer.invoke("camera:configure", config),

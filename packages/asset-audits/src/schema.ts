@@ -50,6 +50,47 @@ export const TextureRecord = Schema.Struct({
 });
 export type TextureRecord = Schema.Schema.Type<typeof TextureRecord>;
 
+const TexturePreviewContract = Schema.Struct({
+	name: Schema.Literal("texture-preview"),
+	version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.Literal(0) })
+});
+
+export const TexturePreviewUnavailableReason = Schema.Literal(
+	"not_connected",
+	"capability_missing",
+	"invalid_request",
+	"texture_not_found",
+	"source_unavailable",
+	"source_too_large",
+	"decode_failed",
+	"encode_failed",
+	"preview_too_large",
+	"editor_data_unavailable"
+);
+
+export const TexturePreviewResult = Schema.Union(
+	Schema.Struct({
+		contract: TexturePreviewContract,
+		status: Schema.Literal("available"),
+		authority: Schema.Literal("live_editor"),
+		objectPath: TextureObjectPath,
+		mimeType: Schema.Literal("image/png"),
+		width: PositiveInt.pipe(Schema.lessThanOrEqualTo(512)),
+		height: PositiveInt.pipe(Schema.lessThanOrEqualTo(512)),
+		dataBase64: Schema.String.pipe(Schema.maxLength(5_592_408))
+	}),
+	Schema.Struct({
+		contract: TexturePreviewContract,
+		status: Schema.Literal("unavailable"),
+		objectPath: Schema.String,
+		reason: TexturePreviewUnavailableReason,
+		message: Schema.NonEmptyString,
+		retrySafe: Schema.Boolean
+	})
+);
+export type TexturePreviewResult = Schema.Schema.Type<typeof TexturePreviewResult>;
+export const decodeTexturePreviewResult = Schema.decodeUnknownSync(TexturePreviewResult);
+
 export const DimensionsPowerOfTwoRule = Schema.Struct({
 	id: AuditRuleId,
 	kind: Schema.Literal("dimensions_power_of_two"),
