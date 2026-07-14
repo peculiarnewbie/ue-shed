@@ -20,9 +20,11 @@ spine. The actor observatory follows as the first data-plane and real-time domai
 The first headless path is executable:
 
 ```powershell
-$env:UE_SHED_UASSET_EXECUTABLE = "C:\path\to\uasset.exe"
 pnpm ue-shed authoring inspect fixtures\unreal-project\Content\Fixture\Authoring\DT_Scalars.uasset
 ```
+
+From a source checkout, the command incrementally builds and uses the in-repo Rust parser. Set
+`UE_SHED_UASSET_EXECUTABLE` only when testing another compatible reader build.
 
 Use `pnpm ue-shed help` for persistent session creation, typed cell drafting, undo, and redo commands.
 
@@ -49,11 +51,11 @@ pnpm install
 pnpm showcase
 ```
 
-The showcase opens the Workbench catalog with fixture presets for the three executable slices:
-headless DataTable authoring, saved-asset texture audits, and the live Camera Load Lab. Saved-asset
-inspection requires a compatible `uasset` reader; Camera Load Lab additionally requires the fixture
-running in Unreal. See [the showcase walkthrough](docs/showcase.md) for prerequisites and exact demo
-flows.
+The showcase builds and launches the Unreal fixture, waits for its Remote Control endpoint, and opens
+the Workbench catalog with all three executable slices: headless DataTable authoring, saved-asset
+texture audits, and the live Camera Load Lab. It incrementally builds the in-repo `uasset` reader for
+the saved-asset slices. See [the showcase walkthrough](docs/showcase.md) for prerequisites, the
+Workbench-only mode, and exact demo flows.
 
 For development and headless use:
 

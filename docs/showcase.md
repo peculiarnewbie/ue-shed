@@ -6,26 +6,35 @@ optional capability.
 
 ## Open the Workbench
 
-Requirements are Node.js 22.14 or newer and pnpm 10. From the repository root:
+Requirements are Node.js 22.14 or newer, pnpm 10, and Rust 1.85 or newer. The live Camera Load Lab
+also requires Unreal Engine 5.7 and Visual Studio 2022 with the Unreal Engine C++ workload. The
+Workbench-only mode does not require Unreal or Visual Studio. From the repository root:
 
 ```powershell
 pnpm install
 pnpm showcase
 ```
 
-`showcase` builds Workbench, configures its fixture project and texture-audit rules, and opens the
-showcase catalog. It does not rebuild or launch Unreal Engine.
+`showcase` incrementally builds the in-repo `uasset` reader and Workbench, builds and launches the
+Unreal fixture on its committed camera map, waits for Remote Control, and then opens the showcase
+catalog. It also configures the fixture project and texture-audit rules for saved-asset demos.
 
-Saved-package inspection also needs the independently distributed `uasset` reader. Either make its
-executable available on `PATH` or configure it before launching:
+To skip Unreal and open only the saved-asset side of Workbench:
+
+```powershell
+pnpm showcase -- --workbench-only
+```
+
+The source-checkout flow uses `target/debug/uasset.exe` (`target/debug/uasset` on other platforms).
+To exercise another compatible reader build instead, override it before launching:
 
 ```powershell
 $env:UE_SHED_UASSET_EXECUTABLE = "C:\path\to\uasset.exe"
 pnpm showcase
 ```
 
-The readiness strip reports whether the fixture preset, explicit reader, and live Unreal endpoint
-are available. A missing live endpoint does not prevent the saved-asset demos from opening.
+The readiness strip reports whether the fixture preset, reader, and live Unreal endpoint are
+available. A missing live endpoint does not prevent the saved-asset demos from opening.
 
 ## Demo 1: DataTable authoring
 
@@ -48,17 +57,14 @@ launching Unreal.
 
 ## Demo 3: Camera Load Lab
 
-Camera Load Lab is the live slice. It needs Unreal Engine 5.7 and the fixture project running the
-camera map:
-
-1. Run `pnpm fixture:build` once.
-2. Open `fixtures/unreal-project/UEShedFixture.uproject` in Unreal Editor.
-3. Open `/Game/Fixture/Cameras/L_CameraLoad` and start Play In Editor.
-4. Keep stock Remote Control enabled on loopback port `30001`.
-5. Open **Camera Lab** from Workbench.
+Camera Load Lab is the live slice. The default `pnpm showcase` flow discovers Unreal Engine 5.7,
+incrementally builds the fixture editor target, and launches `/Game/Fixture/Cameras/L_CameraLoad` as
+a windowed Game world. Stock Remote Control starts on loopback port `30001`; Workbench opens after
+that endpoint is ready.
 
 The lab connects automatically and reports scheduler, render/readback, transport, and presentation
-measurements separately. If Remote Control is unavailable, the rest of the showcase remains usable.
+measurements separately. If you already have a process listening on the configured fixture endpoint,
+the launcher reuses it rather than starting another Unreal process.
 
 ## Using another project
 

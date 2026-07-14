@@ -54,6 +54,7 @@ private transport, privileged endpoint, or direct project knowledge.
 - **StyleX** is the styling system for shared themes and primitives plus locally owned extension
   styles. It provides deterministic composition and typed style contracts across package boundaries.
 - **Electron** packages the showcase Workbench; it is not a domain or protocol dependency.
+- **Rust** implements native, read-only saved-package parsing behind a versioned CLI JSON boundary.
 - **C++ Unreal plugins** expose the smallest engine-side capabilities that supported stock APIs cannot
   provide safely.
 
@@ -82,6 +83,8 @@ Focused guidance lives under [`engineering/`](engineering/README.md).
 apps/
   cli/                         # Headless entry point (`ue-shed`)
   workbench/                   # Showcase and dogfood desktop app
+crates/
+  uasset-parser/               # Native read-only UAsset library and `uasset` CLI
 packages/
   protocol/                    # Wire primitives, runtime schemas, compatibility
   host/                        # Lifecycle and static extension composition
@@ -121,7 +124,8 @@ known. A boundary becomes code when a vertical slice exercises it.
 
 - Domain packages depend on protocol primitives and narrow connection interfaces, not on a UI.
 - Saved-package parsing is isolated behind `@ue-shed/unreal-assets`; domain packages consume
-  normalized results rather than parser implementation details.
+  normalized results rather than parser implementation details. The native parser lives in this
+  repository so its fixture and wire-contract changes can be tested atomically.
 - Extensions depend on public domain packages and host extension contracts.
 - The CLI and Workbench compose extensions; they do not own domain behavior.
 - Unreal feature plugins depend on `UEShedCore` where shared identity or transport is required, not
@@ -288,6 +292,10 @@ scenario-specific models should not be forced into one universal event type.
 Data authoring and Remote Control exploration are also useful suite extensions. Existing independent
 packages such as `unreal-rc`, `p4client-ts`, and `peculiar-sheets` remain independently versioned
 dependencies rather than being absorbed into the monorepo.
+
+UTrace parsing is a separate product boundary from saved-package parsing. Its volume, capture
+lifecycle, analysis model, and UI concerns do not belong in the foundational UAsset crate and are
+deliberately excluded from this repository for now.
 
 Data authoring is intentionally stronger than the other reference extensions: it is a first-party,
 end-to-end product track with a maintained default interface. Custom authoring UIs remain an additive

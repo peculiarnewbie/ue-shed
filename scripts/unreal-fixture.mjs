@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,7 +79,8 @@ function engineTools(engineRoot) {
 	}
 	return {
 		build: join(engineRoot, "Engine", "Build", "BatchFiles", "Build.bat"),
-		editor: join(engineRoot, "Engine", "Binaries", "Win64", "UnrealEditor-Cmd.exe")
+		editor: join(engineRoot, "Engine", "Binaries", "Win64", "UnrealEditor.exe"),
+		editorCommandlet: join(engineRoot, "Engine", "Binaries", "Win64", "UnrealEditor-Cmd.exe")
 	};
 }
 
@@ -88,7 +89,7 @@ function build(tools) {
 }
 
 function runCommandlet(tools, extraArgs = []) {
-	run(tools.editor, [
+	run(tools.editorCommandlet, [
 		projectFile,
 		"-run=UEShedBuildFixture",
 		...extraArgs,
@@ -99,15 +100,43 @@ function runCommandlet(tools, extraArgs = []) {
 	]);
 }
 
+function launch(tools) {
+	const process = spawn(
+		tools.editor,
+		[
+			projectFile,
+			"/Game/Fixture/Cameras/L_CameraLoad",
+			"-game",
+			"-windowed",
+			"-ResX=1280",
+			"-ResY=720",
+			"-RCWebControlEnable",
+			"-NoLiveCoding",
+			"-nop4",
+			"-nosplash"
+		],
+		{
+			cwd: fixtureRoot,
+			detached: true,
+			stdio: "ignore",
+			windowsHide: false
+		}
+	);
+	process.unref();
+}
+
 const action = process.argv[2];
-if (!new Set(["apply", "build", "generate", "save", "verify", "snapshot"]).has(action)) {
+if (!new Set(["apply", "build", "generate", "launch", "save", "verify", "snapshot"]).has(action)) {
 	throw new Error(
-		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|save|verify|snapshot> [input] [output]"
+		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|launch|save|verify|snapshot> [input] [output]"
 	);
 }
 
 const tools = engineTools(discoverEngineRoot());
 build(tools);
+if (action === "launch") {
+	launch(tools);
+}
 if (action === "generate" || action === "verify") {
 	runCommandlet(tools);
 }

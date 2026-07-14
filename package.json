@@ -5,10 +5,11 @@
 	"description": "External tools for Unreal Engine development.",
 	"type": "module",
 	"scripts": {
-		"check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
+		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
 		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
 		"fixture:generate": "node scripts/unreal-fixture.mjs generate",
+		"fixture:launch": "node scripts/unreal-fixture.mjs launch",
 		"fixture:snapshot": "node scripts/unreal-fixture.mjs snapshot",
 		"fixture:save": "node scripts/unreal-fixture.mjs save",
 		"fixture:verify": "node scripts/unreal-fixture.mjs verify",
@@ -18,8 +19,10 @@
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
 		"showcase": "node scripts/showcase.mjs",
-		"test": "vitest run",
-		"ue-shed": "tsx apps/cli/src/index.ts"
+		"test": "node scripts/test.mjs",
+		"uasset:build": "cargo build --locked -p uasset-parser",
+		"uasset:check": "cargo fmt --all -- --check && cargo clippy -p uasset-parser --all-targets -- -D warnings && cargo test -p uasset-parser --all-targets",
+		"ue-shed": "node scripts/ue-shed.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^24.6.0",

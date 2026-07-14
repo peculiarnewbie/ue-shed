@@ -1,0 +1,7 @@
+[workspace]
+members = ["crates/uasset-parser"]
+resolver = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
