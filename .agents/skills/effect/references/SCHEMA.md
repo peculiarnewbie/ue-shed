@@ -8,10 +8,10 @@ Default to `Schema.Struct(...)` plus a same-name `interface`.
 
 ```ts
 export const User = Schema.Struct({
-  id: UserId,
-  name: Schema.NonEmptyString,
-  email: Schema.optionalKey(Schema.String),
-})
+	id: UserId,
+	name: Schema.NonEmptyString,
+	email: Schema.optionalKey(Schema.String)
+});
 
 export interface User extends Schema.Schema.Type<typeof User> {}
 ```
@@ -32,15 +32,15 @@ Reuse fields directly when contracts are semantically related.
 
 ```ts
 export const CreateUserInput = Schema.Struct({
-  name: User.fields.name,
-  email: User.fields.email,
-})
+	name: User.fields.name,
+	email: User.fields.email
+});
 
 export const StoredUser = User.pipe(
-  Schema.fieldsAssign({
-    createdAt: Schema.DateTimeUtcFromString,
-  }),
-)
+	Schema.fieldsAssign({
+		createdAt: Schema.DateTimeUtcFromString
+	})
+);
 ```
 
 Guidance:
@@ -69,32 +69,32 @@ Guidance:
 
 ```ts
 type Step = Data.TaggedEnum<{
-  Continue: { readonly cursor: number }
-  Finished: { readonly count: number }
-}>
+	Continue: { readonly cursor: number };
+	Finished: { readonly count: number };
+}>;
 
-export const Step = Data.taggedEnum<Step>()
+export const Step = Data.taggedEnum<Step>();
 
-const next = Step.Continue({ cursor: 10 })
+const next = Step.Continue({ cursor: 10 });
 const label = Step.$match(next, {
-  Continue: ({ cursor }) => `continue at ${cursor}`,
-  Finished: ({ count }) => `finished ${count}`,
-})
+	Continue: ({ cursor }) => `continue at ${cursor}`,
+	Finished: ({ count }) => `finished ${count}`
+});
 ```
 
 ```ts
 export const Event = Schema.TaggedUnion({
-  Started: { runId: RunId },
-  Finished: { runId: RunId, result: Schema.Json },
-})
+	Started: { runId: RunId },
+	Finished: { runId: RunId, result: Schema.Json }
+});
 
-export type Event = typeof Event.Type
+export type Event = typeof Event.Type;
 
-const event = Event.cases.Started.make({ runId })
+const event = Event.cases.Started.make({ runId });
 const label = Event.match(event, {
-  Started: ({ runId }) => `started ${runId}`,
-  Finished: ({ runId }) => `finished ${runId}`,
-})
+	Started: ({ runId }) => `started ${runId}`,
+	Finished: ({ runId }) => `finished ${runId}`
+});
 ```
 
 Guidance:
@@ -113,11 +113,11 @@ Guidance:
 
 ```ts
 export class PersistenceError extends Schema.TaggedErrorClass<PersistenceError>()(
-  "UserRepo.PersistenceError",
-  {
-    operation: Schema.String,
-    cause: Schema.Defect(),
-  },
+	"UserRepo.PersistenceError",
+	{
+		operation: Schema.String,
+		cause: Schema.Defect()
+	}
 ) {}
 ```
 

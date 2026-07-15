@@ -27,15 +27,11 @@ Prefer typed pass failures over cause recovery.
 
 ```ts
 const pass = runPass().pipe(
-  Effect.tapError((error) =>
-    Effect.logError("Worker.pass_failed", error),
-  ),
-  Effect.ignore,
-)
+	Effect.tapError((error) => Effect.logError("Worker.pass_failed", error)),
+	Effect.ignore
+);
 
-const run = pass.pipe(
-  Effect.repeat(Schedule.spaced("1 second")),
-)
+const run = pass.pipe(Effect.repeat(Schedule.spaced("1 second")));
 ```
 
 This shape says expected operational pass failures are logged and the worker continues. Defects still defect and can reach supervision.
@@ -44,10 +40,10 @@ Use cause-level recovery only at supervision boundaries where the policy is trul
 
 ```ts
 const logNonInterruptCauseAndContinue = (message: string) =>
-  Effect.catchCauseIf(
-    (cause) => !Cause.hasInterrupts(cause),
-    (cause) => Effect.logError(message, cause),
-  )
+	Effect.catchCauseIf(
+		(cause) => !Cause.hasInterrupts(cause),
+		(cause) => Effect.logError(message, cause)
+	);
 ```
 
 Do not catch causes just to make failures disappear. If only expected typed failures should be recoverable, use `Effect.catchIf(...)`, `Effect.catchFilter(...)`, `Effect.catchTag(...)`, or `Effect.retry(...)` on those typed errors instead.
@@ -57,19 +53,20 @@ Do not catch causes just to make failures disappear. If only expected typed fail
 For batch workers, catch expected item-level typed failures around each item so one bad item does not stall the batch.
 
 ```ts
-yield* Effect.forEach(
-  items,
-  (item) =>
-    processItem(item).pipe(
-      Effect.tapError((error) =>
-        Effect.logError("Worker.item_failed", error).pipe(
-          Effect.annotateLogs({ itemId: item.id }),
-        ),
-      ),
-      Effect.ignore,
-    ),
-  { discard: true, concurrency: 5 },
-)
+yield *
+	Effect.forEach(
+		items,
+		(item) =>
+			processItem(item).pipe(
+				Effect.tapError((error) =>
+					Effect.logError("Worker.item_failed", error).pipe(
+						Effect.annotateLogs({ itemId: item.id })
+					)
+				),
+				Effect.ignore
+			),
+		{ discard: true, concurrency: 5 }
+	);
 ```
 
 Only do this when retrying the item later is truthful or skipping the item is the product policy.
@@ -77,25 +74,23 @@ Only do this when retrying the item later is truthful or skipping the item is th
 ## Reusable Retry Policy
 
 ```ts
-const projectionRetrySchedule: Schedule.Schedule<unknown, ProjectionError> =
-  Schedule.exponential("100 millis").pipe(
-    Schedule.jittered,
-    Schedule.upTo({ times: 5 }),
-  )
+const projectionRetrySchedule: Schedule.Schedule<unknown, ProjectionError> = Schedule.exponential(
+	"100 millis"
+).pipe(Schedule.jittered, Schedule.upTo({ times: 5 }));
 
 const reconcileWithRetry = (target: Target) =>
-  reconcile(target).pipe(
-    Effect.retryOrElse(
-      projectionRetrySchedule.pipe(
-        Schedule.tapInput((error) =>
-          Effect.logWarning("Agent.Projection.reconcile.retrying").pipe(
-            Effect.annotateLogs({ operation: error.operation }),
-          ),
-        ),
-      ),
-      (error) => Effect.logError("Agent.Projection.reconcile.stopped", error),
-    ),
-  )
+	reconcile(target).pipe(
+		Effect.retryOrElse(
+			projectionRetrySchedule.pipe(
+				Schedule.tapInput((error) =>
+					Effect.logWarning("Agent.Projection.reconcile.retrying").pipe(
+						Effect.annotateLogs({ operation: error.operation })
+					)
+				)
+			),
+			(error) => Effect.logError("Agent.Projection.reconcile.stopped", error)
+		)
+	);
 ```
 
 Use this when the operation is idempotent and retry state is useful for logs or metrics.
@@ -106,22 +101,23 @@ For provider errors that carry `retryAfterMs`, let the schedule use the larger o
 
 ```ts
 type RateLimited = {
-  readonly retryAfterMs?: number | undefined
-}
+	readonly retryAfterMs?: number | undefined;
+};
 
-const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> =
-  Schedule.exponential("200 millis").pipe(
-    Schedule.jittered,
-    Schedule.upTo({ times: 5 }),
-    Schedule.passthrough,
-    Schedule.modifyDelay(({ input, duration }) =>
-      Effect.succeed(
-        input.retryAfterMs === undefined
-          ? duration
-          : Duration.max(duration, Duration.millis(input.retryAfterMs)),
-      ),
-    ),
-  )
+const providerRetrySchedule: Schedule.Schedule<RateLimited, RateLimited> = Schedule.exponential(
+	"200 millis"
+).pipe(
+	Schedule.jittered,
+	Schedule.upTo({ times: 5 }),
+	Schedule.passthrough,
+	Schedule.modifyDelay(({ input, duration }) =>
+		Effect.succeed(
+			input.retryAfterMs === undefined
+				? duration
+				: Duration.max(duration, Duration.millis(input.retryAfterMs))
+		)
+	)
+);
 ```
 
 Use this for operation-level retries over typed provider errors. For Effect HttpClient-level 429 handling and proactive pacing, read `HTTP_CLIENTS.md`.
