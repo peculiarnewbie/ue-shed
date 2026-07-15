@@ -1,0 +1,47 @@
+const gates = [
+	{
+		file: "packages/unreal-connection/src/real-unreal.integration.test.ts",
+		name: "real Unreal Remote Control authoring",
+		missing: (environment) =>
+			environment.UE_SHED_REMOTE_CONTROL_ENDPOINT
+				? undefined
+				: "set UE_SHED_REMOTE_CONTROL_ENDPOINT"
+	},
+	{
+		file: "packages/unreal-assets/src/live-parity.integration.test.ts",
+		name: "saved and live authoring parity",
+		missing: (environment) =>
+			environment.UE_SHED_LIVE_SNAPSHOT_DIR ? undefined : "set UE_SHED_LIVE_SNAPSHOT_DIR"
+	},
+	{
+		file: "packages/authoring/src/unreal-mutation.integration.test.ts",
+		name: "real Unreal authoring mutation",
+		missing: (environment) =>
+			environment.UE_SHED_UNREAL_INTEGRATION === "1"
+				? undefined
+				: "set UE_SHED_UNREAL_INTEGRATION=1 or run pnpm test:unreal-authoring"
+	}
+];
+
+function selectedGates(arguments_) {
+	if (arguments_.includes("component")) return [];
+	const explicitTests = arguments_.filter((argument) =>
+		/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(argument)
+	);
+	return explicitTests.length === 0
+		? gates
+		: gates.filter((gate) => explicitTests.some((test) => gate.file.endsWith(test)));
+}
+
+export function reportUnrealTestGates(environment, arguments_ = []) {
+	const selected = selectedGates(arguments_);
+	if (selected.length === 0) return;
+	process.stdout.write("\nUnreal integration test gates:\n");
+	for (const gate of selected) {
+		const missing = gate.missing(environment);
+		process.stdout.write(
+			`  ${missing ? "SKIP" : "RUN "} ${gate.name} (${gate.file})${missing ? ` — ${missing}` : ""}\n`
+		);
+	}
+	process.stdout.write("\n");
+}

@@ -20,3 +20,16 @@ pnpm showcase
 
 See [`docs/showcase.md`](../../docs/showcase.md) for the saved-asset reader, fixture, and live Unreal
 instructions. Direct Workbench build and start commands remain available for host development.
+
+## End-to-end tests
+
+From the repository root, build and test the real Electron app against the committed fixture:
+
+```text
+pnpm test:e2e:workbench
+```
+
+Use `pnpm test:e2e:workbench --no-build` while iterating on tests against an existing build, or
+`pnpm test:e2e:workbench:ui` to open Playwright's interactive runner. New journeys should use the
+shared launch fixture and `WorkbenchPage` under `e2e/`; failed runs retain a screenshot and trace in
+the root `test-results/workbench` directory.

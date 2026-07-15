@@ -6,6 +6,7 @@
 	"type": "module",
 	"scripts": {
 		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
+		"check:unreal": "pnpm run fixture:verify && pnpm run test:unreal-authoring",
 		"authoring:parity": "node scripts/ue-shed.mjs authoring parity",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
 		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
@@ -20,8 +21,15 @@
 		"lint:fix": "oxlint --fix .",
 		"format": "oxfmt --write .",
 		"format:check": "oxfmt --check .",
+		"prepare": "lefthook install",
 		"showcase": "node scripts/showcase.mjs",
 		"test": "node scripts/test.mjs",
+		"test:components": "node scripts/test.mjs --project component",
+		"test:coverage": "node scripts/test.mjs --coverage",
+		"test:e2e": "pnpm run test:e2e:cli && pnpm run test:e2e:workbench",
+		"test:e2e:cli": "node scripts/test.mjs apps/cli/src/index.e2e.test.ts",
+		"test:e2e:workbench": "node scripts/test-workbench-e2e.mjs",
+		"test:e2e:workbench:ui": "node scripts/test-workbench-e2e.mjs --ui",
 		"test:fast": "node scripts/test.mjs --exclude packages/authoring/src/unreal-mutation.integration.test.ts",
 		"test:unreal-authoring": "node scripts/test-unreal-authoring.mjs",
 		"uasset:build": "cargo build --locked -p uasset-parser",
@@ -29,11 +37,19 @@
 		"ue-shed": "node scripts/ue-shed.mjs"
 	},
 	"devDependencies": {
+		"@solidjs/testing-library": "^0.8.10",
+		"@stylexjs/rollup-plugin": "^0.19.0",
+		"@testing-library/user-event": "^14.6.1",
 		"@types/node": "^24.6.0",
+		"@vitest/coverage-v8": "^4.1.10",
+		"jsdom": "^29.1.1",
+		"lefthook": "^2.1.10",
 		"oxfmt": "^0.49.0",
 		"oxlint": "^1.64.0",
+		"solid-js": "^1.9.14",
 		"tsx": "^4.21.0",
 		"typescript": "^5.7.2",
+		"vite-plugin-solid": "^2.11.12",
 		"vitest": "^4.1.3"
 	},
 	"engines": {
