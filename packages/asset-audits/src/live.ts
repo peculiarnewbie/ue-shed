@@ -2,21 +2,24 @@ import {
 	decodeCompanionCapabilityManifest,
 	type CompanionCapabilityManifest
 } from "@ue-shed/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { decodeTexturePreviewResult, type TexturePreviewResult } from "./schema.js";
 
 const coreObjectPath = "/Script/UEShedCore.Default__UEShedCoreLibrary";
 const previewCapability = "asset-audits.texture-preview.v1";
 const RemoteCallEnvelope = Schema.Struct({ ResultJson: Schema.String });
-const decodeRemoteCallEnvelope = Schema.decodeUnknownSync(RemoteCallEnvelope);
+const decodeRemoteCallEnvelope = Schema.decodeUnknownEffect(RemoteCallEnvelope);
 
-export class LiveTexturePreviewError extends Data.TaggedError("LiveTexturePreviewError")<{
-	readonly endpoint: string;
-	readonly operation: "manifest" | "preview";
-	readonly message: string;
-	readonly retrySafe: boolean;
-	readonly status?: number;
-}> {}
+export class LiveTexturePreviewError extends Schema.TaggedErrorClass<LiveTexturePreviewError>()(
+	"LiveTexturePreviewError",
+	{
+		endpoint: Schema.String,
+		operation: Schema.Literals(["manifest", "preview"]),
+		message: Schema.String,
+		retrySafe: Schema.Boolean,
+		status: Schema.optional(Schema.Number)
+	}
+) {}
 
 export interface LiveTexturePreviewOptions {
 	readonly endpoint: string;
@@ -69,8 +72,7 @@ function remoteCall(options: {
 					status: response.status
 				});
 			}
-			const envelope = decodeRemoteCallEnvelope(await response.json());
-			return JSON.parse(envelope.ResultJson) as unknown;
+			return (await response.json()) as unknown;
 		},
 		catch: (cause) =>
 			cause instanceof LiveTexturePreviewError
@@ -82,15 +84,42 @@ function remoteCall(options: {
 						retrySafe: true
 					})
 	}).pipe(
-		Effect.timeoutFail({
+		Effect.flatMap((value) =>
+			decodeRemoteCallEnvelope(value).pipe(
+				Effect.mapError(
+					(cause) =>
+						new LiveTexturePreviewError({
+							endpoint,
+							operation: options.operation,
+							message: `Invalid Remote Control envelope: ${String(cause)}`,
+							retrySafe: false
+						})
+				)
+			)
+		),
+		Effect.flatMap((envelope) =>
+			Effect.try({
+				try: () => JSON.parse(envelope.ResultJson) as unknown,
+				catch: (cause) =>
+					new LiveTexturePreviewError({
+						endpoint,
+						operation: options.operation,
+						message: `Invalid Remote Control JSON: ${String(cause)}`,
+						retrySafe: false
+					})
+			})
+		),
+		Effect.timeoutOrElse({
 			duration: "10 seconds",
-			onTimeout: () =>
-				new LiveTexturePreviewError({
-					endpoint,
-					operation: options.operation,
-					message: "Remote Control timed out after 10 seconds",
-					retrySafe: true
-				})
+			orElse: () =>
+				Effect.fail(
+					new LiveTexturePreviewError({
+						endpoint,
+						operation: options.operation,
+						message: "Remote Control timed out after 10 seconds",
+						retrySafe: true
+					})
+				)
 		}),
 		Effect.withSpan(`asset_audits.live_${options.operation}`, {
 			attributes: { "unreal.endpoint": endpoint }
@@ -109,16 +138,17 @@ function readManifest(
 		parameters: {}
 	}).pipe(
 		Effect.flatMap((value) =>
-			Effect.try({
-				try: () => decodeCompanionCapabilityManifest(value),
-				catch: (cause) =>
-					new LiveTexturePreviewError({
-						endpoint,
-						operation: "manifest",
-						message: `Invalid Unreal capability manifest: ${String(cause)}`,
-						retrySafe: false
-					})
-			})
+			decodeCompanionCapabilityManifest(value).pipe(
+				Effect.mapError(
+					(cause) =>
+						new LiveTexturePreviewError({
+							endpoint,
+							operation: "manifest",
+							message: `Invalid Unreal capability manifest: ${String(cause)}`,
+							retrySafe: false
+						})
+				)
+			)
 		)
 	);
 }
@@ -151,16 +181,17 @@ export function readLiveTexturePreview(
 				}
 			}).pipe(
 				Effect.flatMap((value) =>
-					Effect.try({
-						try: () => decodeTexturePreviewResult(value),
-						catch: (cause) =>
-							new LiveTexturePreviewError({
-								endpoint: options.endpoint,
-								operation: "preview",
-								message: `Invalid texture preview result: ${String(cause)}`,
-								retrySafe: false
-							})
-					})
+					decodeTexturePreviewResult(value).pipe(
+						Effect.mapError(
+							(cause) =>
+								new LiveTexturePreviewError({
+									endpoint: options.endpoint,
+									operation: "preview",
+									message: `Invalid texture preview result: ${String(cause)}`,
+									retrySafe: false
+								})
+						)
+					)
 				)
 			);
 		})

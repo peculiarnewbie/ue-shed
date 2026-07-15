@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-const NonEmptyString = Schema.String.pipe(Schema.minLength(1));
-const SafeIdentifier = NonEmptyString.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/));
+const NonEmptyString = Schema.String.check(Schema.isMinLength(1));
+const SafeIdentifier = NonEmptyString.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/));
 
 export const ReviewSetId = SafeIdentifier.pipe(Schema.brand("ReviewSetId"));
 export type ReviewSetId = Schema.Schema.Type<typeof ReviewSetId>;
@@ -37,7 +37,7 @@ export type ReviewRotation = Schema.Schema.Type<typeof ReviewRotation>;
 
 export const ApprovedPose = Schema.Struct({
 	aspectRatio: Schema.Literal("16:9"),
-	fieldOfViewDegrees: Schema.Number.pipe(Schema.between(5, 170)),
+	fieldOfViewDegrees: Schema.Number.check(Schema.isBetween({ minimum: 5, maximum: 170 })),
 	location: ReviewVector,
 	projection: Schema.Literal("perspective"),
 	rotation: ReviewRotation
@@ -58,7 +58,7 @@ export const SubjectBounds = Schema.Struct({
 });
 export type SubjectBounds = Schema.Schema.Type<typeof SubjectBounds>;
 
-export const FramingPreset = Schema.Literal(
+export const FramingPreset = Schema.Literals([
 	"context_three_quarter",
 	"facade_front",
 	"cardinal_north",
@@ -66,7 +66,7 @@ export const FramingPreset = Schema.Literal(
 	"cardinal_south",
 	"cardinal_west",
 	"editor_view"
-);
+]);
 export type FramingPreset = Schema.Schema.Type<typeof FramingPreset>;
 
 const ManualFramingRecipe = Schema.Struct({
@@ -77,20 +77,20 @@ const ManualFramingRecipe = Schema.Struct({
 
 const PresetFramingRecipe = Schema.Struct({
 	kind: Schema.Literal("preset"),
-	margin: Schema.Number.pipe(Schema.between(0, 0.45)),
+	margin: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 0.45 })),
 	manualAdjustment: Schema.optional(Schema.Struct({ reason: NonEmptyString })),
 	preset: FramingPreset,
 	subjectBounds: SubjectBounds,
 	version: Schema.Literal(1)
 });
 
-export const FramingRecipe = Schema.Union(ManualFramingRecipe, PresetFramingRecipe);
+export const FramingRecipe = Schema.Union([ManualFramingRecipe, PresetFramingRecipe]);
 export type FramingRecipe = Schema.Schema.Type<typeof FramingRecipe>;
 
 export const FramingDiagnostic = Schema.Struct({
-	code: Schema.Literal("bounds_snapshot", "subject_bounds_changed", "manual_adjustment"),
+	code: Schema.Literals(["bounds_snapshot", "subject_bounds_changed", "manual_adjustment"]),
 	message: NonEmptyString,
-	severity: Schema.Literal("info", "warning")
+	severity: Schema.Literals(["info", "warning"])
 });
 export type FramingDiagnostic = Schema.Schema.Type<typeof FramingDiagnostic>;
 
@@ -105,7 +105,10 @@ export type FramingCandidate = Schema.Schema.Type<typeof FramingCandidate>;
 
 const ReviewSelectionContract = Schema.Struct({
 	name: Schema.Literal("ue-shed-review-selection"),
-	version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+	version: Schema.Struct({
+		major: Schema.Literal(1),
+		minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+	})
 });
 
 const ReviewSelectionSuccess = Schema.Struct({
@@ -119,7 +122,7 @@ const ReviewSelectionSuccess = Schema.Struct({
 });
 
 const ReviewSelectionFailure = Schema.Struct({
-	code: Schema.Literal("no_selection", "multiple_selection", "editor_unavailable"),
+	code: Schema.Literals(["no_selection", "multiple_selection", "editor_unavailable"]),
 	contract: ReviewSelectionContract,
 	message: NonEmptyString,
 	recovery: NonEmptyString,
@@ -127,7 +130,10 @@ const ReviewSelectionFailure = Schema.Struct({
 	status: Schema.Literal("failed")
 });
 
-export const ReviewSelectionResponse = Schema.Union(ReviewSelectionSuccess, ReviewSelectionFailure);
+export const ReviewSelectionResponse = Schema.Union([
+	ReviewSelectionSuccess,
+	ReviewSelectionFailure
+]);
 export type ReviewSelectionResponse = Schema.Schema.Type<typeof ReviewSelectionResponse>;
 
 export const ApproveReviewCandidateIntent = Schema.Struct({
@@ -145,8 +151,8 @@ export const CaptureProfile = Schema.Struct({
 	imageFormat: Schema.Literal("png"),
 	renderProfile: Schema.Literal("full_fidelity"),
 	resolution: Schema.Struct({
-		height: Schema.Number.pipe(Schema.int(), Schema.between(90, 2160)),
-		width: Schema.Number.pipe(Schema.int(), Schema.between(160, 3840))
+		height: Schema.Int.check(Schema.isBetween({ minimum: 90, maximum: 2160 })),
+		width: Schema.Int.check(Schema.isBetween({ minimum: 160, maximum: 3840 }))
 	}),
 	variantPolicy: Schema.Literal("pure_only")
 });
@@ -166,10 +172,13 @@ export const ReviewView = Schema.Struct({
 export type ReviewView = Schema.Schema.Type<typeof ReviewView>;
 
 export const ReviewSet = Schema.Struct({
-	captureProfiles: Schema.Array(CaptureProfile).pipe(Schema.minItems(1)),
+	captureProfiles: Schema.Array(CaptureProfile).check(Schema.isMinLength(1)),
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-review-set"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
 	description: Schema.optional(NonEmptyString),
 	displayName: NonEmptyString,
@@ -178,7 +187,7 @@ export const ReviewSet = Schema.Struct({
 		id: NonEmptyString,
 		mapPath: NonEmptyString
 	}),
-	views: Schema.Array(ReviewView).pipe(Schema.minItems(1))
+	views: Schema.Array(ReviewView).check(Schema.isMinLength(1))
 });
 export type ReviewSet = Schema.Schema.Type<typeof ReviewSet>;
 
@@ -186,13 +195,16 @@ export const ReviewCaptureRequest = Schema.Struct({
 	approvedPose: ApprovedPose,
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-review-capture"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
 	expectedMapPath: NonEmptyString,
 	operationId: NonEmptyString,
 	resolution: Schema.Struct({
-		height: Schema.Number.pipe(Schema.int(), Schema.between(90, 2160)),
-		width: Schema.Number.pipe(Schema.int(), Schema.between(160, 3840))
+		height: Schema.Int.check(Schema.isBetween({ minimum: 90, maximum: 2160 })),
+		width: Schema.Int.check(Schema.isBetween({ minimum: 160, maximum: 3840 }))
 	}),
 	subject: SubjectLocator,
 	viewId: ReviewViewId
@@ -201,12 +213,15 @@ export type ReviewCaptureRequest = Schema.Schema.Type<typeof ReviewCaptureReques
 
 const ReviewCaptureSuccess = Schema.Struct({
 	actorPath: NonEmptyString,
-	captureDurationMs: Schema.NonNegative,
+	captureDurationMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-review-capture"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
-	height: Schema.Number.pipe(Schema.int(), Schema.positive()),
+	height: Schema.Int.check(Schema.isGreaterThan(0)),
 	mapPackageDirtyAfter: Schema.Boolean,
 	mapPackageDirtyBefore: Schema.Boolean,
 	mapPath: NonEmptyString,
@@ -214,14 +229,17 @@ const ReviewCaptureSuccess = Schema.Struct({
 	stagingPath: NonEmptyString,
 	status: Schema.Literal("captured"),
 	viewId: ReviewViewId,
-	width: Schema.Number.pipe(Schema.int(), Schema.positive())
+	width: Schema.Int.check(Schema.isGreaterThan(0))
 });
 
 const ReviewCaptureFailure = Schema.Struct({
 	code: NonEmptyString,
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-review-capture"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
 	message: NonEmptyString,
 	operationId: NonEmptyString,
@@ -231,24 +249,24 @@ const ReviewCaptureFailure = Schema.Struct({
 	viewId: ReviewViewId
 });
 
-export const ReviewCaptureResponse = Schema.Union(ReviewCaptureSuccess, ReviewCaptureFailure);
+export const ReviewCaptureResponse = Schema.Union([ReviewCaptureSuccess, ReviewCaptureFailure]);
 export type ReviewCaptureResponse = Schema.Schema.Type<typeof ReviewCaptureResponse>;
 
 export const CaptureArtifact = Schema.Struct({
-	byteLength: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
-	contentHash: Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{64}$/)),
-	height: Schema.Number.pipe(Schema.int(), Schema.positive()),
+	byteLength: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+	contentHash: Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/)),
+	height: Schema.Int.check(Schema.isGreaterThan(0)),
 	id: ArtifactId,
 	mediaType: Schema.Literal("image/png"),
 	relativePath: NonEmptyString,
 	variant: Schema.Literal("pure"),
-	width: Schema.Number.pipe(Schema.int(), Schema.positive())
+	width: Schema.Int.check(Schema.isGreaterThan(0))
 });
 export type CaptureArtifact = Schema.Schema.Type<typeof CaptureArtifact>;
 
 const CapturedViewResult = Schema.Struct({
 	artifact: CaptureArtifact,
-	captureDurationMs: Schema.NonNegative,
+	captureDurationMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
 	resolvedActorPath: NonEmptyString,
 	status: Schema.Literal("captured"),
 	viewId: ReviewViewId
@@ -263,28 +281,31 @@ const FailedViewResult = Schema.Struct({
 	viewId: ReviewViewId
 });
 
-export const ViewResult = Schema.Union(CapturedViewResult, FailedViewResult);
+export const ViewResult = Schema.Union([CapturedViewResult, FailedViewResult]);
 export type ViewResult = Schema.Schema.Type<typeof ViewResult>;
 
 export const CaptureRun = Schema.Struct({
 	completedAt: Schema.String,
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-capture-run"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
 	id: CaptureRunId,
 	project: Schema.Struct({ id: NonEmptyString, mapPath: NonEmptyString }),
-	results: Schema.Array(ViewResult).pipe(Schema.minItems(1)),
+	results: Schema.Array(ViewResult).check(Schema.isMinLength(1)),
 	reviewSetId: ReviewSetId,
 	startedAt: Schema.String,
-	status: Schema.Literal("completed", "completed_with_failures", "failed")
+	status: Schema.Literals(["completed", "completed_with_failures", "failed"])
 });
 export type CaptureRun = Schema.Schema.Type<typeof CaptureRun>;
 
-export const decodeReviewSet = Schema.decodeUnknownSync(ReviewSet);
-export const decodeReviewCaptureResponse = Schema.decodeUnknownSync(ReviewCaptureResponse);
-export const decodeReviewSelectionResponse = Schema.decodeUnknownSync(ReviewSelectionResponse);
-export const decodeApproveReviewCandidateIntent = Schema.decodeUnknownSync(
+export const decodeReviewSet = Schema.decodeUnknownEffect(ReviewSet);
+export const decodeReviewCaptureResponse = Schema.decodeUnknownEffect(ReviewCaptureResponse);
+export const decodeReviewSelectionResponse = Schema.decodeUnknownEffect(ReviewSelectionResponse);
+export const decodeApproveReviewCandidateIntent = Schema.decodeUnknownEffect(
 	ApproveReviewCandidateIntent
 );
-export const decodeCaptureRun = Schema.decodeUnknownSync(CaptureRun);
+export const decodeCaptureRun = Schema.decodeUnknownEffect(CaptureRun);

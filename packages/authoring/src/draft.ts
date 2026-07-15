@@ -6,7 +6,7 @@ import {
 	type AuthoringTableSnapshot,
 	type AuthoringValue
 } from "@ue-shed/protocol";
-import { Data, Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export type { AuthoringCommand } from "@ue-shed/protocol";
 
@@ -66,7 +66,7 @@ const ApplyReceiptsSchema = Schema.Array(
 	Schema.Struct({
 		appliedAt: Schema.String,
 		operationId: Schema.String,
-		status: Schema.Literal("committed", "rolled_back", "rejected", "indeterminate"),
+		status: Schema.Literals(["committed", "rolled_back", "rejected", "indeterminate"]),
 		tableObjectPaths: Schema.Array(Schema.String)
 	})
 );
@@ -74,20 +74,20 @@ const ApplyReceiptsSchema = Schema.Array(
 const DraftSessionV1Schema = Schema.Struct({
 	applyReceipts: ApplyReceiptsSchema,
 	awaitingSave: Schema.Array(Schema.String),
-	base: Schema.Record({ key: Schema.String, value: AuthoringTableSnapshotSchema }),
+	base: Schema.Record(Schema.String, AuthoringTableSnapshotSchema),
 	commands: Schema.Array(CommandEnvelopeSchema),
-	fingerprints: Schema.Record({ key: Schema.String, value: Schema.String }),
+	fingerprints: Schema.Record(Schema.String, Schema.String),
 	id: Schema.String,
-	undoPointer: Schema.NonNegativeInt,
+	undoPointer: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 	version: Schema.Literal(1)
 });
 
 export const DraftSessionSchema = Schema.Struct({
 	applyReceipts: ApplyReceiptsSchema,
 	awaitingSave: Schema.Array(Schema.String),
-	base: Schema.Record({ key: Schema.String, value: AuthoringTableSnapshotSchema }),
+	base: Schema.Record(Schema.String, AuthoringTableSnapshotSchema),
 	commands: Schema.Array(CommandEnvelopeSchema),
-	fingerprints: Schema.Record({ key: Schema.String, value: Schema.String }),
+	fingerprints: Schema.Record(Schema.String, Schema.String),
 	id: Schema.String,
 	saveReceipts: Schema.Array(
 		Schema.Struct({
@@ -97,35 +97,39 @@ export const DraftSessionSchema = Schema.Struct({
 					objectPath: Schema.String,
 					packageName: Schema.String,
 					retrySafe: Schema.Boolean,
-					status: Schema.Literal("saved", "failed")
+					status: Schema.Literals(["saved", "failed"])
 				})
 			),
 			requestId: Schema.String,
 			savedAt: Schema.String,
-			status: Schema.Literal("complete", "partial", "failed")
+			status: Schema.Literals(["complete", "partial", "failed"])
 		})
 	),
-	undoPointer: Schema.NonNegativeInt,
+	undoPointer: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 	version: Schema.Literal(2)
 });
 
-const decodePersistedDraftSession = Schema.decodeUnknownSync(
-	Schema.Union(DraftSessionV1Schema, DraftSessionSchema)
+const decodePersistedDraftSession = Schema.decodeUnknownEffect(
+	Schema.Union([DraftSessionV1Schema, DraftSessionSchema])
 );
 
-export function decodeDraftSession(input: unknown): DraftSession {
-	const session = decodePersistedDraftSession(input);
-	return session.version === 1 ? { ...session, saveReceipts: [], version: 2 } : session;
+export function decodeDraftSession(input: unknown) {
+	return decodePersistedDraftSession(input).pipe(
+		Effect.map(
+			(session): DraftSession =>
+				session.version === 1 ? { ...session, saveReceipts: [], version: 2 } : session
+		)
+	);
 }
 
-export class DraftFoldError extends Data.TaggedError("DraftFoldError")<{
-	readonly commandId: string;
-	readonly message: string;
-}> {}
+export class DraftFoldError extends Schema.TaggedErrorClass<DraftFoldError>()("DraftFoldError", {
+	commandId: Schema.String,
+	message: Schema.String
+}) {}
 
-export class DraftBuildError extends Data.TaggedError("DraftBuildError")<{
-	readonly message: string;
-}> {}
+export class DraftBuildError extends Schema.TaggedErrorClass<DraftBuildError>()("DraftBuildError", {
+	message: Schema.String
+}) {}
 
 function fail(command: CommandEnvelope, message: string): never {
 	throw new DraftFoldError({ commandId: command.id, message });

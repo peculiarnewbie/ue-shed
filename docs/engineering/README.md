@@ -4,7 +4,8 @@ UE Shed code should be functional, typed, observable, and well tested.
 
 ## Rules
 
-1. Keep domain logic pure. Use Effect at system edges.
+1. Use Effect as the application core and canonical public workflow type; keep deterministic
+   transformations as ordinary pure functions within it.
 2. Use Effect Schema by default. Infer types and derive schema variants from it.
 3. Use branded IDs and unions that rule out invalid states.
 4. Return typed, useful errors for expected failures.

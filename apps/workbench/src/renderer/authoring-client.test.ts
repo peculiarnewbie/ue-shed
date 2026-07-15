@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { decodeAuthoringCatalogResult } from "./authoring-client.js";
 
 describe("Workbench authoring catalog boundary", () => {
-	it("accepts a catalog without exposing saved asset paths", () => {
+	it("accepts a catalog without exposing saved asset paths", async () => {
 		expect(
-			decodeAuthoringCatalogResult({
+			await decodeAuthoringCatalogResult({
 				diagnostics: [],
 				status: "ready",
 				tables: [
@@ -37,8 +37,11 @@ describe("Workbench authoring catalog boundary", () => {
 		});
 	});
 
-	it("turns malformed host results into a typed contract failure", () => {
-		const result = decodeAuthoringCatalogResult({ status: "ready", tables: "not-an-array" });
+	it("turns malformed host results into a typed contract failure", async () => {
+		const result = await decodeAuthoringCatalogResult({
+			status: "ready",
+			tables: "not-an-array"
+		});
 
 		expect(result.status).toBe("failed");
 		if (result.status !== "failed") throw new Error("Expected a failed catalog result");

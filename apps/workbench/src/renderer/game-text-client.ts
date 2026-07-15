@@ -1,9 +1,10 @@
 import { decodeTextCorpusRunResult, type TextCorpusRunResult } from "@ue-shed/game-text/browser";
 import type { GameTextClient } from "@ue-shed/extension-game-text";
+import { Effect } from "effect";
 
-function decodeResult(value: unknown): TextCorpusRunResult {
+async function decodeResult(value: unknown): Promise<TextCorpusRunResult> {
 	try {
-		return decodeTextCorpusRunResult(value);
+		return await Effect.runPromise(decodeTextCorpusRunResult(value));
 	} catch (cause) {
 		return {
 			status: "failed",

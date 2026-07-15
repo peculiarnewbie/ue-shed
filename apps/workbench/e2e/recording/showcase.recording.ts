@@ -7,15 +7,15 @@ import { Schema } from "effect";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import { WorkbenchPage } from "../pages/workbench-page.js";
 
-const RecordingJourney = Schema.Literal("saved-workflows", "map-review");
-const FixtureLaunchResult = Schema.Union(
+const RecordingJourney = Schema.Literals(["saved-workflows", "map-review"]);
+const FixtureLaunchResult = Schema.Union([
 	Schema.Struct({ status: Schema.Literal("ready") }),
 	Schema.Struct({
 		message: Schema.String,
 		recovery: Schema.String,
 		status: Schema.Literal("failed")
 	})
-);
+]);
 
 const RecordingManifest = Schema.Struct({
 	artifacts: Schema.Struct({
@@ -41,7 +41,7 @@ const RecordingManifest = Schema.Struct({
 	id: Schema.NonEmptyString,
 	journey: RecordingJourney,
 	startedAt: Schema.String,
-	status: Schema.Literal("passed", "failed")
+	status: Schema.Literals(["passed", "failed"])
 });
 
 const decodeManifest = Schema.decodeUnknownSync(RecordingManifest);

@@ -2,10 +2,13 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { semanticTableJson } from "@ue-shed/authoring";
-import { decodeAuthoringTableSnapshot } from "@ue-shed/protocol";
+import { decodeAuthoringTableSnapshot as decodeAuthoringTableSnapshotEffect } from "@ue-shed/protocol";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { discoverSavedAssets, readSavedTable } from "./index.js";
+
+const decodeAuthoringTableSnapshot = (input: unknown) =>
+	Effect.runSync(decodeAuthoringTableSnapshotEffect(input));
 
 const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
 const evidenceDirectory = process.env.UE_SHED_UNREAL_EVIDENCE_DIR;

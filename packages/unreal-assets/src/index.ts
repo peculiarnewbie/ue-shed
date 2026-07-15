@@ -3,20 +3,23 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { decodeAuthoringTableSnapshot, type AuthoringTableSnapshot } from "@ue-shed/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema, Tuple } from "effect";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export class AssetReaderError extends Data.TaggedError("AssetReaderError")<{
-	readonly kind: "timeout" | "process" | "contract" | "discovery";
-	readonly operation: "authoring" | "inspect" | "discovery";
-	readonly message: string;
-	readonly retrySafe: boolean;
-	readonly path?: string;
-	readonly exitCode?: number;
-}> {}
+export class AssetReaderError extends Schema.TaggedErrorClass<AssetReaderError>()(
+	"AssetReaderError",
+	{
+		kind: Schema.Literals(["timeout", "process", "contract", "discovery"]),
+		operation: Schema.Literals(["authoring", "inspect", "discovery"]),
+		message: Schema.String,
+		retrySafe: Schema.Boolean,
+		path: Schema.optional(Schema.String),
+		exitCode: Schema.optional(Schema.Number)
+	}
+) {}
 
 export interface AssetReaderOptions {
 	readonly assetPath: string;
@@ -78,23 +81,23 @@ export type SavedProperty = SavedPropertyValue & {
 	readonly type: string;
 };
 
-const SavedPropertyValue: Schema.Schema<SavedPropertyValue> = Schema.suspend(
+const SavedPropertyValue: Schema.Codec<SavedPropertyValue> = Schema.suspend(
 	() => SavedPropertyValueUnion
-).annotations({ identifier: "SavedPropertyValue" });
+).annotate({ identifier: "SavedPropertyValue" });
 
-const SavedProperty: Schema.Schema<SavedProperty> = Schema.suspend(() =>
-	Schema.extend(SavedPropertyValue, Schema.Struct({ name: Schema.String, type: Schema.String }))
-).annotations({ identifier: "SavedProperty" });
+const SavedProperty: Schema.Codec<SavedProperty> = Schema.suspend(() =>
+	SavedPropertyValueUnion.mapMembers(
+		Tuple.map(Schema.fieldsAssign({ name: Schema.String, type: Schema.String }))
+	)
+).annotate({ identifier: "SavedProperty" });
 
 const stringKinds = ["name", "enum", "string", "guid", "soft_object_path"] as const;
 
-const SavedPropertyValueUnion: Schema.Schema<SavedPropertyValue> = Schema.Union(
+const SavedPropertyValueUnion = Schema.Union([
 	Schema.Struct({ value_kind: Schema.Literal("bool"), value: Schema.Boolean }),
-	Schema.Struct({ value_kind: Schema.Literal("int", "uint"), value: Schema.Number }),
-	Schema.Struct({ value_kind: Schema.Literal("float", "double"), value: Schema.Number }),
-	...stringKinds.map((kind) =>
-		Schema.Struct({ value_kind: Schema.Literal(kind), value: Schema.String })
-	),
+	Schema.Struct({ value_kind: Schema.Literals(["int", "uint"]), value: Schema.Number }),
+	Schema.Struct({ value_kind: Schema.Literals(["float", "double"]), value: Schema.Number }),
+	Schema.Struct({ value_kind: Schema.Literals(stringKinds), value: Schema.String }),
 	Schema.Struct({
 		value_kind: Schema.Literal("text"),
 		value: Schema.String,
@@ -123,7 +126,7 @@ const SavedPropertyValueUnion: Schema.Schema<SavedPropertyValue> = Schema.Union(
 		y: Schema.Number
 	}),
 	Schema.Struct({
-		value_kind: Schema.Literal("array", "set"),
+		value_kind: Schema.Literals(["array", "set"]),
 		values: Schema.Array(SavedPropertyValue)
 	}),
 	Schema.Struct({
@@ -137,27 +140,27 @@ const SavedPropertyValueUnion: Schema.Schema<SavedPropertyValue> = Schema.Union(
 	Schema.Struct({
 		value_kind: Schema.Literal("raw"),
 		reason: Schema.String,
-		size: Schema.NonNegativeInt
+		size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 	})
-);
+]);
 
 export const SavedAssetDecodeError = Schema.Struct({
 	object_path: Schema.String,
 	class_path: Schema.optional(Schema.String),
-	kind: Schema.Literal(
+	kind: Schema.Literals([
 		"malformed_data",
 		"resource_limit",
 		"unsupported_format",
 		"unsupported_version",
 		"unsupported_capability"
-	),
+	]),
 	message: Schema.String
 });
 export type SavedAssetDecodeError = Schema.Schema.Type<typeof SavedAssetDecodeError>;
 
 export const SavedAssetInspection = Schema.Struct({
 	schema_version: Schema.Literal(7),
-	status: Schema.Literal("ok", "partial"),
+	status: Schema.Literals(["ok", "partial"]),
 	path: Schema.String,
 	package: Schema.Struct({
 		name: Schema.String,
@@ -168,12 +171,12 @@ export const SavedAssetInspection = Schema.Struct({
 			ue5: Schema.Number,
 			licensee: Schema.Number
 		}),
-		package_flags: Schema.NonNegativeInt,
-		summary_size: Schema.NonNegativeInt,
-		total_header_size: Schema.NonNegativeInt
+		package_flags: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		summary_size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		total_header_size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 	}),
 	assets: Schema.Array(
-		Schema.Union(
+		Schema.Union([
 			Schema.Struct({
 				kind: Schema.Literal("StringTable"),
 				object_path: Schema.String,
@@ -187,14 +190,14 @@ export const SavedAssetInspection = Schema.Struct({
 				object_path: Schema.String,
 				class_path: Schema.String,
 				properties: Schema.Array(SavedProperty),
-				tail_bytes: Schema.optional(Schema.NonNegativeInt)
+				tail_bytes: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
 			}),
 			Schema.Struct({
-				kind: Schema.Literal("DataTable", "CompositeDataTable"),
+				kind: Schema.Literals(["DataTable", "CompositeDataTable"]),
 				object_path: Schema.String,
 				row_struct: Schema.String,
 				parent_tables: Schema.optional(Schema.Array(Schema.String)),
-				row_count: Schema.NonNegativeInt,
+				row_count: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 				rows: Schema.Array(
 					Schema.Struct({
 						name: Schema.String,
@@ -202,36 +205,42 @@ export const SavedAssetInspection = Schema.Struct({
 					})
 				)
 			})
-		)
+		])
 	),
-	decode_errors: Schema.optionalWith(Schema.Array(SavedAssetDecodeError), { default: () => [] })
-}).annotations({ identifier: "SavedAssetInspection" });
+	decode_errors: Schema.Array(SavedAssetDecodeError).pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed([]))
+	)
+}).annotate({ identifier: "SavedAssetInspection" });
 export type SavedAssetInspection = Schema.Schema.Type<typeof SavedAssetInspection>;
 
-const decodeInspection = Schema.decodeUnknownSync(SavedAssetInspection);
+const decodeInspection = Schema.decodeUnknownEffect(SavedAssetInspection);
 
 export const SavedAssetCatalogInspection = Schema.Struct({
 	assets: Schema.Array(
 		Schema.Struct({
 			kind: Schema.String,
 			object_path: Schema.String,
-			parent_tables: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
+			parent_tables: Schema.Array(Schema.String).pipe(
+				Schema.withDecodingDefaultKey(Effect.succeed([]))
+			),
 			row_struct: Schema.optional(Schema.String)
 		})
 	),
-	decode_errors: Schema.optionalWith(Schema.Array(SavedAssetDecodeError), { default: () => [] }),
+	decode_errors: Schema.Array(SavedAssetDecodeError).pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed([]))
+	),
 	package: Schema.Struct({ name: Schema.String }),
 	path: Schema.String,
 	schema_version: Schema.Literal(7),
-	status: Schema.Literal("ok", "partial")
+	status: Schema.Literals(["ok", "partial"])
 });
 export type SavedAssetCatalogInspection = Schema.Schema.Type<typeof SavedAssetCatalogInspection>;
 
 export const SavedTableDescriptor = Schema.Struct({
 	assetPath: Schema.String,
 	authority: Schema.Struct({ kind: Schema.Literal("project_files"), packageName: Schema.String }),
-	completeness: Schema.Literal("complete", "partial"),
-	kind: Schema.Literal("data_table", "composite_data_table"),
+	completeness: Schema.Literals(["complete", "partial"]),
+	kind: Schema.Literals(["data_table", "composite_data_table"]),
 	objectPath: Schema.String,
 	parentTables: Schema.Array(Schema.String),
 	rowStruct: Schema.String,
@@ -249,12 +258,12 @@ export const SavedTableCatalog = Schema.Struct({
 		})
 	),
 	projectRoot: Schema.String,
-	scannedAssets: Schema.NonNegativeInt,
+	scannedAssets: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 	tables: Schema.Array(SavedTableDescriptor)
 });
 export type SavedTableCatalog = Schema.Schema.Type<typeof SavedTableCatalog>;
 
-export const decodeSavedAssetCatalogInspection = Schema.decodeUnknownSync(
+export const decodeSavedAssetCatalogInspection = Schema.decodeUnknownEffect(
 	SavedAssetCatalogInspection
 );
 
@@ -281,7 +290,7 @@ export function savedTableDescriptorsFromInspection(
 	});
 }
 
-export function decodeSavedAssetInspection(input: unknown): SavedAssetInspection {
+export function decodeSavedAssetInspection(input: unknown) {
 	return decodeInspection(input);
 }
 
@@ -331,10 +340,10 @@ function decodeOutput<A>(options: {
 	readonly assetPath: string;
 	readonly operation: "authoring" | "inspect";
 	readonly stdout: string;
-	readonly decode: (input: unknown) => A;
+	readonly decode: (input: unknown) => Effect.Effect<A, unknown>;
 }): Effect.Effect<A, AssetReaderError> {
 	return Effect.try({
-		try: () => options.decode(JSON.parse(options.stdout)),
+		try: () => JSON.parse(options.stdout) as unknown,
 		catch: (cause) =>
 			new AssetReaderError({
 				kind: "contract",
@@ -343,7 +352,22 @@ function decodeOutput<A>(options: {
 				path: options.assetPath,
 				retrySafe: false
 			})
-	});
+	}).pipe(
+		Effect.flatMap((input) =>
+			options.decode(input).pipe(
+				Effect.mapError(
+					(cause) =>
+						new AssetReaderError({
+							kind: "contract",
+							operation: options.operation,
+							message: `Invalid ${options.operation} output: ${String(cause)}`,
+							path: options.assetPath,
+							retrySafe: false
+						})
+				)
+			)
+		)
+	);
 }
 
 export function readSavedTable(

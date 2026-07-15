@@ -6,14 +6,14 @@ import {
 	type SavedAssetInspection,
 	type SavedProperty
 } from "@ue-shed/unreal-assets";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	AuditRuleId,
 	TextureObjectPath,
+	TextureAuditPublicError,
 	decodeTextureAuditRuleSet,
 	type DistributionBucket,
 	type TextureAuditFinding,
-	type TextureAuditPublicError,
 	type TextureAuditReport,
 	type TextureAuditRule,
 	type TextureAuditRuleSet,
@@ -22,12 +22,13 @@ import {
 } from "./schema.js";
 import { maximumDimensionKey } from "./report.js";
 
-const decodeTextureObjectPath = Schema.decodeUnknownSync(TextureObjectPath);
-const decodeAuditRuleId = Schema.decodeUnknownSync(AuditRuleId);
+const makeTextureObjectPath = TextureObjectPath.make;
+const makeAuditRuleId = AuditRuleId.make;
 
-export class TextureAuditScanError extends Data.TaggedError(
-	"TextureAuditScanError"
-)<TextureAuditPublicError> {}
+export class TextureAuditScanError extends Schema.TaggedErrorClass<TextureAuditScanError>()(
+	"TextureAuditScanError",
+	TextureAuditPublicError.fields
+) {}
 
 export interface ScanTextureAuditOptions {
 	readonly projectRoot: string;
@@ -106,7 +107,7 @@ export function textureRecordsFromInspection(options: {
 				? serializedString(format, "Format")
 				: unavailable("missing_source");
 			return {
-				objectPath: decodeTextureObjectPath(asset.object_path),
+				objectPath: makeTextureObjectPath(asset.object_path),
 				filePath: options.filePath,
 				packageFileBytes: {
 					status: "available",
@@ -147,7 +148,7 @@ export function evaluateTextureRule(
 	if (rule.kind === "dimensions_power_of_two") {
 		if (isPowerOfTwo(width) && isPowerOfTwo(height)) return undefined;
 		return {
-			ruleId: decodeAuditRuleId(rule.id),
+			ruleId: makeAuditRuleId(rule.id),
 			severity: rule.severity,
 			objectPath: record.objectPath,
 			explanation: `${width}×${height} is not power-of-two on both axes.`,
@@ -164,7 +165,7 @@ export function evaluateTextureRule(
 	const largest = Math.max(width, height);
 	if (largest <= rule.maximum) return undefined;
 	return {
-		ruleId: decodeAuditRuleId(rule.id),
+		ruleId: makeAuditRuleId(rule.id),
 		severity: rule.severity,
 		objectPath: record.objectPath,
 		explanation: `${rule.textureGroup} texture exceeds its ${rule.maximum}px source limit.`,
@@ -244,7 +245,7 @@ function readRuleSet(path: string): Effect.Effect<TextureAuditRuleSet, TextureAu
 	}).pipe(
 		Effect.flatMap((json) =>
 			Effect.try({
-				try: () => decodeTextureAuditRuleSet(JSON.parse(json)),
+				try: () => JSON.parse(json) as unknown,
 				catch: (cause) =>
 					new TextureAuditScanError({
 						code: "invalid_rules",
@@ -252,7 +253,22 @@ function readRuleSet(path: string): Effect.Effect<TextureAuditRuleSet, TextureAu
 						recovery: "Choose a schema-version-1 rule file with supported rule kinds.",
 						retrySafe: false
 					})
-			})
+			}).pipe(
+				Effect.flatMap((input) =>
+					decodeTextureAuditRuleSet(input).pipe(
+						Effect.mapError(
+							(cause) =>
+								new TextureAuditScanError({
+									code: "invalid_rules",
+									message: `Texture audit rules are invalid: ${String(cause)}`,
+									recovery:
+										"Choose a schema-version-1 rule file with supported rule kinds.",
+									retrySafe: false
+								})
+						)
+					)
+				)
+			)
 		)
 	);
 }
@@ -300,7 +316,7 @@ export function scanTextureAudit(
 						filePath: relative(options.projectRoot, assetPath),
 						fileBytes: file.size
 					})),
-					Effect.catchAll((error) =>
+					Effect.catch((error) =>
 						Effect.succeed({
 							status: "failed" as const,
 							filePath: relative(options.projectRoot, assetPath),

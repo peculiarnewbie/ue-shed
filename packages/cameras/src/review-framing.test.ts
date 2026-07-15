@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
 	approveFramingCandidate,
 	framingDriftDiagnostics,
 	generateFramingCandidates
 } from "./review-framing.js";
-import { ReviewSetId, ReviewViewId, decodeReviewSet } from "./review-schema.js";
+import {
+	ReviewSetId,
+	ReviewViewId,
+	decodeReviewSet as decodeReviewSetEffect
+} from "./review-schema.js";
+
+const decodeReviewSet = (input: unknown) => Effect.runSync(decodeReviewSetEffect(input));
 
 const selection = {
 	actorPath: "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad:PersistentLevel.ReviewSubject",

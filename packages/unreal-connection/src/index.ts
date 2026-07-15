@@ -11,7 +11,7 @@ import {
 	type AuthoringTableSnapshot,
 	type CompanionCapabilityManifest
 } from "@ue-shed/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 const coreObjectPath = "/Script/UEShedCore.Default__UEShedCoreLibrary";
 const requiredCapabilities = [
@@ -22,20 +22,23 @@ const requiredCapabilities = [
 	"authoring.save.v1"
 ] as const;
 const RemoteCallResponse = Schema.Struct({ ResultJson: Schema.String });
-const decodeRemoteCallResponse = Schema.decodeUnknownSync(RemoteCallResponse);
+const decodeRemoteCallResponse = Schema.decodeUnknownEffect(RemoteCallResponse);
 
-export class UnrealConnectionError extends Data.TaggedError("UnrealConnectionError")<{
-	readonly endpoint: string;
-	readonly operation: string;
-	readonly message: string;
-	readonly retrySafe: boolean;
-	readonly status?: number;
-}> {}
+export class UnrealConnectionError extends Schema.TaggedErrorClass<UnrealConnectionError>()(
+	"UnrealConnectionError",
+	{
+		endpoint: Schema.String,
+		operation: Schema.String,
+		message: Schema.String,
+		retrySafe: Schema.Boolean,
+		status: Schema.optional(Schema.Number)
+	}
+) {}
 
-export class UnrealCapabilityError extends Data.TaggedError("UnrealCapabilityError")<{
-	readonly capability: string;
-	readonly message: string;
-}> {}
+export class UnrealCapabilityError extends Schema.TaggedErrorClass<UnrealCapabilityError>()(
+	"UnrealCapabilityError",
+	{ capability: Schema.String, message: Schema.String }
+) {}
 
 export interface UnrealAuthoringConnection {
 	readonly endpoint: string;
@@ -89,8 +92,7 @@ function remoteCall(
 					status: response.status
 				});
 			}
-			const envelope = decodeRemoteCallResponse(await response.json());
-			return JSON.parse(envelope.ResultJson) as unknown;
+			return (await response.json()) as unknown;
 		},
 		catch: (cause) =>
 			cause instanceof UnrealConnectionError
@@ -102,15 +104,42 @@ function remoteCall(
 						retrySafe: true
 					})
 	}).pipe(
-		Effect.timeoutFail({
+		Effect.flatMap((value) =>
+			decodeRemoteCallResponse(value).pipe(
+				Effect.mapError(
+					(cause) =>
+						new UnrealConnectionError({
+							endpoint,
+							message: `Invalid Remote Control envelope: ${String(cause)}`,
+							operation,
+							retrySafe: false
+						})
+				)
+			)
+		),
+		Effect.flatMap((envelope) =>
+			Effect.try({
+				try: () => JSON.parse(envelope.ResultJson) as unknown,
+				catch: (cause) =>
+					new UnrealConnectionError({
+						endpoint,
+						message: `Invalid Remote Control JSON: ${String(cause)}`,
+						operation,
+						retrySafe: false
+					})
+			})
+		),
+		Effect.timeoutOrElse({
 			duration: "10 seconds",
-			onTimeout: () =>
-				new UnrealConnectionError({
-					endpoint,
-					message: "Remote Control call timed out after 10 seconds",
-					operation,
-					retrySafe: true
-				})
+			orElse: () =>
+				Effect.fail(
+					new UnrealConnectionError({
+						endpoint,
+						message: "Remote Control call timed out after 10 seconds",
+						operation,
+						retrySafe: true
+					})
+				)
 		}),
 		Effect.withSpan(operation, {
 			attributes: { "unreal.endpoint": endpoint, "unreal.function": functionName }
@@ -123,20 +152,21 @@ function decodeResult<A>(
 	effect: Effect.Effect<unknown, UnrealConnectionError>,
 	endpoint: string,
 	operation: string,
-	decode: (input: unknown) => A
+	decode: (input: unknown) => Effect.Effect<A, unknown>
 ): Effect.Effect<A, UnrealConnectionError> {
 	return effect.pipe(
 		Effect.flatMap((input) =>
-			Effect.try({
-				try: () => decode(input),
-				catch: (cause) =>
-					new UnrealConnectionError({
-						endpoint,
-						message: `Invalid ${operation} response: ${String(cause)}`,
-						operation,
-						retrySafe: false
-					})
-			})
+			decode(input).pipe(
+				Effect.mapError(
+					(cause) =>
+						new UnrealConnectionError({
+							endpoint,
+							message: `Invalid ${operation} response: ${String(cause)}`,
+							operation,
+							retrySafe: false
+						})
+				)
+			)
 		)
 	);
 }

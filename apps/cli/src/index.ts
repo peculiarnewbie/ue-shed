@@ -387,7 +387,7 @@ async function authoring(args: readonly string[]): Promise<void> {
 				rowName,
 				session: document.draft,
 				tableObjectPath: tablePath,
-				value: decodeAuthoringValue(JSON.parse(valueJson))
+				value: await Effect.runPromise(decodeAuthoringValue(JSON.parse(valueJson)))
 			});
 			const next = await Effect.runPromise(service.append(sessionId, [command]));
 			printJson({
@@ -514,7 +514,7 @@ async function authoring(args: readonly string[]): Promise<void> {
 			rowName,
 			session,
 			tableObjectPath: tablePath,
-			value: decodeAuthoringValue(JSON.parse(valueJson))
+			value: await Effect.runPromise(decodeAuthoringValue(JSON.parse(valueJson)))
 		});
 		const next = appendCommandGroup(session, [command]);
 		await Effect.runPromise(saveDraftSession(sessionPath, next));

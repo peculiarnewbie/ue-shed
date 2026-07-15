@@ -1,7 +1,17 @@
 import type { MapReviewClient } from "@ue-shed/extension-camera-review/client";
+import {
+	decodeMapReviewApprovalResult,
+	decodeMapReviewAuthoringResult,
+	decodeMapReviewCandidatePreviewResult,
+	decodeMapReviewResult
+} from "@ue-shed/cameras/review-contracts";
+import { Effect } from "effect";
 
 export const mapReviewClient: MapReviewClient = {
-	approveCandidate: (intent) => window.ueShed.mapReview.approveCandidate(intent),
+	approveCandidate: async (intent) =>
+		Effect.runPromise(
+			decodeMapReviewApprovalResult(await window.ueShed.mapReview.approveCandidate(intent))
+		),
 	authorFromSelection: async () => {
 		const launch = await window.ueShed.fixture.launchReview();
 		if (launch.status === "failed") {
@@ -10,9 +20,18 @@ export const mapReviewClient: MapReviewClient = {
 				status: "failed"
 			};
 		}
-		return window.ueShed.mapReview.authorFromSelection();
+		return Effect.runPromise(
+			decodeMapReviewAuthoringResult(await window.ueShed.mapReview.authorFromSelection())
+		);
 	},
-	capture: () => window.ueShed.mapReview.capture(),
-	load: () => window.ueShed.mapReview.load(),
-	previewCandidate: (candidateId) => window.ueShed.mapReview.previewCandidate(candidateId)
+	capture: async () =>
+		Effect.runPromise(decodeMapReviewResult(await window.ueShed.mapReview.capture())),
+	load: async () =>
+		Effect.runPromise(decodeMapReviewResult(await window.ueShed.mapReview.load())),
+	previewCandidate: async (candidateId) =>
+		Effect.runPromise(
+			decodeMapReviewCandidatePreviewResult(
+				await window.ueShed.mapReview.previewCandidate(candidateId)
+			)
+		)
 };

@@ -279,7 +279,7 @@ async function approveMapReviewCandidate(intent: unknown): Promise<MapReviewAppr
 		return { ...mapReviewAuthoringFailure(new Error("No review project is configured.")) };
 	}
 	try {
-		const approvedIntent = decodeApproveReviewCandidateIntent(intent);
+		const approvedIntent = await Effect.runPromise(decodeApproveReviewCandidateIntent(intent));
 		const reviewSet = await Effect.runPromise(loadReviewSet(configuration.reviewSetPath));
 		const selection = await Effect.runPromise(inspectReviewSelection(remoteControlEndpoint));
 		if (selection.status === "failed") {
@@ -510,10 +510,10 @@ async function loadAuthoringCatalog(projectRoot: string): Promise<AuthoringCatal
 			authoringAssetPaths.set(table.objectPath, table.assetPath);
 		}
 		const liveConnection = await Effect.runPromise(
-			connectUnrealAuthoring(remoteControlEndpoint).pipe(Effect.either)
+			connectUnrealAuthoring(remoteControlEndpoint).pipe(Effect.result)
 		);
 		authoringLiveConnection =
-			liveConnection._tag === "Right" ? liveConnection.right : undefined;
+			liveConnection._tag === "Success" ? liveConnection.success : undefined;
 		const catalog = await Effect.runPromise(
 			discoverAuthoringProjectCatalog({
 				...(authoringLiveConnection ? { live: authoringLiveConnection } : {}),
@@ -528,11 +528,11 @@ async function loadAuthoringCatalog(projectRoot: string): Promise<AuthoringCatal
 		}
 		return {
 			diagnostics: [
-				...(liveConnection._tag === "Left"
+				...(liveConnection._tag === "Failure"
 					? [
 							{
 								code: "live_connection_unavailable",
-								message: liveConnection.left.message
+								message: liveConnection.failure.message
 							}
 						]
 					: []),
@@ -611,7 +611,9 @@ async function remoteControlAvailable(requiredCapability?: "map-review"): Promis
 		) {
 			return false;
 		}
-		const manifest = decodeCompanionCapabilityManifest(JSON.parse(envelope.ResultJson));
+		const manifest = await Effect.runPromise(
+			decodeCompanionCapabilityManifest(JSON.parse(envelope.ResultJson))
+		);
 		const expectedProject = process.env.UE_SHED_PROJECT_NAME;
 		const matchesFixture =
 			manifest.producerKind === "unreal_editor" &&
@@ -981,7 +983,7 @@ ipcMain.handle(
 	"authoring:session:edit",
 	async (_event, input: unknown): Promise<AuthoringSessionResult> => {
 		try {
-			const intent = decodeAuthoringSetCellsIntent(input);
+			const intent = await Effect.runPromise(decodeAuthoringSetCellsIntent(input));
 			const document = await Effect.runPromise(
 				sessionService().setCells({
 					edits: intent.edits,

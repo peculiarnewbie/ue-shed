@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { captureReviewView } from "./review-live.js";
 import {
 	ReviewCaptureRequest,
@@ -13,17 +13,18 @@ import {
 
 const reviewLibraryPath = "/Script/UEShedCamerasEditor.Default__UEShedCameraReviewLibrary";
 const RemoteResult = Schema.Struct({ ResultJson: Schema.String });
-const decodeRemoteResult = Schema.decodeUnknownSync(RemoteResult);
+const decodeRemoteResult = Schema.decodeUnknownEffect(RemoteResult);
 
-export class ReviewAuthoringConnectionError extends Data.TaggedError(
-	"ReviewAuthoringConnectionError"
-)<{
-	readonly endpoint: string;
-	readonly message: string;
-	readonly operation: "inspect_selection" | "preview_candidate";
-	readonly recovery: string;
-	readonly retrySafe: boolean;
-}> {}
+export class ReviewAuthoringConnectionError extends Schema.TaggedErrorClass<ReviewAuthoringConnectionError>()(
+	"ReviewAuthoringConnectionError",
+	{
+		endpoint: Schema.String,
+		message: Schema.String,
+		operation: Schema.Literals(["inspect_selection", "preview_candidate"]),
+		recovery: Schema.String,
+		retrySafe: Schema.Boolean
+	}
+) {}
 
 async function remoteReviewCall(args: {
 	readonly endpoint: string;
@@ -42,7 +43,8 @@ async function remoteReviewCall(args: {
 		signal: AbortSignal.timeout(5_000)
 	});
 	if (!response.ok) throw new Error(`Remote Control returned HTTP ${response.status}`);
-	return JSON.parse(decodeRemoteResult(await response.json()).ResultJson) as unknown;
+	const envelope = await Effect.runPromise(decodeRemoteResult(await response.json()));
+	return JSON.parse(envelope.ResultJson) as unknown;
 }
 
 export function inspectReviewSelection(
@@ -50,13 +52,11 @@ export function inspectReviewSelection(
 ): Effect.Effect<ReviewSelectionResponse, ReviewAuthoringConnectionError> {
 	return Effect.tryPromise({
 		try: async () =>
-			decodeReviewSelectionResponse(
-				await remoteReviewCall({
-					endpoint,
-					functionName: "InspectReviewSelection",
-					parameters: {}
-				})
-			),
+			remoteReviewCall({
+				endpoint,
+				functionName: "InspectReviewSelection",
+				parameters: {}
+			}),
 		catch: (cause) =>
 			new ReviewAuthoringConnectionError({
 				endpoint,
@@ -65,7 +65,23 @@ export function inspectReviewSelection(
 				recovery: "Verify the Map Review editor capability and retry selection inspection.",
 				retrySafe: true
 			})
-	}).pipe(Effect.withSpan("camera.review.authoring.selection.inspect"));
+	}).pipe(
+		Effect.flatMap((value) =>
+			decodeReviewSelectionResponse(value).pipe(
+				Effect.mapError(
+					(cause) =>
+						new ReviewAuthoringConnectionError({
+							endpoint,
+							message: String(cause),
+							operation: "inspect_selection",
+							recovery: "Verify the Map Review editor capability contract.",
+							retrySafe: false
+						})
+				)
+			)
+		),
+		Effect.withSpan("camera.review.authoring.selection.inspect")
+	);
 }
 
 export interface ReviewCandidatePreview {

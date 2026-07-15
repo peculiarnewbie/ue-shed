@@ -5,30 +5,30 @@ import {
 	type SavedTableDescriptor
 } from "@ue-shed/unreal-assets";
 import type { UnrealAuthoringConnection } from "@ue-shed/unreal-connection";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
-const SchemaEvidence = Schema.Union(
+const SchemaEvidence = Schema.Union([
 	Schema.Struct({
 		fields: Schema.Array(AuthoringFieldDescriptor),
-		source: Schema.Literal("saved_package", "live_reflection"),
+		source: Schema.Literals(["saved_package", "live_reflection"]),
 		status: Schema.Literal("available")
 	}),
 	Schema.Struct({ reason: Schema.String, status: Schema.Literal("unavailable") })
-);
+]);
 
 export const AuthoringCatalogAuthority = Schema.Struct({
-	authority: Schema.Literal("saved", "live"),
-	completeness: Schema.Literal("complete", "partial"),
+	authority: Schema.Literals(["saved", "live"]),
+	completeness: Schema.Literals(["complete", "partial"]),
 	fingerprint: Schema.optional(
-		Schema.Union(
+		Schema.Union([
 			Schema.Struct({
 				algorithm: Schema.Literal("sha256"),
 				status: Schema.Literal("available"),
 				value: Schema.String,
-				version: Schema.NonNegativeInt
+				version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 			}),
 			Schema.Struct({ reason: Schema.String, status: Schema.Literal("unavailable") })
-		)
+		])
 	),
 	schema: SchemaEvidence
 });
@@ -36,11 +36,11 @@ export type AuthoringCatalogAuthority = Schema.Schema.Type<typeof AuthoringCatal
 
 export const AuthoringTableCatalogEntry = Schema.Struct({
 	authorities: Schema.Array(AuthoringCatalogAuthority),
-	divergence: Schema.Union(
+	divergence: Schema.Union([
 		Schema.Struct({ status: Schema.Literal("none") }),
 		Schema.Struct({ fields: Schema.Array(Schema.String), status: Schema.Literal("detected") })
-	),
-	kind: Schema.Literal("data_table", "composite_data_table"),
+	]),
+	kind: Schema.Literals(["data_table", "composite_data_table"]),
 	objectPath: Schema.String,
 	packageName: Schema.String,
 	parentTables: Schema.Array(Schema.String),
@@ -51,14 +51,14 @@ export type AuthoringTableCatalogEntry = Schema.Schema.Type<typeof AuthoringTabl
 export const AuthoringProjectCatalog = Schema.Struct({
 	diagnostics: Schema.Array(
 		Schema.Struct({
-			authority: Schema.Literal("saved", "live"),
+			authority: Schema.Literals(["saved", "live"]),
 			code: Schema.String,
 			message: Schema.String,
 			path: Schema.optional(Schema.String),
 			retrySafe: Schema.Boolean
 		})
 	),
-	scannedSavedAssets: Schema.NonNegativeInt,
+	scannedSavedAssets: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 	tables: Schema.Array(AuthoringTableCatalogEntry)
 });
 export type AuthoringProjectCatalog = Schema.Schema.Type<typeof AuthoringProjectCatalog>;
@@ -173,13 +173,13 @@ export function discoverAuthoringProjectCatalog(options: {
 	readonly savedCatalog?: SavedTableCatalog;
 }): Effect.Effect<AuthoringProjectCatalog, never> {
 	const saved = options.savedCatalog
-		? Effect.succeed({ _tag: "Right" as const, right: options.savedCatalog })
+		? Effect.succeed(Result.succeed(options.savedCatalog))
 		: options.projectRoot
 			? discoverSavedTables({
 					...(options.concurrency ? { concurrency: options.concurrency } : {}),
 					...(options.readerExecutable ? { executable: options.readerExecutable } : {}),
 					projectRoot: options.projectRoot
-				}).pipe(Effect.either)
+				}).pipe(Effect.result)
 			: Effect.succeed(undefined);
 	const live = options.live
 		? options.live.listTableObjectPaths().pipe(
@@ -187,49 +187,49 @@ export function discoverAuthoringProjectCatalog(options: {
 					Effect.forEach(
 						objectPaths,
 						(objectPath) =>
-							options.live!.getTableSnapshot(objectPath).pipe(Effect.either),
+							options.live!.getTableSnapshot(objectPath).pipe(Effect.result),
 						{ concurrency: options.concurrency ?? 4 }
 					)
 				),
-				Effect.either
+				Effect.result
 			)
 		: Effect.succeed(undefined);
 
 	return Effect.all({ live, saved }).pipe(
 		Effect.map(({ live, saved }) => {
-			const savedCatalog = saved && saved._tag === "Right" ? saved.right : undefined;
-			const liveResults = live && live._tag === "Right" ? live.right : [];
+			const savedCatalog = saved && saved._tag === "Success" ? saved.success : undefined;
+			const liveResults = live && live._tag === "Success" ? live.success : [];
 			const liveSnapshots = liveResults.flatMap((result) =>
-				result._tag === "Right" ? [result.right] : []
+				result._tag === "Success" ? [result.success] : []
 			);
 			const diagnostics: AuthoringProjectCatalog["diagnostics"][number][] = [];
-			if (saved?._tag === "Left") {
+			if (saved?._tag === "Failure") {
 				diagnostics.push({
 					authority: "saved",
-					code: saved.left.kind,
-					message: saved.left.message,
-					...(saved.left.path ? { path: saved.left.path } : {}),
-					retrySafe: saved.left.retrySafe
+					code: saved.failure.kind,
+					message: saved.failure.message,
+					...(saved.failure.path ? { path: saved.failure.path } : {}),
+					retrySafe: saved.failure.retrySafe
 				});
 			}
 			for (const diagnostic of savedCatalog?.diagnostics ?? []) {
 				diagnostics.push({ authority: "saved", ...diagnostic });
 			}
-			if (live?._tag === "Left") {
+			if (live?._tag === "Failure") {
 				diagnostics.push({
 					authority: "live",
 					code: "table_list_failed",
-					message: live.left.message,
-					retrySafe: live.left.retrySafe
+					message: live.failure.message,
+					retrySafe: live.failure.retrySafe
 				});
 			}
 			for (const result of liveResults) {
-				if (result._tag === "Left") {
+				if (result._tag === "Failure") {
 					diagnostics.push({
 						authority: "live",
 						code: "snapshot_failed",
-						message: result.left.message,
-						retrySafe: result.left.retrySafe
+						message: result.failure.message,
+						retrySafe: result.failure.retrySafe
 					});
 				}
 			}

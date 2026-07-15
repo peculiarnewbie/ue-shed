@@ -17,9 +17,11 @@ import {
 	CaptureProfileId,
 	ReviewSetId,
 	ReviewViewId,
-	decodeReviewSet,
+	decodeReviewSet as decodeReviewSetEffect,
 	type ReviewSet
 } from "./review-schema.js";
+
+const decodeReviewSet = (input: unknown) => Effect.runSync(decodeReviewSetEffect(input));
 
 const temporaryDirectories: string[] = [];
 

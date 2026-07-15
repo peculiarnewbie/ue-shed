@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	decodeReviewCaptureResponse,
 	type ReviewCaptureRequest,
@@ -7,11 +7,10 @@ import {
 
 const reviewLibraryPath = "/Script/UEShedCamerasEditor.Default__UEShedCameraReviewLibrary";
 
-export class ReviewCaptureConnectionError extends Data.TaggedError("ReviewCaptureConnectionError")<{
-	readonly endpoint: string;
-	readonly message: string;
-	readonly retrySafe: boolean;
-}> {}
+export class ReviewCaptureConnectionError extends Schema.TaggedErrorClass<ReviewCaptureConnectionError>()(
+	"ReviewCaptureConnectionError",
+	{ endpoint: Schema.String, message: Schema.String, retrySafe: Schema.Boolean }
+) {}
 
 const decodeRemoteResult = (value: unknown): unknown => {
 	if (
@@ -47,7 +46,7 @@ export function captureReviewView(args: {
 			if (!response.ok) {
 				throw new Error(`Remote Control returned HTTP ${response.status}`);
 			}
-			return decodeReviewCaptureResponse(decodeRemoteResult(await response.json()));
+			return decodeRemoteResult(await response.json());
 		},
 		catch: (cause) =>
 			new ReviewCaptureConnectionError({
@@ -56,6 +55,18 @@ export function captureReviewView(args: {
 				retrySafe: true
 			})
 	}).pipe(
+		Effect.flatMap((value) =>
+			decodeReviewCaptureResponse(value).pipe(
+				Effect.mapError(
+					(cause) =>
+						new ReviewCaptureConnectionError({
+							endpoint: args.endpoint,
+							message: String(cause),
+							retrySafe: false
+						})
+				)
+			)
+		),
 		Effect.withSpan("camera.review.capture.remote", {
 			attributes: {
 				"camera.review.operation.id": args.request.operationId,

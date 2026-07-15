@@ -3,8 +3,8 @@
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { userEvent } from "@testing-library/user-event";
 import {
-	decodeTextOccurrenceId,
-	decodeTextUnitId,
+	makeTextOccurrenceId,
+	makeTextUnitId,
 	type TextCorpus,
 	type TextCorpusRunResult
 } from "@ue-shed/game-text/browser";
@@ -28,12 +28,12 @@ const corpus: TextCorpus = {
 	status: "complete",
 	units: [
 		{
-			id: decodeTextUnitId("unreal:UI:Continue"),
+			id: makeTextUnitId("unreal:UI:Continue"),
 			identity: { key: "Continue", namespace: "UI", status: "resolved" },
 			occurrences: [
 				{
 					editCapability: "source_editable",
-					id: decodeTextOccurrenceId("occurrence:continue"),
+					id: makeTextOccurrenceId("occurrence:continue"),
 					identity: { key: "Continue", namespace: "UI", status: "resolved" },
 					location: {
 						entryKey: "PromptContinue",
@@ -47,12 +47,12 @@ const corpus: TextCorpus = {
 			source: { status: "consistent", value: "Continue" }
 		},
 		{
-			id: decodeTextUnitId("unreal:UI:Quit"),
+			id: makeTextUnitId("unreal:UI:Quit"),
 			identity: { key: "Quit", namespace: "UI", status: "resolved" },
 			occurrences: [
 				{
 					editCapability: "read_only",
-					id: decodeTextOccurrenceId("occurrence:quit"),
+					id: makeTextOccurrenceId("occurrence:quit"),
 					identity: { key: "Quit", namespace: "UI", status: "resolved" },
 					location: {
 						kind: "data_table_cell",

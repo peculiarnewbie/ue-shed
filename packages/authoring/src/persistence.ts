@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { decodeDraftSession, type DraftSession } from "./draft.js";
 
-export class SessionPersistenceError extends Data.TaggedError("SessionPersistenceError")<{
-	readonly operation: "load" | "save";
-	readonly path: string;
-	readonly message: string;
-}> {}
+export class SessionPersistenceError extends Schema.TaggedErrorClass<SessionPersistenceError>()(
+	"SessionPersistenceError",
+	{
+		operation: Schema.Literals(["load", "save"]),
+		path: Schema.String,
+		message: Schema.String
+	}
+) {}
 
 export function saveDraftSession(
 	path: string,
@@ -38,8 +41,21 @@ export function loadDraftSession(
 	path: string
 ): Effect.Effect<DraftSession, SessionPersistenceError> {
 	return Effect.tryPromise({
-		try: async () => decodeDraftSession(JSON.parse(await readFile(path, "utf8"))),
+		try: async () => JSON.parse(await readFile(path, "utf8")) as unknown,
 		catch: (cause) =>
 			new SessionPersistenceError({ message: String(cause), operation: "load", path })
-	});
+	}).pipe(
+		Effect.flatMap((input) =>
+			decodeDraftSession(input).pipe(
+				Effect.mapError(
+					(cause) =>
+						new SessionPersistenceError({
+							message: String(cause),
+							operation: "load",
+							path
+						})
+				)
+			)
+		)
+	);
 }

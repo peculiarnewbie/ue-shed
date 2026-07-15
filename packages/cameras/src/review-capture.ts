@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { captureReviewView } from "./review-live.js";
 import { captureRunsRoot, isPathWithin, loadReviewSet } from "./review-repository.js";
 import {
@@ -14,12 +14,15 @@ import {
 	type ViewResult
 } from "./review-schema.js";
 
-export class ReviewCaptureRunError extends Data.TaggedError("ReviewCaptureRunError")<{
-	readonly message: string;
-	readonly operation: "prepare" | "capture" | "finalize";
-	readonly recovery: string;
-	readonly runId: string;
-}> {}
+export class ReviewCaptureRunError extends Schema.TaggedErrorClass<ReviewCaptureRunError>()(
+	"ReviewCaptureRunError",
+	{
+		message: Schema.String,
+		operation: Schema.Literals(["prepare", "capture", "finalize"]),
+		recovery: Schema.String,
+		runId: Schema.String
+	}
+) {}
 
 export interface ReviewCapturePort {
 	readonly capture: (
@@ -124,7 +127,7 @@ export function captureReviewSet(
 				viewId: view.id
 			});
 			const response = yield* capturePort.capture(request).pipe(
-				Effect.catchAll((cause) =>
+				Effect.catch((cause) =>
 					Effect.succeed({
 						code: "capture_connection_failed",
 						message: String(cause),
@@ -227,7 +230,7 @@ export function captureReviewSet(
 
 		const failures = results.filter((result) => result.status === "failed").length;
 		const successes = results.length - failures;
-		const run = decodeCaptureRun({
+		const run = yield* decodeCaptureRun({
 			completedAt: dependencies.now(),
 			contract: { name: "ue-shed-capture-run", version: { major: 1, minor: 0 } },
 			id: runId,
@@ -241,7 +244,17 @@ export function captureReviewSet(
 					: successes === 0
 						? "failed"
 						: "completed_with_failures"
-		});
+		}).pipe(
+			Effect.mapError(
+				(cause) =>
+					new ReviewCaptureRunError({
+						message: String(cause),
+						operation: "finalize",
+						recovery: "Inspect the generated Capture Run values and retry.",
+						runId
+					})
+			)
+		);
 
 		yield* Effect.tryPromise({
 			try: async () => {

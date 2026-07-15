@@ -3,6 +3,14 @@ packages:
     - "packages/*"
     - "extensions/*"
 
+catalog:
+    "@effect/vitest": "4.0.0-beta.98"
+    "@stylexjs/rollup-plugin": "^0.19.0"
+    "@stylexjs/stylex": "^0.19.0"
+    "effect": "4.0.0-beta.98"
+    "solid-js": "^1.9.14"
+    "vite-plugin-solid": "^2.11.12"
+
 onlyBuiltDependencies:
     - electron
     - esbuild

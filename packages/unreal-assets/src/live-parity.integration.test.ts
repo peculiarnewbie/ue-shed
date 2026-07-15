@@ -2,10 +2,13 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fingerprintTable } from "@ue-shed/authoring";
-import { decodeAuthoringTableSnapshot } from "@ue-shed/protocol";
+import { decodeAuthoringTableSnapshot as decodeAuthoringTableSnapshotEffect } from "@ue-shed/protocol";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { discoverSavedAssets, readSavedTable } from "./index.js";
+
+const decodeAuthoringTableSnapshot = (input: unknown) =>
+	Effect.runSync(decodeAuthoringTableSnapshotEffect(input));
 
 const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
 const liveDirectory = process.env.UE_SHED_LIVE_SNAPSHOT_DIR;

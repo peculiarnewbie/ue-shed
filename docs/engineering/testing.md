@@ -6,7 +6,8 @@ Write many useful tests, not many shallow tests. Test at the lowest layer that c
 
 - **Pure tests:** folds, diffs, validation, state changes, and scheduling.
 - **Property tests:** codecs, round trips, ordering, convergence, and bounds.
-- **Effect tests:** errors, cancellation, cleanup, timeouts, retries, and concurrency.
+- **Effect tests:** use `@effect/vitest` for typed errors, services/layers, cancellation, cleanup,
+  timeouts, retries, and concurrency.
 - **Integration tests:** real temp files, local servers, pipes, processes, and frames.
 - **Protocol tests:** valid and bad messages, limits, versions, gaps, and reconnects.
 - **Unreal tests:** real fixture assets, DataTables, rollback, Save, actors, focus, and recovery.
@@ -19,6 +20,8 @@ contract it claims to test.
 ## Rules
 
 - Test success and failure.
+- Assert expected failures through the typed error channel rather than catching thrown decoder or
+  Promise exceptions.
 - Test cleanup and cancellation for every owned resource.
 - Test slow consumers, stale sessions, reconnects, and partial support.
 - Share protocol fixtures between TypeScript and C++.

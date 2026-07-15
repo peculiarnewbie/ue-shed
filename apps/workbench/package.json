@@ -10,7 +10,7 @@
 		"typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit && tsc -p e2e/tsconfig.json --noEmit"
 	},
 	"dependencies": {
-		"@stylexjs/stylex": "^0.19.0",
+		"@stylexjs/stylex": "catalog:",
 		"@ue-shed/asset-audits": "workspace:*",
 		"@ue-shed/authoring": "workspace:*",
 		"@ue-shed/authoring-catalog": "workspace:*",
@@ -25,16 +25,16 @@
 		"@ue-shed/ui-theme": "workspace:*",
 		"@ue-shed/unreal-assets": "workspace:*",
 		"@ue-shed/unreal-connection": "workspace:*",
-		"effect": "^3.22.0",
-		"solid-js": "^1.9.14"
+		"effect": "catalog:",
+		"solid-js": "catalog:"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.61.1",
-		"@stylexjs/rollup-plugin": "^0.19.0",
+		"@stylexjs/rollup-plugin": "catalog:",
 		"electron": "^43.1.0",
 		"playwright": "^1.61.1",
 		"tsup": "^8.5.1",
 		"vite": "^8.1.4",
-		"vite-plugin-solid": "^2.11.12"
+		"vite-plugin-solid": "catalog:"
 	}
 }

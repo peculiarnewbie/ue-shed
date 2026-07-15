@@ -7,17 +7,17 @@ export const CompanionCapabilityManifest = Schema.Struct({
 	capabilities: Schema.Array(Schema.String),
 	authoringLimits: Schema.optional(
 		Schema.Struct({
-			maxCommands: Schema.NonNegativeInt,
-			maxPayloadBytes: Schema.NonNegativeInt,
-			maxTables: Schema.NonNegativeInt
+			maxCommands: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+			maxPayloadBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+			maxTables: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 		})
 	),
 	producerKind: Schema.Literal("unreal_editor"),
 	projectName: Schema.optional(Schema.String),
 	schemaVersion: Schema.Literal(1)
-}).annotations({ identifier: "CompanionCapabilityManifest" });
+}).annotate({ identifier: "CompanionCapabilityManifest" });
 export type CompanionCapabilityManifest = Schema.Schema.Type<typeof CompanionCapabilityManifest>;
 
-export const decodeCompanionCapabilityManifest = Schema.decodeUnknownSync(
+export const decodeCompanionCapabilityManifest = Schema.decodeUnknownEffect(
 	CompanionCapabilityManifest
 );

@@ -4,7 +4,7 @@ import {
 	type CameraScheduleConfig,
 	type CameraStatus
 } from "@ue-shed/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { createServer, type Server, type Socket } from "node:net";
 
 export * from "./review-capture.js";
@@ -44,12 +44,12 @@ export interface CameraFeedMetrics {
 	readonly startedMonotonicMs: number;
 }
 
-export class CameraFeedError extends Data.TaggedError("CameraFeedError")<{
-	readonly message: string;
-	readonly operation: "listen" | "close";
-	readonly pipeName: string;
-	readonly retrySafe: boolean;
-}> {}
+export class CameraFeedError extends Schema.TaggedErrorClass<CameraFeedError>()("CameraFeedError", {
+	message: Schema.String,
+	operation: Schema.Literals(["listen", "close"]),
+	pipeName: Schema.String,
+	retrySafe: Schema.Boolean
+}) {}
 
 function bytesToId(buffer: Buffer, offset: number): string {
 	return buffer.subarray(offset, offset + 16).toString("hex");
@@ -288,7 +288,7 @@ export function openCameraFeedServer(
 }
 
 const RemoteResult = Schema.Struct({ ResultJson: Schema.String });
-const decodeRemoteResult = Schema.decodeUnknownSync(RemoteResult);
+const decodeRemoteResult = Schema.decodeUnknownEffect(RemoteResult);
 
 async function cameraRemoteCall(endpoint: string, functionName: string, parameters: object) {
 	const response = await fetch(`${endpoint.replace(/\/+$/, "")}/remote/object/call`, {
@@ -302,19 +302,24 @@ async function cameraRemoteCall(endpoint: string, functionName: string, paramete
 		method: "PUT"
 	});
 	if (!response.ok) throw new Error(`Remote Control returned HTTP ${response.status}`);
-	return JSON.parse(decodeRemoteResult(await response.json()).ResultJson) as unknown;
+	const envelope = await Effect.runPromise(decodeRemoteResult(await response.json()));
+	return JSON.parse(envelope.ResultJson) as unknown;
 }
 
 export async function getCameraStatus(endpoint: string): Promise<CameraStatus> {
-	return decodeCameraStatus(await cameraRemoteCall(endpoint, "GetStatus", {}));
+	return Effect.runPromise(decodeCameraStatus(await cameraRemoteCall(endpoint, "GetStatus", {})));
 }
 
 export async function configureCameras(
 	endpoint: string,
 	config: CameraScheduleConfig
 ): Promise<CameraStatus> {
-	const validConfig = decodeCameraScheduleConfig(config);
-	return decodeCameraStatus(
-		await cameraRemoteCall(endpoint, "Configure", { ConfigJson: JSON.stringify(validConfig) })
+	const validConfig = await Effect.runPromise(decodeCameraScheduleConfig(config));
+	return Effect.runPromise(
+		decodeCameraStatus(
+			await cameraRemoteCall(endpoint, "Configure", {
+				ConfigJson: JSON.stringify(validConfig)
+			})
+		)
 	);
 }

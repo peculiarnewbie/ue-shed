@@ -190,16 +190,18 @@ describe("draft command log", () => {
 
 	it("migrates version 1 sessions with an empty Save receipt history", () => {
 		const base = snapshot({ kind: "project_files", packageName: "/Game/Fixture/DT_Test" });
-		const migrated = decodeDraftSession({
-			applyReceipts: [],
-			awaitingSave: [],
-			base: { [base.table.objectPath]: base },
-			commands: [],
-			fingerprints: { [base.table.objectPath]: fingerprintTable(base) },
-			id: "legacy",
-			undoPointer: 0,
-			version: 1
-		});
+		const migrated = Effect.runSync(
+			decodeDraftSession({
+				applyReceipts: [],
+				awaitingSave: [],
+				base: { [base.table.objectPath]: base },
+				commands: [],
+				fingerprints: { [base.table.objectPath]: fingerprintTable(base) },
+				id: "legacy",
+				undoPointer: 0,
+				version: 1
+			})
+		);
 		expect(migrated.version).toBe(2);
 		expect(migrated.saveReceipts).toEqual([]);
 	});

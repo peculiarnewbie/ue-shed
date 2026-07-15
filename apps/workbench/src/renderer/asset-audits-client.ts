@@ -5,10 +5,11 @@ import {
 	type TextureAuditRunResult
 } from "@ue-shed/asset-audits/browser";
 import type { TextureAuditClient } from "@ue-shed/extension-asset-audits";
+import { Effect } from "effect";
 
-function decodeResult(value: unknown): TextureAuditRunResult {
+async function decodeResult(value: unknown): Promise<TextureAuditRunResult> {
 	try {
-		return decodeTextureAuditRunResult(value);
+		return await Effect.runPromise(decodeTextureAuditRunResult(value));
 	} catch (cause) {
 		return {
 			status: "failed",
@@ -22,8 +23,8 @@ function decodeResult(value: unknown): TextureAuditRunResult {
 	}
 }
 
-function decodePreview(value: unknown): TexturePreviewResult {
-	return decodeTexturePreviewResult(value);
+function decodePreview(value: unknown): Promise<TexturePreviewResult> {
+	return Effect.runPromise(decodeTexturePreviewResult(value));
 }
 
 export const assetAuditsClient: TextureAuditClient = {

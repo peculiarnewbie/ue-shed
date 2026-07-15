@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
 	CURRENT_PROTOCOL_VERSION,
 	IdentifierValidationError,
+	decodeActorId,
 	createActorId,
-	createCapabilityId
+	createCapabilityId,
+	type ActorId,
+	type CapabilityId
 } from "./index.js";
 
 describe("protocol identifiers", () => {
@@ -15,6 +19,16 @@ describe("protocol identifiers", () => {
 
 	it("rejects empty external identifiers", () => {
 		expect(() => createActorId("   ")).toThrow(IdentifierValidationError);
+	});
+
+	it("reports malformed unknown input through the typed error channel", async () => {
+		const error = await Effect.runPromise(decodeActorId("   ").pipe(Effect.flip));
+		expect(error._tag).toBe("IdentifierValidationError");
+		expect(error.kind).toBe("actor");
+	});
+
+	it("keeps identifier brands distinct", () => {
+		expectTypeOf<ActorId>().not.toEqualTypeOf<CapabilityId>();
 	});
 });
 

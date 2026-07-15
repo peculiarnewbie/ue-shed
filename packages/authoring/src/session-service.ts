@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema, Semaphore } from "effect";
 import {
 	DraftSessionSchema,
 	appendCommandGroup,
@@ -31,73 +31,77 @@ import {
 
 const SessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-const PendingOperation = Schema.Union(
+const PendingOperation = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal("none") }),
 	Schema.Struct({
 		kind: Schema.Literal("apply"),
 		lastError: Schema.optional(Schema.String),
 		request: AuthoringApplyRequest,
 		startedAt: Schema.String,
-		status: Schema.Literal("dispatching", "indeterminate")
+		status: Schema.Literals(["dispatching", "indeterminate"])
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("save"),
 		lastError: Schema.optional(Schema.String),
 		request: AuthoringSaveRequest,
 		startedAt: Schema.String,
-		status: Schema.Literal("dispatching", "indeterminate")
+		status: Schema.Literals(["dispatching", "indeterminate"])
 	})
-);
+]);
 
 export const AuthoringSessionDocument = Schema.Struct({
 	contract: Schema.Struct({
 		name: Schema.Literal("ue-shed-authoring-session"),
-		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+		version: Schema.Struct({
+			major: Schema.Literal(1),
+			minor: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+		})
 	}),
 	createdAt: Schema.String,
 	draft: DraftSessionSchema,
-	lifecycle: Schema.Literal("open", "closed"),
+	lifecycle: Schema.Literals(["open", "closed"]),
 	pendingOperation: PendingOperation,
 	project: Schema.Struct({ id: Schema.String, root: Schema.String }),
 	updatedAt: Schema.String
 });
 export type AuthoringSessionDocument = Schema.Schema.Type<typeof AuthoringSessionDocument>;
 
-const decodeDocument = Schema.decodeUnknownSync(AuthoringSessionDocument);
+const decodeDocument = Schema.decodeUnknownEffect(AuthoringSessionDocument);
 
-export class InvalidSessionIdError extends Data.TaggedError("InvalidSessionIdError")<{
-	readonly sessionId: string;
-	readonly message: string;
-	readonly recovery: string;
-}> {}
+export class InvalidSessionIdError extends Schema.TaggedErrorClass<InvalidSessionIdError>()(
+	"InvalidSessionIdError",
+	{ sessionId: Schema.String, message: Schema.String, recovery: Schema.String }
+) {}
 
-export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{
-	readonly sessionId: string;
-	readonly message: string;
-	readonly recovery: string;
-}> {}
+export class SessionNotFoundError extends Schema.TaggedErrorClass<SessionNotFoundError>()(
+	"SessionNotFoundError",
+	{ sessionId: Schema.String, message: Schema.String, recovery: Schema.String }
+) {}
 
-export class SessionCorruptError extends Data.TaggedError("SessionCorruptError")<{
-	readonly sessionId: string;
-	readonly quarantinePath: string;
-	readonly message: string;
-	readonly recovery: string;
-}> {}
+export class SessionCorruptError extends Schema.TaggedErrorClass<SessionCorruptError>()(
+	"SessionCorruptError",
+	{
+		sessionId: Schema.String,
+		quarantinePath: Schema.String,
+		message: Schema.String,
+		recovery: Schema.String
+	}
+) {}
 
-export class AuthoringSessionStorageError extends Data.TaggedError("AuthoringSessionStorageError")<{
-	readonly operation: string;
-	readonly sessionId?: string;
-	readonly message: string;
-	readonly recovery: string;
-}> {}
+export class AuthoringSessionStorageError extends Schema.TaggedErrorClass<AuthoringSessionStorageError>()(
+	"AuthoringSessionStorageError",
+	{
+		operation: Schema.String,
+		sessionId: Schema.optional(Schema.String),
+		message: Schema.String,
+		recovery: Schema.String
+	}
+) {}
 
-export class AuthoringSessionTransitionError extends Data.TaggedError(
-	"AuthoringSessionTransitionError"
-)<{
-	readonly sessionId: string;
-	readonly message: string;
-	readonly recovery: string;
-}> {}
+export class AuthoringSessionTransitionError extends Schema.TaggedErrorClass<AuthoringSessionTransitionError>()(
+	"AuthoringSessionTransitionError",
+	{ sessionId: Schema.String, message: Schema.String, recovery: Schema.String }
+) {}
 
 export type AuthoringSessionServiceError =
 	| InvalidSessionIdError
@@ -232,7 +236,7 @@ export function makeAuthoringSessionService(
 	}
 ): Effect.Effect<AuthoringSessionService> {
 	return Effect.gen(function* () {
-		const mutex = yield* Effect.makeSemaphore(1);
+		const mutex = yield* Semaphore.make(1);
 		const projectRoot = resolve(config.projectRoot);
 		const storageRoot = resolve(
 			config.storageRoot ?? join(projectRoot, ".ue-shed", "authoring", "sessions")
@@ -327,9 +331,12 @@ export function makeAuthoringSessionService(
 					}).pipe(
 						Effect.flatMap((contents) =>
 							Effect.try({
-								try: () => decodeDocument(JSON.parse(contents)),
+								try: () => JSON.parse(contents) as unknown,
 								catch: (cause) => cause
-							}).pipe(Effect.catchAll((cause) => quarantine(validId, path, cause)))
+							}).pipe(
+								Effect.flatMap(decodeDocument),
+								Effect.catch((cause) => quarantine(validId, path, cause))
+							)
 						),
 						Effect.flatMap((document) =>
 							document.project.id === project.id
@@ -464,7 +471,7 @@ export function makeAuthoringSessionService(
 										document,
 										kind: "document" as const
 									})),
-									Effect.catchAll((error) =>
+									Effect.catch((error) =>
 										error._tag === "SessionCorruptError"
 											? Effect.succeed({ error, kind: "diagnostic" as const })
 											: Effect.fail(

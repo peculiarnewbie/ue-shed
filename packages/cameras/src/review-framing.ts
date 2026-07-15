@@ -2,12 +2,11 @@ import {
 	ApprovedPose,
 	FramingCandidate,
 	FramingCandidateId,
+	ReviewSet,
 	type FramingDiagnostic,
 	type FramingPreset,
-	type ReviewSet,
 	type ReviewViewId,
-	type SubjectBounds,
-	decodeReviewSet
+	type SubjectBounds
 } from "./review-schema.js";
 
 const degrees = 180 / Math.PI;
@@ -264,7 +263,7 @@ export function approveFramingCandidate(args: {
 		subject: args.subject ?? views[index]!.subject
 	};
 	return {
-		reviewSet: decodeReviewSet({ ...args.reviewSet, views }),
+		reviewSet: ReviewSet.make({ ...args.reviewSet, views }),
 		status: "approved"
 	};
 }

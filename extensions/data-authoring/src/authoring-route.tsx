@@ -1,5 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import type {
+	AuthoringCatalogResult,
+	AuthoringLoadFailure,
+	AuthoringLoadResult,
 	AuthoringSessionResult,
 	AuthoringSessionView,
 	AuthoringSetCellsIntent
@@ -17,41 +20,12 @@ import {
 } from "./authoring-view.js";
 import { AuthoringTableGrid } from "./authoring-table-grid.js";
 
-export interface AuthoringLoadFailure {
-	readonly code: "reader_failure" | "contract_failure";
-	readonly message: string;
-	readonly recovery: string;
-	readonly retrySafe: boolean;
-}
-
-export type AuthoringLoadResult =
-	| { readonly status: "ready"; readonly snapshot: AuthoringTableSnapshot }
-	| { readonly status: "not_configured" }
-	| { readonly status: "cancelled" }
-	| { readonly status: "failed"; readonly error: AuthoringLoadFailure };
-
-export interface AuthoringTableCatalogEntry {
-	readonly authorities: readonly ("saved" | "live")[];
-	readonly completeness: "complete" | "partial";
-	readonly divergence: readonly string[];
-	readonly kind: "data_table" | "composite_data_table";
-	readonly objectPath: string;
-	readonly parentTables: readonly string[];
-	readonly rowStruct: string;
-}
-
-export type AuthoringCatalogResult =
-	| {
-			readonly status: "ready";
-			readonly tables: readonly AuthoringTableCatalogEntry[];
-			readonly diagnostics: readonly {
-				readonly code: string;
-				readonly message: string;
-				readonly path?: string | undefined;
-			}[];
-	  }
-	| { readonly status: "not_configured" }
-	| { readonly status: "failed"; readonly error: AuthoringLoadFailure };
+export type {
+	AuthoringCatalogResult,
+	AuthoringLoadFailure,
+	AuthoringLoadResult,
+	AuthoringTableCatalogEntry
+} from "@ue-shed/authoring-sdk";
 
 export interface AuthoringClient {
 	readonly loadConfiguredCatalog: () => Promise<AuthoringCatalogResult>;

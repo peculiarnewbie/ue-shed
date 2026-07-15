@@ -4,7 +4,7 @@ import type {
 	AuthoringSaveRequest,
 	AuthoringSaveResult
 } from "@ue-shed/protocol";
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { workingTable, type DraftSession, type SaveReceipt } from "./draft.js";
 import { fingerprintTable } from "./fingerprint.js";
 
@@ -14,13 +14,16 @@ export interface AuthoringLivePort<E> {
 	readonly save: (request: AuthoringSaveRequest) => Effect.Effect<AuthoringSaveResult, E>;
 }
 
-export class ApplyWorkflowError extends Data.TaggedError("ApplyWorkflowError")<{
-	readonly code: string;
-	readonly operationId: string;
-	readonly message: string;
-	readonly recovery: string;
-	readonly retrySafe: boolean;
-}> {}
+export class ApplyWorkflowError extends Schema.TaggedErrorClass<ApplyWorkflowError>()(
+	"ApplyWorkflowError",
+	{
+		code: Schema.String,
+		operationId: Schema.String,
+		message: Schema.String,
+		recovery: Schema.String,
+		retrySafe: Schema.Boolean
+	}
+) {}
 
 export interface AuthoringMutationLimits {
 	readonly maxCommands: number;
@@ -260,7 +263,7 @@ export function dispatchApply<E>(args: {
 									)
 					})
 				),
-				Effect.catchAll((cause) =>
+				Effect.catch((cause) =>
 					cause instanceof ApplyWorkflowError
 						? Effect.fail(cause)
 						: Effect.succeed({

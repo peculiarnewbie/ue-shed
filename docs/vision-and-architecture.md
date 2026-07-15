@@ -65,10 +65,13 @@ Saved-package operations remain available while live capabilities are absent.
 UE 5.7 is the current development and source-verification baseline. The public support window remains
 a separate compatibility decision; product code must not depend on one local installation path.
 
-The intended shape is a functional core with an observable Effect shell. Folding command logs,
-validating values, diffing snapshots, compatibility checks, and other deterministic transformations
-stay as pure functions over immutable values. Effect owns external systems and lifecycles: Unreal
-connections, files, processes, clocks, queues, streams, retries, cancellation, scopes, and telemetry.
+The intended shape is functional programming with Effect as the application core. Public workflows,
+stateful modules, services, configuration, concurrency, resources, typed failures, and telemetry
+compose in Effect. Folding command logs, diffing snapshots, compatibility checks, and other
+deterministic transformations remain ordinary pure functions over immutable values inside those
+workflows; they are building blocks, not a separate runtime or policy layer. Hot-path exemptions
+require a benchmark and a documented boundary. The camera frame decode/presentation loop is a
+candidate for measurement, not a pre-approved exception.
 Solid components adapt public service state into signals; they do not become domain authorities.
 StyleX keeps styles co-located with those components while `@ue-shed/ui-theme` and `@ue-shed/ui`
 provide shared variables, themes, and primitives. Extensions do not coordinate through selector

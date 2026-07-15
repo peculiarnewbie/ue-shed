@@ -3,9 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodeDraftSession } from "@ue-shed/authoring";
-import { decodeAuthoringTableSnapshot } from "@ue-shed/protocol";
+import { decodeDraftSession as decodeDraftSessionEffect } from "@ue-shed/authoring";
+import { decodeAuthoringTableSnapshot as decodeAuthoringTableSnapshotEffect } from "@ue-shed/protocol";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
+
+const decodeAuthoringTableSnapshot = (input: unknown) =>
+	Effect.runSync(decodeAuthoringTableSnapshotEffect(input));
+const decodeDraftSession = (input: unknown) => Effect.runSync(decodeDraftSessionEffect(input));
 
 const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const cliScript = join(repositoryRoot, "scripts", "ue-shed.mjs");

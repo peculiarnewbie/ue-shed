@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
-	decodeSavedAssetCatalogInspection,
-	decodeSavedAssetInspection,
+	decodeSavedAssetCatalogInspection as decodeSavedAssetCatalogInspectionEffect,
+	decodeSavedAssetInspection as decodeSavedAssetInspectionEffect,
 	savedTableDescriptorsFromInspection
 } from "./index.js";
+
+const decodeSavedAssetCatalogInspection = (input: unknown) =>
+	Effect.runSync(decodeSavedAssetCatalogInspectionEffect(input));
+const decodeSavedAssetInspection = (input: unknown) =>
+	Effect.runSync(decodeSavedAssetInspectionEffect(input));
 
 describe("saved DataTable catalog", () => {
 	it("classifies table exports without treating unrelated assets as failures", () => {

@@ -1,17 +1,21 @@
 # Functional design
 
-## Pure core, Effect shell
+## Functional programming with an Effect core
 
-Keep decisions in pure functions. Use Effect for I/O and lifetimes.
+Use immutable values, algebraic data types, exhaustive matching, and composition by default. Effect
+owns application workflows and policy wherever state, failure, concurrency, configuration,
+resources, telemetry, or external interaction is involved.
 
 Pure code should handle folds, diffs, validation, state changes, compatibility, scheduling policy, and
 timeline edits.
 
-Effect should handle clocks, config, files, processes, sockets, pipes, Unreal, queues, streams, and
-telemetry.
+Pure functions remain normal building blocks inside Effect workflows. They do not form a second
+runtime or own effectful workflow policy. Effect handles clocks, config, files, processes, sockets,
+pipes, Unreal, queues, streams, services, and telemetry.
 
-Do not wrap pure code in Effect without a reason. Do not hide state in globals. Pass clocks and seeds
-when behavior depends on them.
+Do not wrap a trivial deterministic calculation only for appearances. Do not hide state in globals
+or pass ad-hoc dependency bags through workflows; define services and layers. Obtain clocks,
+configuration, and seeded randomness from the Effect environment when behavior depends on them.
 
 ## State
 

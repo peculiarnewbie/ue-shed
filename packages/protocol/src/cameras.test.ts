@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { decodeCameraScheduleConfig, decodeCameraStatus } from "./cameras.js";
+import { Effect } from "effect";
+import {
+	decodeCameraScheduleConfig as decodeCameraScheduleConfigEffect,
+	decodeCameraStatus as decodeCameraStatusEffect
+} from "./cameras.js";
+
+const decodeCameraScheduleConfig = (input: unknown) =>
+	Effect.runSync(decodeCameraScheduleConfigEffect(input));
+const decodeCameraStatus = (input: unknown) => Effect.runSync(decodeCameraStatusEffect(input));
 
 const config = {
 	activeCameraCount: 8,

@@ -9,7 +9,8 @@ Solid is a view layer. Headless packages own domain state and changes.
 - Read state through public services and clear state unions.
 - Do not copy folds, validation, or protocol state machines into components.
 - Prefer signals, memos, and small effects.
-- Keep one clear adapter from Effect services into Solid state.
+- Keep one Effect-to-Solid adapter for service state. It must bind interruption and subscription
+  cleanup to the Solid owner so teardown cannot leave fibers or listeners running.
 - Preserve stable identity when updates arrive.
 - Clean up subscriptions with the right owner.
 - Show loading, stale, reconnecting, error, and unsupported states.

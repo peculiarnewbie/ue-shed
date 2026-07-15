@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	decodeAuthoringApplyResult,
-	decodeAuthoringSaveResult,
-	decodeAuthoringTableSnapshot,
+	decodeAuthoringApplyResult as decodeAuthoringApplyResultEffect,
+	decodeAuthoringSaveResult as decodeAuthoringSaveResultEffect,
+	decodeAuthoringTableSnapshot as decodeAuthoringTableSnapshotEffect,
 	type AuthoringApplyRequest,
 	type AuthoringCommand,
 	type AuthoringSaveRequest
@@ -15,6 +15,13 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { makeAuthoringSessionService } from "./session-service.js";
 import { fingerprintTable } from "./fingerprint.js";
+
+const decodeAuthoringApplyResult = (input: unknown) =>
+	Effect.runSync(decodeAuthoringApplyResultEffect(input));
+const decodeAuthoringSaveResult = (input: unknown) =>
+	Effect.runSync(decodeAuthoringSaveResultEffect(input));
+const decodeAuthoringTableSnapshot = (input: unknown) =>
+	Effect.runSync(decodeAuthoringTableSnapshotEffect(input));
 
 const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
 const enabled = process.env.UE_SHED_UNREAL_INTEGRATION === "1" && executable;

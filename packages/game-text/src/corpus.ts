@@ -6,7 +6,7 @@ import {
 	type SavedProperty,
 	type SavedPropertyValue
 } from "@ue-shed/unreal-assets";
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	TextOccurrenceId,
 	TextUnitId,
@@ -18,15 +18,18 @@ import {
 	type TextUnit
 } from "./schema.js";
 
-const decodeOccurrenceId = Schema.decodeUnknownSync(TextOccurrenceId);
-const decodeUnitId = Schema.decodeUnknownSync(TextUnitId);
+const makeOccurrenceId = TextOccurrenceId.make;
+const makeUnitId = TextUnitId.make;
 
-export class TextCorpusScanError extends Data.TaggedError("TextCorpusScanError")<{
-	readonly code: "invalid_project" | "scan_limit_exceeded";
-	readonly message: string;
-	readonly recovery: string;
-	readonly retrySafe: boolean;
-}> {}
+export class TextCorpusScanError extends Schema.TaggedErrorClass<TextCorpusScanError>()(
+	"TextCorpusScanError",
+	{
+		code: Schema.Literals(["invalid_project", "scan_limit_exceeded"]),
+		message: Schema.String,
+		recovery: Schema.String,
+		retrySafe: Schema.Boolean
+	}
+) {}
 
 export interface ScanTextCorpusOptions {
 	readonly projectRoot: string;
@@ -78,7 +81,7 @@ function addTextOccurrence(options: {
 	readonly editCapability: TextOccurrence["editCapability"];
 }): void {
 	options.output.push({
-		id: decodeOccurrenceId(occurrenceId(options.packageFile, options.location)),
+		id: makeOccurrenceId(occurrenceId(options.packageFile, options.location)),
 		packageFile: options.packageFile,
 		source: options.value.value,
 		identity: identityForText(options.value),
@@ -259,7 +262,7 @@ export function buildTextCorpus(outcomes: readonly TextPackageOutcome[]): TextCo
 				...new Set(groupedOccurrences.map((occurrence) => occurrence.source))
 			].sort();
 			return {
-				id: decodeUnitId(id),
+				id: makeUnitId(id),
 				source:
 					sources.length === 1
 						? { status: "consistent" as const, value: sources[0] ?? "" }
@@ -378,7 +381,7 @@ export function scanTextCorpus(
 							inspection
 						})
 					),
-					Effect.catchAll((error) =>
+					Effect.catch((error) =>
 						Effect.succeed<TextPackageOutcome>({
 							status: "failed",
 							packageFile: relative(options.projectRoot, assetPath),

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { Data, Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	decodeCaptureRun,
 	decodeReviewSet,
@@ -11,12 +11,15 @@ import {
 
 export const DEFAULT_REVIEW_ROOT = ".ue-shed/review";
 
-export class ReviewStorageError extends Data.TaggedError("ReviewStorageError")<{
-	readonly message: string;
-	readonly operation: "list_runs" | "load_run" | "load_set" | "save_set";
-	readonly path: string;
-	readonly recovery: string;
-}> {}
+export class ReviewStorageError extends Schema.TaggedErrorClass<ReviewStorageError>()(
+	"ReviewStorageError",
+	{
+		message: Schema.String,
+		operation: Schema.Literals(["list_runs", "load_run", "load_set", "save_set"]),
+		path: Schema.String,
+		recovery: Schema.String
+	}
+) {}
 
 async function writeJsonAtomically(path: string, value: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
@@ -38,7 +41,7 @@ async function writeJsonAtomically(path: string, value: unknown): Promise<void> 
 
 export function loadReviewSet(path: string): Effect.Effect<ReviewSet, ReviewStorageError> {
 	return Effect.tryPromise({
-		try: async () => decodeReviewSet(JSON.parse(await readFile(path, "utf8"))),
+		try: async () => JSON.parse(await readFile(path, "utf8")) as unknown,
 		catch: (cause) =>
 			new ReviewStorageError({
 				message: String(cause),
@@ -46,7 +49,22 @@ export function loadReviewSet(path: string): Effect.Effect<ReviewSet, ReviewStor
 				path,
 				recovery: "Validate or repair the Review Set document, then retry."
 			})
-	}).pipe(Effect.withSpan("camera.review.set.load", { attributes: { path } }));
+	}).pipe(
+		Effect.flatMap((input) =>
+			decodeReviewSet(input).pipe(
+				Effect.mapError(
+					(cause) =>
+						new ReviewStorageError({
+							message: String(cause),
+							operation: "load_set",
+							path,
+							recovery: "Validate or repair the Review Set document, then retry."
+						})
+				)
+			)
+		),
+		Effect.withSpan("camera.review.set.load", { attributes: { path } })
+	);
 }
 
 export function saveReviewSet(args: {
@@ -55,8 +73,7 @@ export function saveReviewSet(args: {
 }): Effect.Effect<void, ReviewStorageError> {
 	return Effect.tryPromise({
 		try: async () => {
-			const valid = decodeReviewSet(args.reviewSet);
-			await writeJsonAtomically(args.path, valid);
+			await writeJsonAtomically(args.path, args.reviewSet);
 		},
 		catch: (cause) =>
 			new ReviewStorageError({
@@ -74,7 +91,7 @@ export function captureRunsRoot(projectRoot: string): string {
 
 export function loadCaptureRun(path: string): Effect.Effect<CaptureRun, ReviewStorageError> {
 	return Effect.tryPromise({
-		try: async () => decodeCaptureRun(JSON.parse(await readFile(path, "utf8"))),
+		try: async () => JSON.parse(await readFile(path, "utf8")) as unknown,
 		catch: (cause) =>
 			new ReviewStorageError({
 				message: String(cause),
@@ -83,7 +100,22 @@ export function loadCaptureRun(path: string): Effect.Effect<CaptureRun, ReviewSt
 				recovery:
 					"Inspect the immutable Capture Run bundle or restore it from evidence storage."
 			})
-	});
+	}).pipe(
+		Effect.flatMap((input) =>
+			decodeCaptureRun(input).pipe(
+				Effect.mapError(
+					(cause) =>
+						new ReviewStorageError({
+							message: String(cause),
+							operation: "load_run",
+							path,
+							recovery:
+								"Inspect the immutable Capture Run bundle or restore it from evidence storage."
+						})
+				)
+			)
+		)
+	);
 }
 
 export interface CaptureRunSummary {
@@ -106,26 +138,11 @@ export function listCaptureRuns(
 			const directories = (await readdir(root, { withFileTypes: true })).filter(
 				(entry) => entry.isDirectory() && !entry.name.startsWith(".staging-")
 			);
-			const runs = await Promise.all(
+			return Promise.all(
 				directories.map(async (entry) => {
 					const path = join(root, entry.name, "run.json");
-					const run = decodeCaptureRun(JSON.parse(await readFile(path, "utf8")));
-					return {
-						completedAt: run.completedAt,
-						failedViews: run.results.filter((result) => result.status === "failed")
-							.length,
-						id: run.id,
-						path,
-						reviewSetId: run.reviewSetId,
-						status: run.status,
-						successfulViews: run.results.filter(
-							(result) => result.status === "captured"
-						).length
-					} satisfies CaptureRunSummary;
+					return { input: JSON.parse(await readFile(path, "utf8")) as unknown, path };
 				})
-			);
-			return runs.toSorted((left, right) =>
-				right.completedAt.localeCompare(left.completedAt)
 			);
 		},
 		catch: (cause) =>
@@ -135,7 +152,43 @@ export function listCaptureRuns(
 				path: root,
 				recovery: "Check the local review-run directory and repair malformed bundles."
 			})
-	}).pipe(Effect.withSpan("camera.review.runs.list", { attributes: { root } }));
+	}).pipe(
+		Effect.flatMap((entries) =>
+			Effect.forEach(entries, ({ input, path }) =>
+				decodeCaptureRun(input).pipe(
+					Effect.map(
+						(run) =>
+							({
+								completedAt: run.completedAt,
+								failedViews: run.results.filter(
+									(result) => result.status === "failed"
+								).length,
+								id: run.id,
+								path,
+								reviewSetId: run.reviewSetId,
+								status: run.status,
+								successfulViews: run.results.filter(
+									(result) => result.status === "captured"
+								).length
+							}) satisfies CaptureRunSummary
+					),
+					Effect.mapError(
+						(cause) =>
+							new ReviewStorageError({
+								message: String(cause),
+								operation: "list_runs",
+								path,
+								recovery: "Repair or remove the malformed Capture Run bundle."
+							})
+					)
+				)
+			)
+		),
+		Effect.map((runs) =>
+			runs.toSorted((left, right) => right.completedAt.localeCompare(left.completedAt))
+		),
+		Effect.withSpan("camera.review.runs.list", { attributes: { root } })
+	);
 }
 
 export function isPathWithin(root: string, path: string): boolean {

@@ -1,8 +1,4 @@
-import {
-	decodeTextOccurrenceId,
-	decodeTextUnitId,
-	type TextCorpus
-} from "@ue-shed/game-text/browser";
+import { makeTextOccurrenceId, makeTextUnitId, type TextCorpus } from "@ue-shed/game-text/browser";
 import { describe, expect, it } from "vitest";
 import { filterTextUnits, identityLabel, occurrenceContext, sourceText } from "./game-text-view.js";
 
@@ -22,12 +18,12 @@ const corpus: TextCorpus = {
 	},
 	units: [
 		{
-			id: decodeTextUnitId("unreal:UI:Continue"),
+			id: makeTextUnitId("unreal:UI:Continue"),
 			source: { status: "consistent", value: "Continue" },
 			identity: { status: "resolved", namespace: "UI", key: "Continue" },
 			occurrences: [
 				{
-					id: decodeTextOccurrenceId("occurrence:continue"),
+					id: makeTextOccurrenceId("occurrence:continue"),
 					packageFile: "Content/Text/ST_Game.uasset",
 					source: "Continue",
 					identity: { status: "resolved", namespace: "UI", key: "Continue" },
