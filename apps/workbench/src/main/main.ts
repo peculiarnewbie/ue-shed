@@ -12,8 +12,10 @@ import {
 	type TextureAuditRunResult,
 	type TextureAuditScanError
 } from "@ue-shed/asset-audits";
+import { discoverAuthoringProjectCatalog } from "@ue-shed/authoring-catalog";
 import { decodeCompanionCapabilityManifest, type CameraScheduleConfig } from "@ue-shed/protocol";
-import { readSavedTable } from "@ue-shed/unreal-assets";
+import { discoverSavedTables, readSavedTable } from "@ue-shed/unreal-assets";
+import { connectUnrealAuthoring, type UnrealAuthoringConnection } from "@ue-shed/unreal-connection";
 import { Effect } from "effect";
 import {
 	BrowserWindow,
@@ -53,6 +55,33 @@ type AuthoringIpcResult =
 			};
 	  };
 
+type AuthoringIpcFailure = Extract<AuthoringIpcResult, { readonly status: "failed" }>["error"];
+
+type AuthoringCatalogIpcResult =
+	| {
+			readonly status: "ready";
+			readonly tables: readonly {
+				readonly completeness: "complete" | "partial";
+				readonly kind: "data_table" | "composite_data_table";
+				readonly objectPath: string;
+				readonly parentTables: readonly string[];
+				readonly rowStruct: string;
+				readonly authorities: readonly ("saved" | "live")[];
+				readonly divergence: readonly string[];
+			}[];
+			readonly diagnostics: readonly {
+				readonly code: string;
+				readonly message: string;
+				readonly path?: string;
+			}[];
+	  }
+	| { readonly status: "not_configured" }
+	| { readonly status: "failed"; readonly error: AuthoringIpcFailure };
+
+const authoringAssetPaths = new Map<string, string>();
+const authoringLiveObjectPaths = new Set<string>();
+let authoringLiveConnection: UnrealAuthoringConnection | undefined;
+
 async function loadAuthoringTable(assetPath: string): Promise<AuthoringIpcResult> {
 	try {
 		const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
@@ -71,6 +100,104 @@ async function loadAuthoringTable(assetPath: string): Promise<AuthoringIpcResult
 					"Choose a DataTable .uasset from a supported Unreal project and verify the saved-asset reader is available.",
 				retrySafe: true
 			}
+		};
+	}
+}
+
+async function loadLiveAuthoringTable(objectPath: string): Promise<AuthoringIpcResult> {
+	try {
+		if (!authoringLiveConnection)
+			throw new Error("The live authoring connection is unavailable");
+		return {
+			status: "ready",
+			snapshot: await Effect.runPromise(authoringLiveConnection.getTableSnapshot(objectPath))
+		};
+	} catch (cause) {
+		return {
+			error: {
+				code: "reader_failure",
+				message: `Could not read the live DataTable: ${cause instanceof Error ? cause.message : String(cause)}`,
+				recovery: "Verify Unreal is connected, then refresh the project catalog.",
+				retrySafe: true
+			},
+			status: "failed"
+		};
+	}
+}
+
+async function loadAuthoringCatalog(projectRoot: string): Promise<AuthoringCatalogIpcResult> {
+	try {
+		const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
+		const savedCatalog = await Effect.runPromise(
+			discoverSavedTables({
+				projectRoot,
+				...(executable ? { executable } : {})
+			})
+		);
+		authoringAssetPaths.clear();
+		for (const table of savedCatalog.tables) {
+			authoringAssetPaths.set(table.objectPath, table.assetPath);
+		}
+		const liveConnection = await Effect.runPromise(
+			connectUnrealAuthoring(remoteControlEndpoint).pipe(Effect.either)
+		);
+		authoringLiveConnection =
+			liveConnection._tag === "Right" ? liveConnection.right : undefined;
+		const catalog = await Effect.runPromise(
+			discoverAuthoringProjectCatalog({
+				...(authoringLiveConnection ? { live: authoringLiveConnection } : {}),
+				savedCatalog
+			})
+		);
+		authoringLiveObjectPaths.clear();
+		for (const table of catalog.tables) {
+			if (table.authorities.some(({ authority }) => authority === "live")) {
+				authoringLiveObjectPaths.add(table.objectPath);
+			}
+		}
+		return {
+			diagnostics: [
+				...(liveConnection._tag === "Left"
+					? [
+							{
+								code: "live_connection_unavailable",
+								message: liveConnection.left.message
+							}
+						]
+					: []),
+				...catalog.diagnostics.map(({ code, message, path }) => ({
+					code,
+					message,
+					...(path ? { path } : {})
+				}))
+			],
+			status: "ready",
+			tables: catalog.tables.map(
+				({ authorities, divergence, kind, objectPath, parentTables, rowStruct }) => ({
+					authorities: authorities.map(({ authority }) => authority),
+					completeness:
+						(
+							authorities.find(({ authority }) => authority === "live") ??
+							authorities[0]
+						)?.completeness ?? "partial",
+					divergence: divergence.status === "detected" ? divergence.fields : [],
+					kind,
+					objectPath,
+					parentTables,
+					rowStruct
+				})
+			)
+		};
+	} catch (cause) {
+		const message = cause instanceof Error ? cause.message : String(cause);
+		return {
+			error: {
+				code: "reader_failure",
+				message: `Could not discover saved DataTables: ${message}`,
+				recovery: "Verify the configured Unreal project and saved-asset reader.",
+				retrySafe: true
+			},
+			status: "failed"
 		};
 	}
 }
@@ -339,6 +466,51 @@ ipcMain.handle("authoring:configured-table", async (): Promise<AuthoringIpcResul
 	const assetPath = process.env.UE_SHED_AUTHORING_ASSET;
 	return assetPath ? loadAuthoringTable(assetPath) : { status: "not_configured" };
 });
+
+ipcMain.handle("authoring:configured-catalog", async (): Promise<AuthoringCatalogIpcResult> => {
+	const projectRoot = process.env.UE_SHED_PROJECT_ROOT;
+	return projectRoot ? loadAuthoringCatalog(projectRoot) : { status: "not_configured" };
+});
+
+ipcMain.handle(
+	"authoring:open-catalog-table",
+	async (_event, objectPath: unknown): Promise<AuthoringIpcResult> => {
+		if (
+			typeof objectPath !== "string" ||
+			objectPath.length === 0 ||
+			objectPath.length > 1_024 ||
+			!objectPath.startsWith("/Game/")
+		) {
+			return {
+				status: "failed",
+				error: {
+					code: "reader_failure",
+					message: "Catalog selection is not a valid /Game DataTable object path.",
+					recovery: "Refresh the configured project catalog and choose a listed table.",
+					retrySafe: false
+				}
+			};
+		}
+		let assetPath = authoringAssetPaths.get(objectPath);
+		if (!assetPath && !authoringLiveObjectPaths.has(objectPath)) {
+			const projectRoot = process.env.UE_SHED_PROJECT_ROOT;
+			if (projectRoot) await loadAuthoringCatalog(projectRoot);
+			assetPath = authoringAssetPaths.get(objectPath);
+		}
+		if (authoringLiveObjectPaths.has(objectPath)) return loadLiveAuthoringTable(objectPath);
+		return assetPath
+			? loadAuthoringTable(assetPath)
+			: {
+					status: "failed",
+					error: {
+						code: "reader_failure",
+						message: `The configured project no longer contains ${objectPath}.`,
+						recovery: "Refresh the catalog or choose another saved DataTable.",
+						retrySafe: true
+					}
+				};
+	}
+);
 
 ipcMain.handle("authoring:choose-table", async (): Promise<AuthoringIpcResult> => {
 	const choice = await dialog.showOpenDialog(window!, {

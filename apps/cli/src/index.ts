@@ -9,13 +9,15 @@ import {
 	dispatchApply,
 	fingerprintTable,
 	loadDraftSession,
+	makeAuthoringSessionService,
 	redo,
 	saveDraftSession,
 	undo,
 	workingTable
 } from "@ue-shed/authoring";
+import { discoverAuthoringProjectCatalog } from "@ue-shed/authoring-catalog";
 import { CURRENT_PROTOCOL_VERSION, decodeAuthoringValue } from "@ue-shed/protocol";
-import { readSavedTable } from "@ue-shed/unreal-assets";
+import { discoverSavedTables, readSavedTable } from "@ue-shed/unreal-assets";
 import { connectUnrealAuthoring } from "@ue-shed/unreal-connection";
 import { Effect } from "effect";
 
@@ -23,8 +25,16 @@ const help = `UE Shed — External tools for Unreal Engine development.
 
 Usage:
   ue-shed audit textures <project-root> --rules <rule-file> [--reader <path>]
+  ue-shed authoring tables <project-root> [--reader <path>]
+  ue-shed authoring catalog <project-root> [--endpoint <url>] [--reader <path>]
+  ue-shed authoring parity <project-root> <endpoint> [--reader <path>]
   ue-shed authoring inspect <asset> [--reader <path>]
+  ue-shed authoring live tables <endpoint>
   ue-shed authoring live inspect <endpoint> <table>
+  ue-shed authoring sessions list --project <project-root>
+  ue-shed authoring sessions create <asset> --project <project-root> [--id <session-id>] [--reader <path>]
+  ue-shed authoring sessions show|resume|close|discard|undo|redo <session-id> --project <project-root>
+  ue-shed authoring sessions set-cell <session-id> <table> <row> <field> <value-json> --project <project-root>
   ue-shed authoring session create <asset> <session-file> [--reader <path>]
   ue-shed authoring session create-live <endpoint> <table> <session-file>
   ue-shed authoring session show <session-file>
@@ -51,6 +61,16 @@ function takeReader(args: readonly string[]): { args: string[]; reader?: string 
 
 function printJson(value: unknown): void {
 	process.stdout.write(`${JSON.stringify(value, null, "\t")}\n`);
+}
+
+function takeOption(args: readonly string[], option: string): { args: string[]; value?: string } {
+	const remaining = [...args];
+	const index = remaining.indexOf(option);
+	if (index === -1) return { args: remaining };
+	const value = remaining[index + 1];
+	if (!value) throw new Error(`${option} requires a value`);
+	remaining.splice(index, 2);
+	return { args: remaining, value };
 }
 
 async function audit(args: readonly string[]): Promise<void> {
@@ -88,6 +108,150 @@ async function audit(args: readonly string[]): Promise<void> {
 async function authoring(args: readonly string[]): Promise<void> {
 	const parsed = takeReader(args);
 	const [area, action, ...rest] = parsed.args;
+	if (area === "tables") {
+		const projectRoot = action;
+		if (!projectRoot) throw new Error("authoring tables requires a project root");
+		const catalog = await Effect.runPromise(
+			discoverSavedTables({
+				projectRoot,
+				...(parsed.reader ? { executable: parsed.reader } : {})
+			})
+		);
+		printJson(catalog);
+		return;
+	}
+	if (area === "catalog") {
+		const projectRoot = action;
+		if (!projectRoot) throw new Error("authoring catalog requires a project root");
+		let endpoint: string | undefined;
+		for (let index = 0; index < rest.length; index += 2) {
+			const flag = rest[index];
+			const value = rest[index + 1];
+			if (flag !== "--endpoint" || !value) {
+				throw new Error(
+					`Unknown or incomplete authoring catalog option: ${flag ?? "missing"}`
+				);
+			}
+			if (endpoint) throw new Error("--endpoint may only be provided once");
+			endpoint = value;
+		}
+		const live = endpoint
+			? await Effect.runPromise(connectUnrealAuthoring(endpoint))
+			: undefined;
+		printJson(
+			await Effect.runPromise(
+				discoverAuthoringProjectCatalog({
+					...(live ? { live } : {}),
+					projectRoot,
+					...(parsed.reader ? { readerExecutable: parsed.reader } : {})
+				})
+			)
+		);
+		return;
+	}
+	if (area === "parity") {
+		const projectRoot = action;
+		const [endpoint] = rest;
+		if (!projectRoot || !endpoint) {
+			throw new Error("authoring parity requires a project root and live endpoint");
+		}
+		const live = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		const catalog = await Effect.runPromise(
+			discoverAuthoringProjectCatalog({
+				live,
+				projectRoot,
+				...(parsed.reader ? { readerExecutable: parsed.reader } : {})
+			})
+		);
+		const missingAuthorities = catalog.tables
+			.filter(
+				(table) =>
+					!table.authorities.some(({ authority }) => authority === "saved") ||
+					!table.authorities.some(({ authority }) => authority === "live")
+			)
+			.map(({ objectPath }) => objectPath);
+		const diverged = catalog.tables.flatMap((table) =>
+			table.divergence.status === "detected"
+				? [{ fields: table.divergence.fields, objectPath: table.objectPath }]
+				: []
+		);
+		const schemaGaps = catalog.tables.flatMap((table) => {
+			const unavailable = table.authorities
+				.filter(({ schema }) => schema.status === "unavailable")
+				.map(({ authority }) => authority);
+			return unavailable.length > 0
+				? [{ authorities: unavailable, objectPath: table.objectPath }]
+				: [];
+		});
+		const savedTables = await Effect.runPromise(
+			discoverSavedTables({
+				projectRoot,
+				...(parsed.reader ? { executable: parsed.reader } : {})
+			})
+		);
+		const savedSnapshots = await Effect.runPromise(
+			Effect.forEach(
+				savedTables.tables,
+				(table) =>
+					readSavedTable({
+						assetPath: table.assetPath,
+						...(parsed.reader ? { executable: parsed.reader } : {})
+					}),
+				{ concurrency: 4 }
+			)
+		);
+		const liveSnapshots = await Effect.runPromise(
+			live
+				.listTableObjectPaths()
+				.pipe(
+					Effect.flatMap((objectPaths) =>
+						Effect.forEach(
+							objectPaths,
+							(objectPath) => live.getTableSnapshot(objectPath),
+							{ concurrency: 4 }
+						)
+					)
+				)
+		);
+		const liveByPath = new Map(
+			liveSnapshots.map((snapshot) => [snapshot.table.objectPath, snapshot])
+		);
+		const semanticMismatches = savedSnapshots.flatMap((savedSnapshot) => {
+			const liveSnapshot = liveByPath.get(savedSnapshot.table.objectPath);
+			if (!liveSnapshot) return [];
+			const savedFingerprint = fingerprintTable(savedSnapshot);
+			const liveFingerprint = fingerprintTable(liveSnapshot);
+			return savedFingerprint === liveFingerprint
+				? []
+				: [
+						{
+							liveFingerprint,
+							objectPath: savedSnapshot.table.objectPath,
+							savedFingerprint
+						}
+					];
+		});
+		const status =
+			catalog.diagnostics.length === 0 &&
+			missingAuthorities.length === 0 &&
+			diverged.length === 0 &&
+			semanticMismatches.length === 0
+				? "conformant"
+				: "nonconformant";
+		printJson({
+			contract: { name: "unreal-authoring-parity", version: { major: 1, minor: 0 } },
+			diagnostics: catalog.diagnostics,
+			diverged,
+			missingAuthorities,
+			schemaGaps,
+			semanticMismatches,
+			status
+		});
+		if (status === "nonconformant") {
+			throw new Error("Saved/live authoring parity did not pass");
+		}
+		return;
+	}
 	if (area === "inspect") {
 		const [assetPath] = [action, ...rest];
 		if (!assetPath) throw new Error("authoring inspect requires an asset path");
@@ -104,6 +268,113 @@ async function authoring(args: readonly string[]): Promise<void> {
 		const snapshot = await Effect.runPromise(connection.getTableSnapshot(tablePath));
 		printJson({ fingerprint: fingerprintTable(snapshot), snapshot });
 		return;
+	}
+	if (area === "live" && action === "tables") {
+		const [endpoint] = rest;
+		if (!endpoint) throw new Error("live tables requires an endpoint");
+		const live = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		printJson(await Effect.runPromise(discoverAuthoringProjectCatalog({ live })));
+		return;
+	}
+	if (area === "sessions") {
+		const projectOption = takeOption(rest, "--project");
+		if (!projectOption.value) throw new Error(`sessions ${action} requires --project`);
+		const idOption = takeOption(projectOption.args, "--id");
+		const service = Effect.runSync(
+			makeAuthoringSessionService({ projectRoot: projectOption.value })
+		);
+		if (action === "list") {
+			if (idOption.args.length > 0) throw new Error("sessions list has unexpected arguments");
+			printJson(await Effect.runPromise(service.list()));
+			return;
+		}
+		if (action === "create") {
+			const [assetPath, ...unexpected] = idOption.args;
+			if (!assetPath || unexpected.length > 0) {
+				throw new Error("sessions create requires exactly one saved DataTable asset");
+			}
+			const snapshot = await Effect.runPromise(
+				readSavedTable({
+					assetPath,
+					...(parsed.reader ? { executable: parsed.reader } : {})
+				})
+			);
+			printJson(
+				await Effect.runPromise(
+					service.create([snapshot], idOption.value ? { id: idOption.value } : undefined)
+				)
+			);
+			return;
+		}
+		if (action === "show" || action === "resume" || action === "close") {
+			const [sessionId, ...unexpected] = idOption.args;
+			if (!sessionId || unexpected.length > 0) {
+				throw new Error(`sessions ${action} requires exactly one session id`);
+			}
+			const operation =
+				action === "show"
+					? service.open
+					: action === "resume"
+						? service.resume
+						: service.close;
+			printJson(await Effect.runPromise(operation(sessionId)));
+			return;
+		}
+		if (action === "discard") {
+			const [sessionId, ...unexpected] = idOption.args;
+			if (!sessionId || unexpected.length > 0) {
+				throw new Error("sessions discard requires exactly one session id");
+			}
+			await Effect.runPromise(service.discard(sessionId));
+			printJson({ id: sessionId, status: "discarded" });
+			return;
+		}
+		if (action === "undo" || action === "redo") {
+			const [sessionId, ...unexpected] = idOption.args;
+			if (!sessionId || unexpected.length > 0) {
+				throw new Error(`sessions ${action} requires exactly one session id`);
+			}
+			printJson(
+				await Effect.runPromise(
+					action === "undo" ? service.undo(sessionId) : service.redo(sessionId)
+				)
+			);
+			return;
+		}
+		if (action === "set-cell") {
+			const [sessionId, tablePath, rowName, fieldName, valueJson, ...unexpected] =
+				idOption.args;
+			if (
+				!sessionId ||
+				!tablePath ||
+				!rowName ||
+				!fieldName ||
+				!valueJson ||
+				unexpected.length > 0
+			) {
+				throw new Error(
+					"sessions set-cell requires session, table, row, field, and value JSON"
+				);
+			}
+			const document = await Effect.runPromise(service.open(sessionId));
+			const command = buildSetCellCommand({
+				authoredAt: new Date().toISOString(),
+				commandId: randomUUID(),
+				fieldName,
+				groupId: randomUUID(),
+				rowName,
+				session: document.draft,
+				tableObjectPath: tablePath,
+				value: decodeAuthoringValue(JSON.parse(valueJson))
+			});
+			const next = await Effect.runPromise(service.append(sessionId, [command]));
+			printJson({
+				session: next,
+				working: workingTable(next.draft, tablePath)
+			});
+			return;
+		}
+		throw new Error(`Unknown authoring sessions command: ${action}`);
 	}
 	if (area === "session" && action === "create") {
 		const [assetPath, sessionPath] = rest;

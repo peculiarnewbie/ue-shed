@@ -10,7 +10,7 @@
 		}
 	},
 	"scripts": {
-		"contract:generate": "tsx scripts/generate-authoring-contract.ts",
+		"contract:check": "tsx scripts/check-authoring-contract.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

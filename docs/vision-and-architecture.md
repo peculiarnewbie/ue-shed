@@ -38,7 +38,7 @@ Saved-package operations remain available while live capabilities are absent.
 
 ```text
                      optional clients
-          CLI       Workbench       studio-specific UI
+          CLI       Workbench       another trusted host
             \           |                /
              +------ public host APIs --+
                          |
@@ -98,7 +98,7 @@ packages/
   ui-theme/                    # StyleX variables and suite themes
   ui/                          # Shared SolidJS + StyleX primitives
   authoring/                   # Data-authoring domain services
-  authoring-sdk/               # Public custom authoring UI contract
+  authoring-sdk/               # Trusted client contract for the maintained authoring UI
   evidence/                    # Artifacts, logs, captures, provenance
   observatory/                 # Actor discovery and live state
   cameras/                     # Camera definitions, observation, and review
@@ -302,8 +302,9 @@ lifecycle, analysis model, and UI concerns do not belong in the foundational UAs
 deliberately excluded from this repository for now.
 
 Data authoring is intentionally stronger than the other reference extensions: it is a first-party,
-end-to-end product track with a maintained default interface. Custom authoring UIs remain an additive
-escape hatch for domain-specific workflows, not a requirement for straightforward table editing.
+end-to-end product track with a maintained default interface. Trusted hosts may embed that interface,
+but arbitrary custom authoring UI hosting is deferred; it is not required for straightforward table
+editing.
 
 ## Relationship to internal Swag tooling
 

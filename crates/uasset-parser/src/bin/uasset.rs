@@ -496,6 +496,8 @@ struct AuthoringSnapshotOutput {
     contract: AuthoringContractOutput,
     authority: AuthoringAuthorityOutput,
     completeness: &'static str,
+    fingerprint: AuthoringUnavailableEvidenceOutput,
+    producer: AuthoringProducerOutput,
     table: AuthoringTableOutput,
     diagnostics: Vec<AuthoringDiagnosticOutput>,
 }
@@ -520,15 +522,30 @@ struct AuthoringAuthorityOutput {
 }
 
 #[derive(Serialize)]
+struct AuthoringProducerOutput {
+    name: &'static str,
+    version: &'static str,
+}
+
+#[derive(Serialize)]
+struct AuthoringUnavailableEvidenceOutput {
+    status: &'static str,
+    reason: &'static str,
+}
+
+#[derive(Serialize)]
 struct AuthoringTableOutput {
     kind: &'static str,
     #[serde(rename = "objectPath")]
     object_path: String,
+    #[serde(rename = "packageName")]
+    package_name: String,
     #[serde(rename = "rowStruct")]
     row_struct: String,
     #[serde(rename = "parentTables")]
     parent_tables: Vec<String>,
     rows: Vec<AuthoringRowOutput>,
+    schema: AuthoringUnavailableEvidenceOutput,
 }
 
 #[derive(Serialize)]
@@ -671,13 +688,21 @@ impl AuthoringSnapshotOutput {
         Self {
             contract: AuthoringContractOutput {
                 name: "unreal-authoring",
-                version: AuthoringVersionOutput { major: 1, minor: 0 },
+                version: AuthoringVersionOutput { major: 2, minor: 0 },
             },
             authority: AuthoringAuthorityOutput {
                 kind: "project_files",
                 package_name: inspect.package.name.clone(),
             },
             completeness: if partial { "partial" } else { "complete" },
+            fingerprint: AuthoringUnavailableEvidenceOutput {
+                status: "unavailable",
+                reason: "The saved-package producer does not emit a canonical fingerprint yet.",
+            },
+            producer: AuthoringProducerOutput {
+                name: "uasset-parser",
+                version: env!("CARGO_PKG_VERSION"),
+            },
             table: AuthoringTableOutput {
                 kind: if table.kind == "CompositeDataTable" {
                     "composite_data_table"
@@ -685,9 +710,14 @@ impl AuthoringSnapshotOutput {
                     "data_table"
                 },
                 object_path: table.object_path.clone(),
+                package_name: inspect.package.name.clone(),
                 row_struct: table.row_struct.clone().unwrap_or_default(),
                 parent_tables: table.parent_tables.clone(),
                 rows,
+                schema: AuthoringUnavailableEvidenceOutput {
+                    status: "unavailable",
+                    reason: "Saved row-structure schema has not been resolved for this table.",
+                },
             },
             diagnostics: inspect
                 .decode_errors

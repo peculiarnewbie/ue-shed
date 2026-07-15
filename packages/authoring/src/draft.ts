@@ -216,6 +216,9 @@ export function foldTable(
 			}
 		}
 	}
+	if ("producer" in base) {
+		return { ...base, table: { ...base.table, rows } };
+	}
 	return { ...base, table: { ...base.table, rows } };
 }
 

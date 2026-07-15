@@ -44,12 +44,12 @@ saved project packages             live editor + UEShedAuthoring
   snapshots + command log + fold + validation
   preflight + conflicts + apply + save
                     |
-       host-neutral authoring contract
+       host-neutral authoring services
            /                 \
-first-party Data Authoring   custom studio UI
-extension                    or automation
-           \                 /
-     Workbench, another host, or CLI
+first-party Data Authoring   CLI automation
+extension
+           |
+     Workbench or another trusted host
 ```
 
 - `@ue-shed/unreal-assets` adapts the versioned `uasset` CLI JSON contract and owns no authoring
@@ -59,7 +59,8 @@ extension                    or automation
 - `@ue-shed/authoring` owns behavior and state transitions; a renderer does not become the authority.
 - The saved-package reader, C++ companion, and TypeScript libraries derive their authoring shapes
   from one language-neutral contract rather than translating between independent models.
-- `@ue-shed/authoring-sdk` exposes scoped reads and draft operations to first-party and custom UIs.
+- `@ue-shed/authoring-sdk` exposes browser-safe reads and draft operations to the maintained
+  first-party interface without exposing filesystem or raw Unreal access.
 - `extensions/data-authoring` is the maintained default product interface.
 - Workbench composes that extension but receives no private authoring endpoint.
 - `ue-shed` CLI commands cover discovery, inspection, validation, diff, apply, and save for automation.
@@ -114,13 +115,10 @@ A table grid is the default product, not the only possible surface. Public autho
 
 - joined or filtered views over several tables;
 - row-detail forms;
-- purpose-built first-party extensions;
-- studio-authored UIs bound to named table roles;
-- AI-generated local interfaces operating through scoped capabilities.
+- purpose-built maintained first-party extensions.
 
-All surfaces draft the same typed commands into the same session. Custom UIs may read their granted
-context and draft edits, but cannot Apply, Save, call arbitrary Unreal functions, access the file
-system, or escape their capability grant. The trusted host keeps final review and mutation authority.
+All maintained surfaces draft the same typed commands into the same session. The headless service
+keeps review and mutation authority outside the renderer.
 
 ## Fixture and conformance suite
 
@@ -161,10 +159,12 @@ diagnostics that explain partial capability support.
 Structured fields, references, annotations, Composite DataTables, reusable views, and strong
 keyboard/search workflows.
 
-### E. Extensible authoring
+### Deferred: arbitrary custom UI hosting
 
-Scoped SDK, isolated custom interfaces, role-based binding contracts, schema-aware generation inputs,
-and optional project hooks through an allowlist.
+An untrusted or generated-interface platform would require a separate product decision, capability
+model, isolation boundary, threat model, and publishing policy. It is not part of the maintained
+authoring roadmap. Trusted hosts may embed the first-party extension through its narrow browser-safe
+client contract.
 
 Slices A and B define the minimum credible product. The actor observatory may remain the first public
 demo, but authoring must not be left as a collection of future package placeholders.
@@ -179,3 +179,5 @@ demo, but authoring must not be left as a collection of future package placehold
 - Treating Apply and Save as one vague action.
 - Making a particular source-control system mandatory.
 - Copying an internal product architecture instead of specifying and testing the public behavior.
+- Turning the first-party editor into a general untrusted-UI hosting platform without a separate
+  product and security decision.

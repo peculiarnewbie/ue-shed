@@ -1,5 +1,7 @@
 #include "UEShedAuthoringLibrary.h"
 
+#include "AssetRegistry/ARFilter.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "DataTableEditorUtils.h"
@@ -100,6 +102,203 @@ TSharedRef<FJsonObject> ValueObject(const TCHAR* Kind)
 {
 	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("kind"), Kind);
+	return Result;
+}
+
+TSharedRef<FJsonObject> DescribePropertyType(const FProperty* Property);
+
+TSharedRef<FJsonObject> DescribeEnum(const UEnum* Enum)
+{
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("kind"), TEXT("enum"));
+	Result->SetStringField(TEXT("enumPath"), Enum->GetPathName());
+	TArray<TSharedPtr<FJsonValue>> Options;
+	const int32 Count = Enum->NumEnums() - (Enum->ContainsExistingMax() ? 1 : 0);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		if (Enum->HasMetaData(TEXT("Hidden"), Index)
+			|| Enum->HasMetaData(TEXT("Spacer"), Index))
+		{
+			continue;
+		}
+		const TSharedRef<FJsonObject> Option = MakeShared<FJsonObject>();
+		Option->SetStringField(TEXT("name"), Enum->GetNameByIndex(Index).ToString());
+		Option->SetStringField(
+			TEXT("displayName"), Enum->GetDisplayNameTextByIndex(Index).ToString());
+		Options.Add(MakeShared<FJsonValueObject>(Option));
+	}
+	Result->SetArrayField(TEXT("options"), Options);
+	return Result;
+}
+
+void AddStringMetadata(
+	const TSharedRef<FJsonObject>& Annotations,
+	const FProperty* Property,
+	const TCHAR* MetadataName,
+	const TCHAR* AnnotationName)
+{
+	if (Property->HasMetaData(MetadataName))
+	{
+		Annotations->SetStringField(AnnotationName, Property->GetMetaData(MetadataName));
+	}
+}
+
+TSharedRef<FJsonObject> DescribeField(const FProperty* Property)
+{
+	const bool bReadOnly = Property->HasAnyPropertyFlags(CPF_EditConst);
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("id"), TEXT("field:") + Property->GetAuthoredName());
+	Result->SetStringField(TEXT("name"), Property->GetAuthoredName());
+	Result->SetStringField(TEXT("typeName"), Property->GetClass()->GetName());
+	Result->SetObjectField(TEXT("type"), DescribePropertyType(Property));
+	Result->SetStringField(TEXT("presence"), TEXT("required"));
+
+	const TSharedRef<FJsonObject> Editability = MakeShared<FJsonObject>();
+	Editability->SetStringField(TEXT("kind"), bReadOnly ? TEXT("read_only") : TEXT("editable"));
+	if (bReadOnly)
+	{
+		Editability->SetStringField(TEXT("reason"), TEXT("Unreal marks this property EditConst."));
+	}
+	Result->SetObjectField(TEXT("editability"), Editability);
+
+	const TSharedRef<FJsonObject> Annotations = MakeShared<FJsonObject>();
+	Annotations->SetBoolField(
+		TEXT("deprecated"), Property->HasAnyPropertyFlags(CPF_Deprecated));
+	Annotations->SetBoolField(TEXT("readOnly"), bReadOnly);
+	Annotations->SetStringField(TEXT("displayName"), Property->GetDisplayNameText().ToString());
+	const FString Description = Property->GetToolTipText().ToString();
+	if (!Description.IsEmpty())
+	{
+		Annotations->SetStringField(TEXT("description"), Description);
+	}
+	AddStringMetadata(Annotations, Property, TEXT("ClampMin"), TEXT("clampMin"));
+	AddStringMetadata(Annotations, Property, TEXT("ClampMax"), TEXT("clampMax"));
+	AddStringMetadata(Annotations, Property, TEXT("Delta"), TEXT("step"));
+	AddStringMetadata(Annotations, Property, TEXT("Units"), TEXT("unit"));
+	if (Property->HasMetaData(TEXT("RowType")))
+	{
+		const TSharedRef<FJsonObject> RowReference = MakeShared<FJsonObject>();
+		const FString RowType = Property->GetMetaData(TEXT("RowType"));
+		if (RowType.StartsWith(TEXT("/")))
+		{
+			RowReference->SetStringField(TEXT("status"), TEXT("known"));
+			RowReference->SetStringField(TEXT("tableObjectPath"), RowType);
+		}
+		else
+		{
+			RowReference->SetStringField(TEXT("status"), TEXT("unknown"));
+		}
+		Annotations->SetObjectField(TEXT("rowReference"), RowReference);
+	}
+	Result->SetObjectField(TEXT("annotations"), Annotations);
+
+	const TSharedRef<FJsonObject> DefaultValue = MakeShared<FJsonObject>();
+	DefaultValue->SetStringField(TEXT("status"), TEXT("unknown"));
+	Result->SetObjectField(TEXT("defaultValue"), DefaultValue);
+	return Result;
+}
+
+TSharedRef<FJsonObject> DescribePropertyType(const FProperty* Property)
+{
+	if (const FEnumProperty* Enum = CastField<FEnumProperty>(Property))
+	{
+		return DescribeEnum(Enum->GetEnum());
+	}
+	if (const FByteProperty* Byte = CastField<FByteProperty>(Property); Byte && Byte->Enum)
+	{
+		return DescribeEnum(Byte->Enum);
+	}
+	if (const FArrayProperty* Array = CastField<FArrayProperty>(Property))
+	{
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("array"));
+		Result->SetObjectField(TEXT("element"), DescribePropertyType(Array->Inner));
+		return Result;
+	}
+	if (const FSetProperty* Set = CastField<FSetProperty>(Property))
+	{
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("set"));
+		Result->SetObjectField(TEXT("element"), DescribePropertyType(Set->ElementProp));
+		return Result;
+	}
+	if (const FMapProperty* Map = CastField<FMapProperty>(Property))
+	{
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("map"));
+		Result->SetObjectField(TEXT("key"), DescribePropertyType(Map->KeyProp));
+		Result->SetObjectField(TEXT("value"), DescribePropertyType(Map->ValueProp));
+		return Result;
+	}
+	if (const FSoftObjectProperty* SoftObject = CastField<FSoftObjectProperty>(Property))
+	{
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("reference"));
+		Result->SetStringField(TEXT("valueKind"), TEXT("soft_object_path"));
+		const TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+		if (SoftObject->PropertyClass)
+		{
+			Target->SetStringField(TEXT("status"), TEXT("known"));
+			Target->SetStringField(TEXT("classPath"), SoftObject->PropertyClass->GetPathName());
+		}
+		else
+		{
+			Target->SetStringField(TEXT("status"), TEXT("unknown"));
+		}
+		Result->SetObjectField(TEXT("target"), Target);
+		return Result;
+	}
+	if (const FObjectPropertyBase* Object = CastField<FObjectPropertyBase>(Property))
+	{
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("reference"));
+		Result->SetStringField(TEXT("valueKind"), TEXT("object_ref"));
+		const TSharedRef<FJsonObject> Target = MakeShared<FJsonObject>();
+		if (Object->PropertyClass)
+		{
+			Target->SetStringField(TEXT("status"), TEXT("known"));
+			Target->SetStringField(TEXT("classPath"), Object->PropertyClass->GetPathName());
+		}
+		else
+		{
+			Target->SetStringField(TEXT("status"), TEXT("unknown"));
+		}
+		Result->SetObjectField(TEXT("target"), Target);
+		return Result;
+	}
+	if (const FStructProperty* Struct = CastField<FStructProperty>(Property))
+	{
+		if (Struct->Struct == TBaseStructure<FVector>::Get())
+		{
+			return ValueObject(TEXT("vector"));
+		}
+		const TSharedRef<FJsonObject> Result = ValueObject(TEXT("struct"));
+		Result->SetStringField(TEXT("structPath"), Struct->Struct->GetPathName());
+		TArray<TSharedPtr<FJsonValue>> Fields;
+		for (TFieldIterator<FProperty> It(Struct->Struct); It; ++It)
+		{
+			Fields.Add(MakeShared<FJsonValueObject>(DescribeField(*It)));
+		}
+		Result->SetArrayField(TEXT("fields"), Fields);
+		return Result;
+	}
+
+	const TSharedRef<FJsonObject> Result = ValueObject(TEXT("scalar"));
+	if (Property->IsA<FBoolProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("bool"));
+	else if (Property->IsA<FDoubleProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("double"));
+	else if (Property->IsA<FFloatProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("float"));
+	else if (Property->IsA<FNameProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("name"));
+	else if (Property->IsA<FStrProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("string"));
+	else if (Property->IsA<FTextProperty>()) Result->SetStringField(TEXT("valueKind"), TEXT("text"));
+	else if (const FNumericProperty* Number = CastField<FNumericProperty>(Property))
+	{
+		const bool bUnsigned = Property->IsA<FByteProperty>()
+			|| Property->IsA<FUInt16Property>()
+			|| Property->IsA<FUInt32Property>()
+			|| Property->IsA<FUInt64Property>();
+		Result->SetStringField(TEXT("valueKind"), bUnsigned ? TEXT("uint") : TEXT("int"));
+	}
+	else
+	{
+		Result->SetStringField(TEXT("kind"), TEXT("unsupported"));
+		Result->SetStringField(TEXT("reason"), TEXT("No normalized authoring type is available."));
+		Result->SetStringField(TEXT("typeName"), Property->GetClass()->GetName());
+	}
 	return Result;
 }
 
@@ -649,6 +848,8 @@ FString JsonString(const TSharedRef<FJsonObject>& Object)
 	return Result;
 }
 
+FString TableFingerprintFromJson(const TSharedPtr<FJsonObject>& TableJson);
+
 TSharedRef<FJsonObject> BuildTableSnapshot(const UDataTable* Table)
 {
 	bool bPartial = false;
@@ -672,17 +873,21 @@ TSharedRef<FJsonObject> BuildTableSnapshot(const UDataTable* Table)
 	const TSharedRef<FJsonObject> Contract = MakeShared<FJsonObject>();
 	Contract->SetStringField(TEXT("name"), TEXT("unreal-authoring"));
 	const TSharedRef<FJsonObject> Version = MakeShared<FJsonObject>();
-	Version->SetNumberField(TEXT("major"), 1);
+	Version->SetNumberField(TEXT("major"), 2);
 	Version->SetNumberField(TEXT("minor"), 0);
 	Contract->SetObjectField(TEXT("version"), Version);
 	const TSharedRef<FJsonObject> Authority = MakeShared<FJsonObject>();
 	Authority->SetStringField(TEXT("kind"), TEXT("live_editor"));
 	Authority->SetStringField(TEXT("producerId"), FApp::GetSessionId().ToString());
 	Authority->SetStringField(TEXT("sessionId"), LexToString(FPlatformProcess::GetCurrentProcessId()));
+	const TSharedRef<FJsonObject> Producer = MakeShared<FJsonObject>();
+	Producer->SetStringField(TEXT("name"), TEXT("UEShedAuthoring"));
+	Producer->SetStringField(TEXT("version"), TEXT("1"));
 	const TSharedRef<FJsonObject> TableJson = MakeShared<FJsonObject>();
 	TableJson->SetStringField(TEXT("kind"), Table->IsA<UCompositeDataTable>()
 		? TEXT("composite_data_table") : TEXT("data_table"));
 	TableJson->SetStringField(TEXT("objectPath"), Table->GetPathName());
+	TableJson->SetStringField(TEXT("packageName"), Table->GetOutermost()->GetName());
 	TableJson->SetStringField(TEXT("rowStruct"), Table->GetRowStruct()->GetPathName());
 	TArray<TSharedPtr<FJsonValue>> Parents;
 	for (const FString& Parent : CompositeParents(Table))
@@ -691,10 +896,27 @@ TSharedRef<FJsonObject> BuildTableSnapshot(const UDataTable* Table)
 	}
 	TableJson->SetArrayField(TEXT("parentTables"), Parents);
 	TableJson->SetArrayField(TEXT("rows"), Rows);
+	const TSharedRef<FJsonObject> Schema = MakeShared<FJsonObject>();
+	Schema->SetStringField(TEXT("status"), TEXT("available"));
+	Schema->SetStringField(TEXT("source"), TEXT("live_reflection"));
+	TArray<TSharedPtr<FJsonValue>> SchemaFields;
+	for (TFieldIterator<FProperty> It(Table->GetRowStruct()); It; ++It)
+	{
+		SchemaFields.Add(MakeShared<FJsonValueObject>(DescribeField(*It)));
+	}
+	Schema->SetArrayField(TEXT("fields"), SchemaFields);
+	TableJson->SetObjectField(TEXT("schema"), Schema);
+	const TSharedRef<FJsonObject> Fingerprint = MakeShared<FJsonObject>();
+	Fingerprint->SetStringField(TEXT("status"), TEXT("available"));
+	Fingerprint->SetStringField(TEXT("algorithm"), TEXT("sha256"));
+	Fingerprint->SetNumberField(TEXT("version"), 1);
+	Fingerprint->SetStringField(TEXT("value"), TableFingerprintFromJson(TableJson));
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetObjectField(TEXT("contract"), Contract);
 	Root->SetObjectField(TEXT("authority"), Authority);
 	Root->SetStringField(TEXT("completeness"), bPartial ? TEXT("partial") : TEXT("complete"));
+	Root->SetObjectField(TEXT("fingerprint"), Fingerprint);
+	Root->SetObjectField(TEXT("producer"), Producer);
 	Root->SetObjectField(TEXT("table"), TableJson);
 	Root->SetArrayField(TEXT("diagnostics"), {});
 	return Root;
@@ -703,6 +925,11 @@ TSharedRef<FJsonObject> BuildTableSnapshot(const UDataTable* Table)
 FString TableFingerprint(const UDataTable* Table)
 {
 	const TSharedPtr<FJsonObject> TableJson = BuildTableSnapshot(Table)->GetObjectField(TEXT("table"));
+	return TableFingerprintFromJson(TableJson);
+}
+
+FString TableFingerprintFromJson(const TSharedPtr<FJsonObject>& TableJson)
+{
 	const TSharedRef<FJsonObject> Semantic = MakeShared<FJsonObject>();
 	for (const FString& Field : { TEXT("kind"), TEXT("objectPath"), TEXT("rowStruct") })
 	{
@@ -955,6 +1182,40 @@ FString ErrorJson(const FString& Code, const FString& Message)
 	Error->SetStringField(TEXT("message"), Message);
 	return JsonString(Error);
 }
+}
+
+void UUEShedAuthoringLibrary::ListTableObjectPaths(FString& ResultJson)
+{
+	TArray<FAssetData> Assets;
+	FARFilter Filter;
+	Filter.PackagePaths.Add(TEXT("/Game"));
+	Filter.ClassPaths.Add(UDataTable::StaticClass()->GetClassPathName());
+	Filter.bRecursiveClasses = true;
+	Filter.bRecursivePaths = true;
+	IAssetRegistry::GetChecked().GetAssets(Filter, Assets);
+	TArray<FString> ObjectPaths;
+	ObjectPaths.Reserve(Assets.Num());
+	for (const FAssetData& Asset : Assets)
+	{
+		ObjectPaths.Add(Asset.GetSoftObjectPath().ToString());
+	}
+	ObjectPaths.Sort();
+
+	const TSharedRef<FJsonObject> Contract = MakeShared<FJsonObject>();
+	Contract->SetStringField(TEXT("name"), TEXT("unreal-authoring-table-list"));
+	const TSharedRef<FJsonObject> Version = MakeShared<FJsonObject>();
+	Version->SetNumberField(TEXT("major"), 1);
+	Version->SetNumberField(TEXT("minor"), 0);
+	Contract->SetObjectField(TEXT("version"), Version);
+	TArray<TSharedPtr<FJsonValue>> Paths;
+	for (const FString& ObjectPath : ObjectPaths)
+	{
+		Paths.Add(MakeShared<FJsonValueString>(ObjectPath));
+	}
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetObjectField(TEXT("contract"), Contract);
+	Result->SetArrayField(TEXT("objectPaths"), Paths);
+	ResultJson = JsonString(Result);
 }
 
 void UUEShedAuthoringLibrary::GetTableSnapshot(

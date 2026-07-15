@@ -54,6 +54,47 @@ describe("authoring table presentation", () => {
 		]);
 	});
 
+	it("uses v2 schema order for an empty table", () => {
+		const empty: AuthoringTableSnapshot = {
+			authority: { kind: "project_files", packageName: "/Game/Fixture/DT_Empty" },
+			completeness: "complete",
+			contract: { name: "unreal-authoring", version: { major: 2, minor: 0 } },
+			diagnostics: [],
+			fingerprint: { reason: "Not computed", status: "unavailable" },
+			producer: { name: "fixture", version: "1" },
+			table: {
+				kind: "data_table",
+				objectPath: "/Game/Fixture/DT_Empty.DT_Empty",
+				packageName: "/Game/Fixture/DT_Empty",
+				parentTables: [],
+				rowStruct: "/Script/Fixture.Row",
+				rows: [],
+				schema: {
+					fields: [
+						{
+							annotations: {
+								deprecated: false,
+								displayName: "Count",
+								readOnly: false
+							},
+							defaultValue: { status: "unknown" },
+							editability: { kind: "editable" },
+							id: "field:Count",
+							name: "Count",
+							presence: "required",
+							type: { kind: "scalar", valueKind: "int" },
+							typeName: "IntProperty"
+						}
+					],
+					source: "saved_package",
+					status: "available"
+				}
+			}
+		};
+
+		expect(tableColumns(empty)).toEqual([{ name: "Count", typeName: "IntProperty" }]);
+	});
+
 	it("filters by row names and formatted typed values", () => {
 		expect(filterRows(snapshot.table.rows, "alpha").map((row) => row.name)).toEqual(["Alpha"]);
 		expect(filterRows(snapshot.table.rows, "bravo note").map((row) => row.name)).toEqual([

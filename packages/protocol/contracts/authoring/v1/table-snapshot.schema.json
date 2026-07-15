@@ -1,7 +1,7 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$defs": {
-		"AuthoringTableSnapshot": {
+		"AuthoringTableSnapshotV1": {
 			"type": "object",
 			"required": ["contract", "authority", "completeness", "table", "diagnostics"],
 			"properties": {
@@ -469,5 +469,5 @@
 			]
 		}
 	},
-	"$ref": "#/$defs/AuthoringTableSnapshot"
+	"$ref": "#/$defs/AuthoringTableSnapshotV1"
 }

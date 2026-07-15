@@ -18,7 +18,9 @@ declare global {
 				readonly preview: (objectPath: string) => Promise<unknown>;
 			};
 			readonly authoring: {
+				readonly loadConfiguredCatalog: () => Promise<unknown>;
 				readonly loadConfiguredTable: () => Promise<unknown>;
+				readonly openCatalogTable: (objectPath: string) => Promise<unknown>;
 				readonly chooseTable: () => Promise<unknown>;
 			};
 			readonly fixture: {

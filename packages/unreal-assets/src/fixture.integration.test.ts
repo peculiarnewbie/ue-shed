@@ -1,12 +1,30 @@
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-import { discoverSavedAssets, readSavedAsset, readSavedTable } from "./index.js";
+import {
+	discoverSavedAssets,
+	discoverSavedTables,
+	readSavedAsset,
+	readSavedTable
+} from "./index.js";
 
 const executable = process.env.UE_SHED_UASSET_EXECUTABLE;
 const fixtureRoot = fileURLToPath(new URL("../../../fixtures/unreal-project", import.meta.url));
 
 describe.skipIf(!executable)("saved authoring fixture", () => {
+	it("discovers DataTables without requiring their paths in advance", async () => {
+		const catalog = await Effect.runPromise(
+			discoverSavedTables({ executable: executable!, projectRoot: fixtureRoot })
+		);
+		expect(catalog.tables).toHaveLength(11);
+		expect(catalog.tables[0]?.objectPath).toBe(
+			"/Game/Fixture/Authoring/CDT_Scalars.CDT_Scalars"
+		);
+		expect(catalog.tables.every((table) => table.authority.kind === "project_files")).toBe(
+			true
+		);
+	});
+
 	it("reads every fixture DataTable through the shared contract", async () => {
 		const assets = await Effect.runPromise(discoverSavedAssets(fixtureRoot));
 		const tableAssets = assets.filter((assetPath) => assetPath.includes("Authoring"));

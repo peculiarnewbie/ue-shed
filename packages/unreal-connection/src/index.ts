@@ -1,6 +1,7 @@
 import {
 	decodeAuthoringApplyResult,
 	decodeAuthoringSaveResult,
+	decodeAuthoringTableList,
 	decodeAuthoringTableSnapshot,
 	decodeCompanionCapabilityManifest,
 	type AuthoringApplyRequest,
@@ -14,7 +15,8 @@ import { Data, Effect, Schema } from "effect";
 
 const coreObjectPath = "/Script/UEShedCore.Default__UEShedCoreLibrary";
 const requiredCapabilities = [
-	"authoring.snapshot.v1",
+	"authoring.snapshot.v2",
+	"authoring.table-list.v1",
 	"authoring.apply.v1",
 	"authoring.apply-result.v1",
 	"authoring.save.v1"
@@ -38,6 +40,7 @@ export class UnrealCapabilityError extends Data.TaggedError("UnrealCapabilityErr
 export interface UnrealAuthoringConnection {
 	readonly endpoint: string;
 	readonly manifest: CompanionCapabilityManifest;
+	readonly listTableObjectPaths: () => Effect.Effect<readonly string[], UnrealConnectionError>;
 	readonly getTableSnapshot: (
 		objectPath: string
 	) => Effect.Effect<AuthoringTableSnapshot, UnrealConnectionError>;
@@ -77,9 +80,10 @@ function remoteCall(
 				signal
 			});
 			if (!response.ok) {
+				const detail = (await response.text()).slice(0, 4_096).trim();
 				throw new UnrealConnectionError({
 					endpoint,
-					message: `Remote Control returned HTTP ${response.status}`,
+					message: `Remote Control returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
 					operation,
 					retrySafe: response.status >= 500,
 					status: response.status
@@ -159,11 +163,28 @@ export function connectUnrealAuthoring(
 					})
 				);
 			}
+			if (!manifest.authoringObjectPath) {
+				return Effect.fail(
+					new UnrealCapabilityError({
+						capability: "authoring.endpoint.v1",
+						message:
+							"Connected editor advertises authoring capabilities without an object path"
+					})
+				);
+			}
+			const authoringObjectPath = manifest.authoringObjectPath;
 			const call = (functionName: string, parameters: Readonly<Record<string, unknown>>) =>
-				remoteCall(endpoint, manifest.authoringObjectPath, functionName, parameters);
+				remoteCall(endpoint, authoringObjectPath, functionName, parameters);
 			return Effect.succeed<UnrealAuthoringConnection>({
 				endpoint,
 				manifest,
+				listTableObjectPaths: () =>
+					decodeResult(
+						call("ListTableObjectPaths", {}),
+						endpoint,
+						"table list",
+						decodeAuthoringTableList
+					).pipe(Effect.map((result) => result.objectPaths)),
 				getTableSnapshot: (objectPath) =>
 					decodeResult(
 						call("GetTableSnapshot", { TableObjectPath: objectPath }),

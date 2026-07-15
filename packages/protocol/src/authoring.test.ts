@@ -7,7 +7,10 @@ import {
 	AuthoringApplyResult,
 	AuthoringSaveRequest,
 	AuthoringSaveResult,
-	AuthoringTableSnapshot,
+	AuthoringTableList,
+	AuthoringTableSnapshotV1,
+	AuthoringTableSnapshotV2,
+	classifyAuthoringSnapshot,
 	decodeAuthoringTableSnapshot
 } from "./authoring.js";
 
@@ -53,25 +56,80 @@ describe("authoring wire contract", () => {
 		});
 
 		expect(snapshot.table.rows[0]?.fields[0]?.value.kind).toBe("struct");
+		expect(classifyAuthoringSnapshot(snapshot).status).toBe("legacy_read_only");
 	});
 
-	it("keeps the checked-in language-neutral schema derived from the runtime contract", async () => {
-		const check = async (name: string, contract: Schema.Schema.Any) => {
+	it("accepts v2 schema descriptors independently of populated rows", () => {
+		const snapshot = decodeAuthoringTableSnapshot({
+			authority: { kind: "project_files", packageName: "/Game/Fixture/DT_Empty" },
+			completeness: "complete",
+			contract: { name: "unreal-authoring", version: { major: 2, minor: 0 } },
+			diagnostics: [],
+			fingerprint: {
+				algorithm: "sha256",
+				status: "available",
+				value: "sha256-v1:empty",
+				version: 1
+			},
+			producer: { name: "uasset-parser", version: "6" },
+			table: {
+				kind: "data_table",
+				objectPath: "/Game/Fixture/DT_Empty.DT_Empty",
+				packageName: "/Game/Fixture/DT_Empty",
+				parentTables: [],
+				rows: [],
+				rowStruct: "/Script/Fixture.EmptyRow",
+				schema: {
+					fields: [
+						{
+							annotations: {
+								deprecated: false,
+								readOnly: false
+							},
+							defaultValue: { status: "unknown" },
+							editability: { kind: "editable" },
+							id: "field:Enabled",
+							name: "Enabled",
+							presence: "required",
+							type: { kind: "scalar", valueKind: "bool" },
+							typeName: "BoolProperty"
+						}
+					],
+					source: "saved_package",
+					status: "available"
+				}
+			}
+		});
+
+		const compatibility = classifyAuthoringSnapshot(snapshot);
+		expect(compatibility.status).toBe("current");
+		if (compatibility.status === "current") {
+			expect(compatibility.snapshot.table.schema).toMatchObject({
+				fields: [{ name: "Enabled" }],
+				status: "available"
+			});
+		}
+	});
+
+	it("keeps the runtime schemas conformant with the language-neutral contracts", async () => {
+		const check = async (version: "v1" | "v2", name: string, contract: Schema.Schema.Any) => {
 			const path = fileURLToPath(
-				new URL(`../contracts/authoring/v1/${name}.schema.json`, import.meta.url)
+				new URL(`../contracts/authoring/${version}/${name}.schema.json`, import.meta.url)
 			);
 			const checkedIn: unknown = JSON.parse(await readFile(path, "utf8"));
 			const derived = JSONSchema.make(contract, { target: "jsonSchema2020-12" });
 			expect(checkedIn, name).toEqual(derived);
 		};
-		for (const [name, contract] of [
-			["table-snapshot", AuthoringTableSnapshot],
-			["apply-request", AuthoringApplyRequest],
-			["apply-result", AuthoringApplyResult],
-			["save-request", AuthoringSaveRequest],
-			["save-result", AuthoringSaveResult]
+		for (const [version, name, contract] of [
+			["v1", "table-snapshot", AuthoringTableSnapshotV1],
+			["v2", "table-snapshot", AuthoringTableSnapshotV2],
+			["v1", "table-list", AuthoringTableList],
+			["v1", "apply-request", AuthoringApplyRequest],
+			["v1", "apply-result", AuthoringApplyResult],
+			["v1", "save-request", AuthoringSaveRequest],
+			["v1", "save-result", AuthoringSaveResult]
 		] as const) {
-			await check(name, contract);
+			await check(version, name, contract);
 		}
 	});
 });

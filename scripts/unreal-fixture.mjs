@@ -131,10 +131,48 @@ function launch(tools) {
 	child.unref();
 }
 
+function launchAuthoring(tools) {
+	const remoteControlPort = new URL(
+		process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT ?? "http://127.0.0.1:30001"
+	).port;
+	const child = spawn(
+		tools.editor,
+		[
+			projectFile,
+			"-unattended",
+			"-RCWebControlEnable",
+			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlHttpServerPort=${remoteControlPort}`,
+			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlWebSocketServerPort=${Number(remoteControlPort) + 1}`,
+			"-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:bAutoStartWebServer=True",
+			"-NoLiveCoding",
+			"-nop4",
+			"-nosplash"
+		],
+		{
+			cwd: fixtureRoot,
+			detached: true,
+			stdio: "ignore",
+			windowsHide: true
+		}
+	);
+	child.unref();
+}
+
 const action = process.argv[2];
-if (!new Set(["apply", "build", "generate", "launch", "save", "verify", "snapshot"]).has(action)) {
+if (
+	!new Set([
+		"apply",
+		"build",
+		"generate",
+		"launch",
+		"launch-authoring",
+		"save",
+		"verify",
+		"snapshot"
+	]).has(action)
+) {
 	throw new Error(
-		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|launch|save|verify|snapshot> [input] [output]"
+		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|launch|launch-authoring|save|verify|snapshot> [input] [output]"
 	);
 }
 
@@ -142,6 +180,9 @@ const tools = engineTools(discoverEngineRoot());
 build(tools);
 if (action === "launch") {
 	launch(tools);
+}
+if (action === "launch-authoring") {
+	launchAuthoring(tools);
 }
 if (action === "generate" || action === "verify") {
 	runCommandlet(tools);

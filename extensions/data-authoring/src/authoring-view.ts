@@ -11,6 +11,9 @@ export interface AuthoringColumn {
 }
 
 export function tableColumns(snapshot: AuthoringTableSnapshot): readonly AuthoringColumn[] {
+	if ("producer" in snapshot && snapshot.table.schema.status === "available") {
+		return snapshot.table.schema.fields.map(({ name, typeName }) => ({ name, typeName }));
+	}
 	const columns = new Map<string, string>();
 	for (const row of snapshot.table.rows) {
 		for (const field of row.fields) {

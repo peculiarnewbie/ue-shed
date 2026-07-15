@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 
-export const AUTHORING_CONTRACT_VERSION = { major: 1, minor: 0 } as const;
+export const AUTHORING_SNAPSHOT_CONTRACT_VERSION = { major: 2, minor: 0 } as const;
+export const AUTHORING_MUTATION_CONTRACT_VERSION = { major: 1, minor: 0 } as const;
+export const AUTHORING_TABLE_LIST_CONTRACT_VERSION = { major: 1, minor: 0 } as const;
 
 const FloatValue = Schema.Union(Schema.Number, Schema.Literal("nan", "infinity", "-infinity"));
 
@@ -83,38 +85,273 @@ export const AuthoringRow = Schema.Struct({
 });
 export type AuthoringRow = Schema.Schema.Type<typeof AuthoringRow>;
 
-export const AuthoringTableSnapshot = Schema.Struct({
+export const AuthoringTableList = Schema.Struct({
+	contract: Schema.Struct({
+		name: Schema.Literal("unreal-authoring-table-list"),
+		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
+	}),
+	objectPaths: Schema.Array(Schema.String)
+}).annotations({ identifier: "AuthoringTableList" });
+export type AuthoringTableList = Schema.Schema.Type<typeof AuthoringTableList>;
+
+const AuthoringAuthority = Schema.Union(
+	Schema.Struct({ kind: Schema.Literal("project_files"), packageName: Schema.String }),
+	Schema.Struct({
+		kind: Schema.Literal("live_editor"),
+		producerId: Schema.String,
+		sessionId: Schema.String
+	})
+);
+
+const AuthoringDiagnostic = Schema.Struct({
+	code: Schema.String,
+	message: Schema.String,
+	path: Schema.optional(Schema.String)
+});
+
+const AuthoringTable = Schema.Struct({
+	kind: Schema.Literal("data_table", "composite_data_table"),
+	objectPath: Schema.String,
+	rowStruct: Schema.String,
+	parentTables: Schema.Array(Schema.String),
+	rows: Schema.Array(AuthoringRow)
+});
+
+export const AuthoringTableSnapshotV1 = Schema.Struct({
 	contract: Schema.Struct({
 		name: Schema.Literal("unreal-authoring"),
 		version: Schema.Struct({ major: Schema.Literal(1), minor: Schema.NonNegativeInt })
 	}),
-	authority: Schema.Union(
-		Schema.Struct({ kind: Schema.Literal("project_files"), packageName: Schema.String }),
-		Schema.Struct({
-			kind: Schema.Literal("live_editor"),
-			producerId: Schema.String,
-			sessionId: Schema.String
-		})
-	),
+	authority: AuthoringAuthority,
 	completeness: Schema.Literal("complete", "partial"),
-	table: Schema.Struct({
-		kind: Schema.Literal("data_table", "composite_data_table"),
-		objectPath: Schema.String,
-		rowStruct: Schema.String,
-		parentTables: Schema.Array(Schema.String),
-		rows: Schema.Array(AuthoringRow)
+	table: AuthoringTable,
+	diagnostics: Schema.Array(AuthoringDiagnostic)
+}).annotations({ identifier: "AuthoringTableSnapshotV1" });
+export type AuthoringTableSnapshotV1 = Schema.Schema.Type<typeof AuthoringTableSnapshotV1>;
+
+export interface AuthoringEnumOption {
+	readonly name: string;
+	readonly displayName?: string | undefined;
+}
+
+export type AuthoringTypeDescriptor =
+	| {
+			readonly kind: "scalar";
+			readonly valueKind:
+				| "bool"
+				| "int"
+				| "uint"
+				| "float"
+				| "double"
+				| "name"
+				| "string"
+				| "text"
+				| "guid";
+	  }
+	| {
+			readonly kind: "enum";
+			readonly enumPath?: string | undefined;
+			readonly options: readonly AuthoringEnumOption[];
+	  }
+	| {
+			readonly kind: "reference";
+			readonly valueKind: "object_ref" | "soft_object_path";
+			readonly target:
+				| { readonly status: "known"; readonly classPath: string }
+				| { readonly status: "unknown" };
+	  }
+	| { readonly kind: "vector" }
+	| { readonly kind: "array" | "set"; readonly element: AuthoringTypeDescriptor }
+	| {
+			readonly kind: "map";
+			readonly key: AuthoringTypeDescriptor;
+			readonly value: AuthoringTypeDescriptor;
+	  }
+	| {
+			readonly kind: "struct";
+			readonly structPath?: string | undefined;
+			readonly fields: readonly AuthoringFieldDescriptor[];
+	  }
+	| { readonly kind: "unsupported"; readonly reason: string; readonly typeName: string };
+
+export interface AuthoringFieldDescriptor {
+	readonly id: string;
+	readonly name: string;
+	readonly typeName: string;
+	readonly type: AuthoringTypeDescriptor;
+	readonly editability:
+		| { readonly kind: "editable" }
+		| { readonly kind: "read_only"; readonly reason: string };
+	readonly presence: "required" | "optional" | "unknown";
+	readonly annotations: {
+		readonly displayName?: string | undefined;
+		readonly description?: string | undefined;
+		readonly deprecated: boolean;
+		readonly readOnly: boolean;
+		readonly clampMin?: string | undefined;
+		readonly clampMax?: string | undefined;
+		readonly step?: string | undefined;
+		readonly unit?: string | undefined;
+		readonly rowReference?:
+			| { readonly status: "known"; readonly tableObjectPath: string }
+			| { readonly status: "unknown" }
+			| undefined;
+	};
+	readonly defaultValue:
+		| { readonly status: "known"; readonly value: AuthoringValue }
+		| { readonly status: "unknown" };
+}
+
+export const AuthoringTypeDescriptor: Schema.Schema<AuthoringTypeDescriptor> = Schema.suspend(
+	() => AuthoringTypeDescriptorUnion
+).annotations({ identifier: "AuthoringTypeDescriptor" });
+
+export const AuthoringFieldDescriptor: Schema.Schema<AuthoringFieldDescriptor> = Schema.Struct({
+	annotations: Schema.Struct({
+		clampMax: Schema.optional(Schema.String),
+		clampMin: Schema.optional(Schema.String),
+		deprecated: Schema.Boolean,
+		description: Schema.optional(Schema.String),
+		displayName: Schema.optional(Schema.String),
+		readOnly: Schema.Boolean,
+		rowReference: Schema.optional(
+			Schema.Union(
+				Schema.Struct({ status: Schema.Literal("known"), tableObjectPath: Schema.String }),
+				Schema.Struct({ status: Schema.Literal("unknown") })
+			)
+		),
+		step: Schema.optional(Schema.String),
+		unit: Schema.optional(Schema.String)
 	}),
-	diagnostics: Schema.Array(
+	defaultValue: Schema.Union(
+		Schema.Struct({ status: Schema.Literal("known"), value: AuthoringValue }),
+		Schema.Struct({ status: Schema.Literal("unknown") })
+	),
+	editability: Schema.Union(
+		Schema.Struct({ kind: Schema.Literal("editable") }),
+		Schema.Struct({ kind: Schema.Literal("read_only"), reason: Schema.String })
+	),
+	id: Schema.String,
+	name: Schema.String,
+	presence: Schema.Literal("required", "optional", "unknown"),
+	type: AuthoringTypeDescriptor,
+	typeName: Schema.String
+}).annotations({ identifier: "AuthoringFieldDescriptor" });
+
+const AuthoringTypeDescriptorUnion: Schema.Schema<AuthoringTypeDescriptor> = Schema.Union(
+	Schema.Struct({
+		kind: Schema.Literal("scalar"),
+		valueKind: Schema.Literal(
+			"bool",
+			"int",
+			"uint",
+			"float",
+			"double",
+			"name",
+			"string",
+			"text",
+			"guid"
+		)
+	}),
+	Schema.Struct({
+		enumPath: Schema.optional(Schema.String),
+		kind: Schema.Literal("enum"),
+		options: Schema.Array(
+			Schema.Struct({ displayName: Schema.optional(Schema.String), name: Schema.String })
+		)
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("reference"),
+		target: Schema.Union(
+			Schema.Struct({ classPath: Schema.String, status: Schema.Literal("known") }),
+			Schema.Struct({ status: Schema.Literal("unknown") })
+		),
+		valueKind: Schema.Literal("object_ref", "soft_object_path")
+	}),
+	Schema.Struct({ kind: Schema.Literal("vector") }),
+	Schema.Struct({
+		element: AuthoringTypeDescriptor,
+		kind: Schema.Literal("array", "set")
+	}),
+	Schema.Struct({
+		key: AuthoringTypeDescriptor,
+		kind: Schema.Literal("map"),
+		value: AuthoringTypeDescriptor
+	}),
+	Schema.Struct({
+		fields: Schema.Array(AuthoringFieldDescriptor),
+		kind: Schema.Literal("struct"),
+		structPath: Schema.optional(Schema.String)
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("unsupported"),
+		reason: Schema.String,
+		typeName: Schema.String
+	})
+);
+
+export const AuthoringTableSnapshotV2 = Schema.Struct({
+	contract: Schema.Struct({
+		name: Schema.Literal("unreal-authoring"),
+		version: Schema.Struct({ major: Schema.Literal(2), minor: Schema.NonNegativeInt })
+	}),
+	authority: AuthoringAuthority,
+	completeness: Schema.Literal("complete", "partial"),
+	diagnostics: Schema.Array(AuthoringDiagnostic),
+	fingerprint: Schema.Union(
 		Schema.Struct({
-			code: Schema.String,
-			message: Schema.String,
-			path: Schema.optional(Schema.String)
+			algorithm: Schema.Literal("sha256"),
+			status: Schema.Literal("available"),
+			value: Schema.String,
+			version: Schema.NonNegativeInt
+		}),
+		Schema.Struct({ reason: Schema.String, status: Schema.Literal("unavailable") })
+	),
+	producer: Schema.Struct({ name: Schema.String, version: Schema.String }),
+	table: Schema.extend(
+		AuthoringTable,
+		Schema.Struct({
+			packageName: Schema.String,
+			schema: Schema.Union(
+				Schema.Struct({
+					fields: Schema.Array(AuthoringFieldDescriptor),
+					source: Schema.Literal("saved_package", "live_reflection"),
+					status: Schema.Literal("available")
+				}),
+				Schema.Struct({ reason: Schema.String, status: Schema.Literal("unavailable") })
+			)
 		})
 	)
-}).annotations({ identifier: "AuthoringTableSnapshot" });
+}).annotations({ identifier: "AuthoringTableSnapshotV2" });
+export type AuthoringTableSnapshotV2 = Schema.Schema.Type<typeof AuthoringTableSnapshotV2>;
+
+export const AuthoringTableSnapshot = Schema.Union(
+	AuthoringTableSnapshotV1,
+	AuthoringTableSnapshotV2
+).annotations({ identifier: "AuthoringTableSnapshot" });
 export type AuthoringTableSnapshot = Schema.Schema.Type<typeof AuthoringTableSnapshot>;
 
+export type AuthoringSnapshotCompatibility =
+	| { readonly status: "current"; readonly snapshot: AuthoringTableSnapshotV2 }
+	| {
+			readonly status: "legacy_read_only";
+			readonly snapshot: AuthoringTableSnapshotV1;
+			readonly recovery: string;
+	  };
+
+export function classifyAuthoringSnapshot(
+	snapshot: AuthoringTableSnapshot
+): AuthoringSnapshotCompatibility {
+	if ("producer" in snapshot) return { snapshot, status: "current" };
+	return {
+		recovery: "Refresh this table from a producer that supports authoring snapshot v2.",
+		snapshot,
+		status: "legacy_read_only"
+	};
+}
+
 export const decodeAuthoringTableSnapshot = Schema.decodeUnknownSync(AuthoringTableSnapshot);
+export const decodeAuthoringTableList = Schema.decodeUnknownSync(AuthoringTableList);
 export const decodeAuthoringValue = Schema.decodeUnknownSync(AuthoringValue);
 
 export const AuthoringCommand = Schema.Union(

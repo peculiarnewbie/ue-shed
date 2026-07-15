@@ -78,6 +78,16 @@
 			"minimum": 0
 		},
 		"AuthoringTableSnapshot": {
+			"anyOf": [
+				{
+					"$ref": "#/$defs/AuthoringTableSnapshotV1"
+				},
+				{
+					"$ref": "#/$defs/AuthoringTableSnapshotV2"
+				}
+			]
+		},
+		"AuthoringTableSnapshotV1": {
 			"type": "object",
 			"required": ["contract", "authority", "completeness", "table", "diagnostics"],
 			"properties": {
@@ -531,6 +541,583 @@
 							"enum": ["unsupported"]
 						},
 						"reason": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				}
+			]
+		},
+		"AuthoringTableSnapshotV2": {
+			"type": "object",
+			"required": [
+				"contract",
+				"authority",
+				"completeness",
+				"diagnostics",
+				"fingerprint",
+				"producer",
+				"table"
+			],
+			"properties": {
+				"contract": {
+					"type": "object",
+					"required": ["name", "version"],
+					"properties": {
+						"name": {
+							"type": "string",
+							"enum": ["unreal-authoring"]
+						},
+						"version": {
+							"type": "object",
+							"required": ["major", "minor"],
+							"properties": {
+								"major": {
+									"type": "number",
+									"enum": [2]
+								},
+								"minor": {
+									"$ref": "#/$defs/NonNegativeInt"
+								}
+							},
+							"additionalProperties": false
+						}
+					},
+					"additionalProperties": false
+				},
+				"authority": {
+					"anyOf": [
+						{
+							"type": "object",
+							"required": ["kind", "packageName"],
+							"properties": {
+								"kind": {
+									"type": "string",
+									"enum": ["project_files"]
+								},
+								"packageName": {
+									"type": "string"
+								}
+							},
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"required": ["kind", "producerId", "sessionId"],
+							"properties": {
+								"kind": {
+									"type": "string",
+									"enum": ["live_editor"]
+								},
+								"producerId": {
+									"type": "string"
+								},
+								"sessionId": {
+									"type": "string"
+								}
+							},
+							"additionalProperties": false
+						}
+					]
+				},
+				"completeness": {
+					"type": "string",
+					"enum": ["complete", "partial"]
+				},
+				"diagnostics": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"required": ["code", "message"],
+						"properties": {
+							"code": {
+								"type": "string"
+							},
+							"message": {
+								"type": "string"
+							},
+							"path": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"fingerprint": {
+					"anyOf": [
+						{
+							"type": "object",
+							"required": ["algorithm", "status", "value", "version"],
+							"properties": {
+								"algorithm": {
+									"type": "string",
+									"enum": ["sha256"]
+								},
+								"status": {
+									"type": "string",
+									"enum": ["available"]
+								},
+								"value": {
+									"type": "string"
+								},
+								"version": {
+									"$ref": "#/$defs/NonNegativeInt"
+								}
+							},
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"required": ["reason", "status"],
+							"properties": {
+								"reason": {
+									"type": "string"
+								},
+								"status": {
+									"type": "string",
+									"enum": ["unavailable"]
+								}
+							},
+							"additionalProperties": false
+						}
+					]
+				},
+				"producer": {
+					"type": "object",
+					"required": ["name", "version"],
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"version": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				},
+				"table": {
+					"type": "object",
+					"required": [
+						"kind",
+						"objectPath",
+						"rowStruct",
+						"parentTables",
+						"rows",
+						"packageName",
+						"schema"
+					],
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["data_table", "composite_data_table"]
+						},
+						"objectPath": {
+							"type": "string"
+						},
+						"rowStruct": {
+							"type": "string"
+						},
+						"parentTables": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						},
+						"rows": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"required": ["id", "name", "fields"],
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"fields": {
+										"type": "array",
+										"items": {
+											"$ref": "#/$defs/AuthoringFieldValue"
+										}
+									}
+								},
+								"additionalProperties": false
+							}
+						},
+						"packageName": {
+							"type": "string"
+						},
+						"schema": {
+							"anyOf": [
+								{
+									"type": "object",
+									"required": ["fields", "source", "status"],
+									"properties": {
+										"fields": {
+											"type": "array",
+											"items": {
+												"$ref": "#/$defs/AuthoringFieldDescriptor"
+											}
+										},
+										"source": {
+											"type": "string",
+											"enum": ["saved_package", "live_reflection"]
+										},
+										"status": {
+											"type": "string",
+											"enum": ["available"]
+										}
+									},
+									"additionalProperties": false
+								},
+								{
+									"type": "object",
+									"required": ["reason", "status"],
+									"properties": {
+										"reason": {
+											"type": "string"
+										},
+										"status": {
+											"type": "string",
+											"enum": ["unavailable"]
+										}
+									},
+									"additionalProperties": false
+								}
+							]
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"AuthoringFieldDescriptor": {
+			"type": "object",
+			"required": [
+				"annotations",
+				"defaultValue",
+				"editability",
+				"id",
+				"name",
+				"presence",
+				"type",
+				"typeName"
+			],
+			"properties": {
+				"annotations": {
+					"type": "object",
+					"required": ["deprecated", "readOnly"],
+					"properties": {
+						"clampMax": {
+							"type": "string"
+						},
+						"clampMin": {
+							"type": "string"
+						},
+						"deprecated": {
+							"type": "boolean"
+						},
+						"description": {
+							"type": "string"
+						},
+						"displayName": {
+							"type": "string"
+						},
+						"readOnly": {
+							"type": "boolean"
+						},
+						"rowReference": {
+							"anyOf": [
+								{
+									"type": "object",
+									"required": ["status", "tableObjectPath"],
+									"properties": {
+										"status": {
+											"type": "string",
+											"enum": ["known"]
+										},
+										"tableObjectPath": {
+											"type": "string"
+										}
+									},
+									"additionalProperties": false
+								},
+								{
+									"type": "object",
+									"required": ["status"],
+									"properties": {
+										"status": {
+											"type": "string",
+											"enum": ["unknown"]
+										}
+									},
+									"additionalProperties": false
+								}
+							]
+						},
+						"step": {
+							"type": "string"
+						},
+						"unit": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				},
+				"defaultValue": {
+					"anyOf": [
+						{
+							"type": "object",
+							"required": ["status", "value"],
+							"properties": {
+								"status": {
+									"type": "string",
+									"enum": ["known"]
+								},
+								"value": {
+									"$ref": "#/$defs/AuthoringValue"
+								}
+							},
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"required": ["status"],
+							"properties": {
+								"status": {
+									"type": "string",
+									"enum": ["unknown"]
+								}
+							},
+							"additionalProperties": false
+						}
+					]
+				},
+				"editability": {
+					"anyOf": [
+						{
+							"type": "object",
+							"required": ["kind"],
+							"properties": {
+								"kind": {
+									"type": "string",
+									"enum": ["editable"]
+								}
+							},
+							"additionalProperties": false
+						},
+						{
+							"type": "object",
+							"required": ["kind", "reason"],
+							"properties": {
+								"kind": {
+									"type": "string",
+									"enum": ["read_only"]
+								},
+								"reason": {
+									"type": "string"
+								}
+							},
+							"additionalProperties": false
+						}
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"presence": {
+					"type": "string",
+					"enum": ["required", "optional", "unknown"]
+				},
+				"type": {
+					"$ref": "#/$defs/AuthoringTypeDescriptor"
+				},
+				"typeName": {
+					"type": "string"
+				}
+			},
+			"additionalProperties": false
+		},
+		"AuthoringTypeDescriptor": {
+			"anyOf": [
+				{
+					"type": "object",
+					"required": ["kind", "valueKind"],
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["scalar"]
+						},
+						"valueKind": {
+							"type": "string",
+							"enum": [
+								"bool",
+								"int",
+								"uint",
+								"float",
+								"double",
+								"name",
+								"string",
+								"text",
+								"guid"
+							]
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["kind", "options"],
+					"properties": {
+						"enumPath": {
+							"type": "string"
+						},
+						"kind": {
+							"type": "string",
+							"enum": ["enum"]
+						},
+						"options": {
+							"type": "array",
+							"items": {
+								"type": "object",
+								"required": ["name"],
+								"properties": {
+									"displayName": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["kind", "target", "valueKind"],
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["reference"]
+						},
+						"target": {
+							"anyOf": [
+								{
+									"type": "object",
+									"required": ["classPath", "status"],
+									"properties": {
+										"classPath": {
+											"type": "string"
+										},
+										"status": {
+											"type": "string",
+											"enum": ["known"]
+										}
+									},
+									"additionalProperties": false
+								},
+								{
+									"type": "object",
+									"required": ["status"],
+									"properties": {
+										"status": {
+											"type": "string",
+											"enum": ["unknown"]
+										}
+									},
+									"additionalProperties": false
+								}
+							]
+						},
+						"valueKind": {
+							"type": "string",
+							"enum": ["object_ref", "soft_object_path"]
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["kind"],
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["vector"]
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["element", "kind"],
+					"properties": {
+						"element": {
+							"$ref": "#/$defs/AuthoringTypeDescriptor"
+						},
+						"kind": {
+							"type": "string",
+							"enum": ["array", "set"]
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["key", "kind", "value"],
+					"properties": {
+						"key": {
+							"$ref": "#/$defs/AuthoringTypeDescriptor"
+						},
+						"kind": {
+							"type": "string",
+							"enum": ["map"]
+						},
+						"value": {
+							"$ref": "#/$defs/AuthoringTypeDescriptor"
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["fields", "kind"],
+					"properties": {
+						"fields": {
+							"type": "array",
+							"items": {
+								"$ref": "#/$defs/AuthoringFieldDescriptor"
+							}
+						},
+						"kind": {
+							"type": "string",
+							"enum": ["struct"]
+						},
+						"structPath": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["kind", "reason", "typeName"],
+					"properties": {
+						"kind": {
+							"type": "string",
+							"enum": ["unsupported"]
+						},
+						"reason": {
+							"type": "string"
+						},
+						"typeName": {
 							"type": "string"
 						}
 					},

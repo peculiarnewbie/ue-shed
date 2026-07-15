@@ -24,6 +24,13 @@ export interface AssetReaderOptions {
 	readonly timeoutMs?: number;
 }
 
+export interface SavedTableCatalogOptions {
+	readonly projectRoot: string;
+	readonly executable?: string;
+	readonly timeoutMs?: number;
+	readonly concurrency?: number;
+}
+
 interface ProcessFailure {
 	readonly code?: number | string;
 	readonly killed?: boolean;
@@ -165,6 +172,85 @@ export type SavedAssetInspection = Schema.Schema.Type<typeof SavedAssetInspectio
 
 const decodeInspection = Schema.decodeUnknownSync(SavedAssetInspection);
 
+export const SavedAssetCatalogInspection = Schema.Struct({
+	assets: Schema.Array(
+		Schema.Struct({
+			kind: Schema.String,
+			object_path: Schema.String,
+			parent_tables: Schema.optionalWith(Schema.Array(Schema.String), { default: () => [] }),
+			row_struct: Schema.optional(Schema.String)
+		})
+	),
+	decode_errors: Schema.optionalWith(
+		Schema.Array(
+			Schema.Struct({
+				message: Schema.String,
+				object_path: Schema.optional(Schema.String)
+			})
+		),
+		{ default: () => [] }
+	),
+	package: Schema.Struct({ name: Schema.String }),
+	path: Schema.String,
+	schema_version: Schema.Literal(6),
+	status: Schema.Literal("ok", "partial")
+});
+export type SavedAssetCatalogInspection = Schema.Schema.Type<typeof SavedAssetCatalogInspection>;
+
+export const SavedTableDescriptor = Schema.Struct({
+	assetPath: Schema.String,
+	authority: Schema.Struct({ kind: Schema.Literal("project_files"), packageName: Schema.String }),
+	completeness: Schema.Literal("complete", "partial"),
+	kind: Schema.Literal("data_table", "composite_data_table"),
+	objectPath: Schema.String,
+	parentTables: Schema.Array(Schema.String),
+	rowStruct: Schema.String,
+	schema: Schema.Struct({ reason: Schema.String, status: Schema.Literal("unavailable") })
+});
+export type SavedTableDescriptor = Schema.Schema.Type<typeof SavedTableDescriptor>;
+
+export const SavedTableCatalog = Schema.Struct({
+	diagnostics: Schema.Array(
+		Schema.Struct({
+			code: Schema.String,
+			message: Schema.String,
+			path: Schema.String,
+			retrySafe: Schema.Boolean
+		})
+	),
+	projectRoot: Schema.String,
+	scannedAssets: Schema.NonNegativeInt,
+	tables: Schema.Array(SavedTableDescriptor)
+});
+export type SavedTableCatalog = Schema.Schema.Type<typeof SavedTableCatalog>;
+
+export const decodeSavedAssetCatalogInspection = Schema.decodeUnknownSync(
+	SavedAssetCatalogInspection
+);
+
+export function savedTableDescriptorsFromInspection(
+	inspection: SavedAssetCatalogInspection
+): readonly SavedTableDescriptor[] {
+	return inspection.assets.flatMap((asset): SavedTableDescriptor[] => {
+		if (asset.kind !== "DataTable" && asset.kind !== "CompositeDataTable") return [];
+		return [
+			{
+				assetPath: inspection.path,
+				authority: { kind: "project_files", packageName: inspection.package.name },
+				completeness: inspection.status === "partial" ? "partial" : "complete",
+				kind: asset.kind === "DataTable" ? "data_table" : "composite_data_table",
+				objectPath: asset.object_path,
+				parentTables: asset.parent_tables,
+				rowStruct: asset.row_struct ?? "",
+				schema: {
+					reason: "Saved row-structure schema has not been resolved for this table.",
+					status: "unavailable"
+				}
+			}
+		];
+	});
+}
+
 export function decodeSavedAssetInspection(input: unknown): SavedAssetInspection {
 	return decodeInspection(input);
 }
@@ -260,6 +346,21 @@ export function readSavedAsset(
 	);
 }
 
+function inspectSavedAssetForCatalog(
+	options: AssetReaderOptions
+): Effect.Effect<SavedAssetCatalogInspection, AssetReaderError> {
+	return invokeReader(options, "inspect").pipe(
+		Effect.flatMap((stdout) =>
+			decodeOutput({
+				assetPath: options.assetPath,
+				decode: decodeSavedAssetCatalogInspection,
+				operation: "inspect",
+				stdout
+			})
+		)
+	);
+}
+
 export function discoverSavedAssets(
 	projectRoot: string
 ): Effect.Effect<string[], AssetReaderError> {
@@ -288,4 +389,63 @@ export function discoverSavedAssets(
 				retrySafe: true
 			})
 	});
+}
+
+export function discoverSavedTables(
+	options: SavedTableCatalogOptions
+): Effect.Effect<SavedTableCatalog, AssetReaderError> {
+	return Effect.gen(function* () {
+		const assetPaths = yield* discoverSavedAssets(options.projectRoot);
+		const outcomes = yield* Effect.forEach(
+			assetPaths,
+			(assetPath) =>
+				inspectSavedAssetForCatalog({
+					assetPath,
+					...(options.executable === undefined ? {} : { executable: options.executable }),
+					...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+				}).pipe(
+					Effect.match({
+						onFailure: (error) => ({ error, status: "failed" as const }),
+						onSuccess: (inspection) => ({ inspection, status: "inspected" as const })
+					})
+				),
+			{ concurrency: Math.max(1, options.concurrency ?? 4) }
+		);
+
+		const tables: SavedTableDescriptor[] = [];
+		const diagnostics: SavedTableCatalog["diagnostics"][number][] = [];
+		for (const outcome of outcomes) {
+			if (outcome.status === "failed") {
+				diagnostics.push({
+					code: `asset_${outcome.error.kind}`,
+					message: outcome.error.message,
+					path: outcome.error.path ?? options.projectRoot,
+					retrySafe: outcome.error.retrySafe
+				});
+				continue;
+			}
+			const inspection = outcome.inspection;
+			for (const error of inspection.decode_errors) {
+				diagnostics.push({
+					code: "asset_decode_partial",
+					message: error.message,
+					path: error.object_path ?? inspection.path,
+					retrySafe: false
+				});
+			}
+			tables.push(...savedTableDescriptorsFromInspection(inspection));
+		}
+
+		tables.sort((left, right) => left.objectPath.localeCompare(right.objectPath));
+		return {
+			diagnostics,
+			projectRoot: options.projectRoot,
+			scannedAssets: assetPaths.length,
+			tables
+		};
+	}).pipe(
+		Effect.withSpan("unreal_assets.discover_saved_tables", {
+			attributes: { "unreal.project_root": options.projectRoot }
+		})
+	);
 }

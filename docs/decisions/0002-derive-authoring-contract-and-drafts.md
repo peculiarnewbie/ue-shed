@@ -39,5 +39,5 @@ without automatic mutation replay. Apply and Save create separate durable receip
 - Session files require explicit contract, fingerprint, and persistence versions plus atomic writes.
 - Invalid folds, partial decoding, drift, and indeterminate Apply outcomes are typed states, not
   silent fallbacks.
-- Renderers and custom interfaces draft through the same public service and receive no Apply or Save
-  authority implicitly.
+- Renderers and trusted host clients draft through the same public service and receive no Apply or
+  Save authority implicitly.

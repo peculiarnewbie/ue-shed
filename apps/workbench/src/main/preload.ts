@@ -43,8 +43,12 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("asset-audits:textures:preview", objectPath)
 	},
 	authoring: {
+		loadConfiguredCatalog: (): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:configured-catalog"),
 		loadConfiguredTable: (): Promise<unknown> =>
 			ipcRenderer.invoke("authoring:configured-table"),
+		openCatalogTable: (objectPath: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:open-catalog-table", objectPath),
 		chooseTable: (): Promise<unknown> => ipcRenderer.invoke("authoring:choose-table")
 	},
 	fixture: {

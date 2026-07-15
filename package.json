@@ -6,10 +6,12 @@
 	"type": "module",
 	"scripts": {
 		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
+		"authoring:parity": "node scripts/ue-shed.mjs authoring parity",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
 		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
 		"fixture:generate": "node scripts/unreal-fixture.mjs generate",
 		"fixture:launch": "node scripts/unreal-fixture.mjs launch",
+		"fixture:launch-authoring": "node scripts/unreal-fixture.mjs launch-authoring",
 		"fixture:snapshot": "node scripts/unreal-fixture.mjs snapshot",
 		"fixture:save": "node scripts/unreal-fixture.mjs save",
 		"fixture:verify": "node scripts/unreal-fixture.mjs verify",

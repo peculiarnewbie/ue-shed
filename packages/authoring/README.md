@@ -13,3 +13,9 @@ the five canonical command shapes, strict command folding, grouped append/undo/r
 and atomic session-file replacement. It builds bounded multi-table Apply plans through a narrow live
 port, rebases committed drafts from returned snapshots, preserves indeterminate outcomes without
 automatic replay, and records Apply and Save as separate durable receipts.
+
+`makeAuthoringSessionService` is the maintained persistence boundary. It scopes storage to a project,
+addresses sessions by validated id, serializes transitions, fsyncs atomic replacements, quarantines
+malformed documents, and exposes create/open/resume/list/append/undo/redo/close/discard as typed
+Effects. Hosts and renderers should consume this service instead of owning a command log or passing
+arbitrary session file paths.

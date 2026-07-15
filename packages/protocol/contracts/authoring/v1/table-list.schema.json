@@ -1,0 +1,48 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$defs": {
+		"AuthoringTableList": {
+			"type": "object",
+			"required": ["contract", "objectPaths"],
+			"properties": {
+				"contract": {
+					"type": "object",
+					"required": ["name", "version"],
+					"properties": {
+						"name": {
+							"type": "string",
+							"enum": ["unreal-authoring-table-list"]
+						},
+						"version": {
+							"type": "object",
+							"required": ["major", "minor"],
+							"properties": {
+								"major": {
+									"type": "number",
+									"enum": [1]
+								},
+								"minor": {
+									"$ref": "#/$defs/NonNegativeInt"
+								}
+							},
+							"additionalProperties": false
+						}
+					},
+					"additionalProperties": false
+				},
+				"objectPaths": {
+					"type": "array",
+					"items": { "type": "string" }
+				}
+			},
+			"additionalProperties": false
+		},
+		"NonNegativeInt": {
+			"type": "integer",
+			"description": "an integer",
+			"title": "int",
+			"minimum": 0
+		}
+	},
+	"$ref": "#/$defs/AuthoringTableList"
+}

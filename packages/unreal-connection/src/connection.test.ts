@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { connectUnrealAuthoring, UnrealConnectionError } from "./index.js";
+import { connectUnrealAuthoring, UnrealCapabilityError, UnrealConnectionError } from "./index.js";
 
 let server: Server | undefined;
 
@@ -33,13 +33,14 @@ describe("Remote Control authoring adapter", () => {
 			request.on("end", () => {
 				const call = JSON.parse(body) as { functionName: string };
 				response.setHeader("content-type", "application/json");
-				response.end(
+				const result =
 					call.functionName === "GetCapabilityManifest"
 						? resultJson({
 								authoringObjectPath:
 									"/Script/UEShedAuthoring.Default__UEShedAuthoringLibrary",
 								capabilities: [
-									"authoring.snapshot.v1",
+									"authoring.snapshot.v2",
+									"authoring.table-list.v1",
 									"authoring.apply.v1",
 									"authoring.apply-result.v1",
 									"authoring.save.v1"
@@ -47,31 +48,55 @@ describe("Remote Control authoring adapter", () => {
 								producerKind: "unreal_editor",
 								schemaVersion: 1
 							})
-						: resultJson({
-								authority: {
-									kind: "live_editor",
-									producerId: "producer",
-									sessionId: "session"
-								},
-								completeness: "complete",
-								contract: {
-									name: "unreal-authoring",
-									version: { major: 1, minor: 0 }
-								},
-								diagnostics: [],
-								table: {
-									kind: "data_table",
-									objectPath: "/Game/Fixture/DT_Test.DT_Test",
-									parentTables: [],
-									rows: [],
-									rowStruct: "/Script/Fixture.Row"
-								}
-							})
-				);
+						: call.functionName === "ListTableObjectPaths"
+							? resultJson({
+									contract: {
+										name: "unreal-authoring-table-list",
+										version: { major: 1, minor: 0 }
+									},
+									objectPaths: ["/Game/Fixture/DT_Test.DT_Test"]
+								})
+							: resultJson({
+									authority: {
+										kind: "live_editor",
+										producerId: "producer",
+										sessionId: "session"
+									},
+									completeness: "complete",
+									contract: {
+										name: "unreal-authoring",
+										version: { major: 2, minor: 0 }
+									},
+									diagnostics: [],
+									fingerprint: {
+										algorithm: "sha256",
+										status: "available",
+										value: "sha256-v1:test",
+										version: 1
+									},
+									producer: { name: "UEShedAuthoring", version: "1" },
+									table: {
+										kind: "data_table",
+										objectPath: "/Game/Fixture/DT_Test.DT_Test",
+										packageName: "/Game/Fixture/DT_Test",
+										parentTables: [],
+										rows: [],
+										rowStruct: "/Script/Fixture.Row",
+										schema: {
+											fields: [],
+											source: "live_reflection",
+											status: "available"
+										}
+									}
+								});
+				response.end(result);
 			});
 		});
 
 		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+		expect(await Effect.runPromise(connection.listTableObjectPaths())).toEqual([
+			"/Game/Fixture/DT_Test.DT_Test"
+		]);
 		const snapshot = await Effect.runPromise(
 			connection.getTableSnapshot("/Game/Fixture/DT_Test.DT_Test")
 		);
@@ -88,6 +113,30 @@ describe("Remote Control authoring adapter", () => {
 		if (error instanceof UnrealConnectionError) {
 			expect(error.retrySafe).toBe(true);
 			expect(error.status).toBe(503);
+		}
+	});
+
+	it("rejects a manifest that advertises authoring without an endpoint", async () => {
+		const endpoint = await listen((_request, response) => {
+			response.setHeader("content-type", "application/json");
+			response.end(
+				resultJson({
+					capabilities: [
+						"authoring.snapshot.v2",
+						"authoring.table-list.v1",
+						"authoring.apply.v1",
+						"authoring.apply-result.v1",
+						"authoring.save.v1"
+					],
+					producerKind: "unreal_editor",
+					schemaVersion: 1
+				})
+			);
+		});
+		const error = await Effect.runPromise(Effect.flip(connectUnrealAuthoring(endpoint)));
+		expect(error).toBeInstanceOf(UnrealCapabilityError);
+		if (error instanceof UnrealCapabilityError) {
+			expect(error.capability).toBe("authoring.endpoint.v1");
 		}
 	});
 });

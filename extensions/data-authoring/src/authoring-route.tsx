@@ -22,8 +22,33 @@ export type AuthoringLoadResult =
 	| { readonly status: "cancelled" }
 	| { readonly status: "failed"; readonly error: AuthoringLoadFailure };
 
+export interface AuthoringTableCatalogEntry {
+	readonly authorities: readonly ("saved" | "live")[];
+	readonly completeness: "complete" | "partial";
+	readonly divergence: readonly string[];
+	readonly kind: "data_table" | "composite_data_table";
+	readonly objectPath: string;
+	readonly parentTables: readonly string[];
+	readonly rowStruct: string;
+}
+
+export type AuthoringCatalogResult =
+	| {
+			readonly status: "ready";
+			readonly tables: readonly AuthoringTableCatalogEntry[];
+			readonly diagnostics: readonly {
+				readonly code: string;
+				readonly message: string;
+				readonly path?: string | undefined;
+			}[];
+	  }
+	| { readonly status: "not_configured" }
+	| { readonly status: "failed"; readonly error: AuthoringLoadFailure };
+
 export interface AuthoringClient {
+	readonly loadConfiguredCatalog: () => Promise<AuthoringCatalogResult>;
 	readonly loadConfiguredTable: () => Promise<AuthoringLoadResult>;
+	readonly openCatalogTable: (objectPath: string) => Promise<AuthoringLoadResult>;
 	readonly chooseTable: () => Promise<AuthoringLoadResult>;
 }
 
@@ -33,6 +58,8 @@ type ViewState =
 	| { readonly status: "cancelled" }
 	| { readonly status: "failed"; readonly error: AuthoringLoadFailure }
 	| { readonly status: "ready"; readonly snapshot: AuthoringTableSnapshot };
+
+type CatalogState = AuthoringCatalogResult | { readonly status: "loading" };
 
 interface CellSelection {
 	readonly rowId: string;
@@ -78,14 +105,131 @@ function CellValue(props: { readonly field: AuthoringFieldValue | undefined }) {
 	);
 }
 
+function CatalogPanel(props: {
+	readonly activeObjectPath?: string;
+	readonly disabled: boolean;
+	readonly onOpen: (objectPath: string) => void;
+	readonly onQueryChange: (query: string) => void;
+	readonly onRefresh: () => void;
+	readonly query: string;
+	readonly state: CatalogState;
+}) {
+	const tables = createMemo(() => {
+		if (props.state.status !== "ready") return [];
+		const filter = props.query.trim().toLocaleLowerCase();
+		return filter.length === 0
+			? props.state.tables
+			: props.state.tables.filter(
+					(table) =>
+						table.objectPath.toLocaleLowerCase().includes(filter) ||
+						table.rowStruct.toLocaleLowerCase().includes(filter)
+				);
+	});
+
+	return (
+		<nav {...stylex.props(styles.catalog)} aria-label="Project DataTables">
+			<div {...stylex.props(styles.catalogHeading)}>
+				<div {...stylex.props(styles.catalogTitle)}>
+					<span {...stylex.props(styles.catalogEyebrow)}>PROJECT INDEX</span>
+					<strong {...stylex.props(styles.catalogName)}>Tables</strong>
+				</div>
+				<button
+					type="button"
+					disabled={props.disabled}
+					onClick={props.onRefresh}
+					aria-label="Refresh project DataTables"
+					{...stylex.props(styles.catalogRefresh)}
+				>
+					↻
+				</button>
+			</div>
+			<input
+				aria-label="Filter project DataTables"
+				placeholder="Filter tables…"
+				value={props.query}
+				onInput={(event) => props.onQueryChange(event.currentTarget.value)}
+				{...stylex.props(styles.catalogSearch)}
+			/>
+			<Switch>
+				<Match when={props.state.status === "loading"}>
+					<div {...stylex.props(styles.catalogStatus)}>Scanning packages…</div>
+				</Match>
+				<Match when={props.state.status === "not_configured"}>
+					<div {...stylex.props(styles.catalogStatus)}>
+						Configure UE_SHED_PROJECT_ROOT to discover tables.
+					</div>
+				</Match>
+				<Match when={props.state.status === "failed"}>
+					<div {...stylex.props(styles.catalogStatus)}>
+						Catalog unavailable. The open table is unchanged.
+					</div>
+				</Match>
+				<Match when={props.state.status === "ready"}>
+					<div {...stylex.props(styles.catalogList)}>
+						<Show
+							when={
+								props.state.status === "ready" && props.state.diagnostics.length > 0
+							}
+						>
+							<div {...stylex.props(styles.catalogWarning)}>
+								{props.state.status === "ready"
+									? `${props.state.diagnostics.length} catalog diagnostic${props.state.diagnostics.length === 1 ? "" : "s"}`
+									: ""}
+							</div>
+						</Show>
+						<For each={tables()}>
+							{(table) => (
+								<button
+									type="button"
+									disabled={props.disabled}
+									onClick={() => props.onOpen(table.objectPath)}
+									{...stylex.props(
+										styles.catalogItem,
+										table.objectPath === props.activeObjectPath &&
+											styles.catalogItemActive
+									)}
+								>
+									<span {...stylex.props(styles.catalogItemName)}>
+										{shortObjectName(table.objectPath)}
+									</span>
+									<small {...stylex.props(styles.catalogItemKind)}>
+										{table.kind === "composite_data_table"
+											? "COMPOSITE"
+											: "DATA TABLE"}
+										{" · "}
+										{table.authorities.join("+").toUpperCase()}
+									</small>
+									<Show when={table.divergence.length > 0}>
+										<small {...stylex.props(styles.catalogDivergence)}>
+											DIVERGED · {table.divergence.join(", ")}
+										</small>
+									</Show>
+								</button>
+							)}
+						</For>
+						<Show when={tables().length === 0}>
+							<div {...stylex.props(styles.catalogStatus)}>No matching tables.</div>
+						</Show>
+					</div>
+				</Match>
+			</Switch>
+		</nav>
+	);
+}
+
 export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
+	const [catalogState, setCatalogState] = createSignal<CatalogState>({ status: "loading" });
+	const [catalogQuery, setCatalogQuery] = createSignal("");
+	const [isReplacing, setIsReplacing] = createSignal(false);
+	const [replacementNotice, setReplacementNotice] = createSignal<string>();
 	const [query, setQuery] = createSignal("");
 	const [selection, setSelection] = createSignal<CellSelection>();
 
-	const applyResult = (result: AuthoringLoadResult) => {
+	const applyResult = (result: AuthoringLoadResult, preserveCurrent: boolean) => {
 		if (result.status === "ready") {
 			setState(result);
+			setReplacementNotice(undefined);
 			const firstRow = result.snapshot.table.rows[0];
 			const firstField = firstRow?.fields[0];
 			setSelection(
@@ -95,17 +239,50 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 			);
 			return;
 		}
+		if (preserveCurrent) {
+			if (result.status === "failed") setReplacementNotice(result.error.message);
+			else if (result.status === "cancelled")
+				setReplacementNotice("Table selection cancelled.");
+			return;
+		}
 		setState(result);
 	};
 
 	const load = async (choose: boolean) => {
-		setState({ status: "loading" });
-		applyResult(
-			await (choose ? props.client.chooseTable() : props.client.loadConfiguredTable())
-		);
+		const preserveCurrent = state().status === "ready";
+		if (preserveCurrent) setIsReplacing(true);
+		else setState({ status: "loading" });
+		try {
+			applyResult(
+				await (choose ? props.client.chooseTable() : props.client.loadConfiguredTable()),
+				preserveCurrent
+			);
+		} finally {
+			setIsReplacing(false);
+		}
 	};
 
-	onMount(() => void load(false));
+	const loadCatalog = async () => {
+		setCatalogState({ status: "loading" });
+		setCatalogState(await props.client.loadConfiguredCatalog());
+	};
+
+	const openCatalogTable = async (objectPath: string) => {
+		setIsReplacing(true);
+		try {
+			applyResult(
+				await props.client.openCatalogTable(objectPath),
+				state().status === "ready"
+			);
+		} finally {
+			setIsReplacing(false);
+		}
+	};
+
+	onMount(() => {
+		void load(false);
+		void loadCatalog();
+	});
 
 	return (
 		<main {...stylex.props(styles.page)}>
@@ -120,13 +297,15 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 				<div {...stylex.props(styles.headerActions)}>
 					<button
 						type="button"
+						disabled={isReplacing()}
 						onClick={() => void load(true)}
 						{...stylex.props(styles.primaryButton)}
 					>
-						Open saved table
+						{isReplacing() ? "Opening…" : "Open saved table"}
 					</button>
 					<button
 						type="button"
+						disabled={isReplacing()}
 						onClick={() => void load(false)}
 						{...stylex.props(styles.secondaryButton)}
 					>
@@ -142,16 +321,29 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 					</div>
 				</Match>
 				<Match when={state().status === "not_configured"}>
-					<div {...stylex.props(styles.emptyState)}>
-						<strong>No authoring preset is configured.</strong>
-						<span>Open any saved DataTable package to begin.</span>
-						<button
-							type="button"
-							onClick={() => void load(true)}
-							{...stylex.props(styles.inlineButton)}
-						>
-							Choose .uasset
-						</button>
+					<div {...stylex.props(styles.coldStart)}>
+						<CatalogPanel
+							disabled={isReplacing()}
+							onOpen={(objectPath) => void openCatalogTable(objectPath)}
+							onQueryChange={setCatalogQuery}
+							onRefresh={() => void loadCatalog()}
+							query={catalogQuery()}
+							state={catalogState()}
+						/>
+						<div {...stylex.props(styles.emptyState)}>
+							<strong>Select a project DataTable.</strong>
+							<span>
+								Choose from the project index or open a package outside the
+								configured root.
+							</span>
+							<button
+								type="button"
+								onClick={() => void load(true)}
+								{...stylex.props(styles.inlineButton)}
+							>
+								Choose .uasset
+							</button>
+						</div>
 					</div>
 				</Match>
 				<Match when={state().status === "cancelled"}>
@@ -248,7 +440,29 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 									</section>
 								</Show>
 
+								<Show when={replacementNotice()}>
+									<div {...stylex.props(styles.replacementNotice)}>
+										<span>{replacementNotice()}</span>
+										<button
+											type="button"
+											onClick={() => setReplacementNotice(undefined)}
+											{...stylex.props(styles.noticeDismiss)}
+										>
+											Dismiss
+										</button>
+									</div>
+								</Show>
+
 								<div {...stylex.props(styles.contentGrid)}>
+									<CatalogPanel
+										activeObjectPath={snapshot.table.objectPath}
+										disabled={isReplacing()}
+										onOpen={(objectPath) => void openCatalogTable(objectPath)}
+										onQueryChange={setCatalogQuery}
+										onRefresh={() => void loadCatalog()}
+										query={catalogQuery()}
+										state={catalogState()}
+									/>
 									<section {...stylex.props(styles.sheet)}>
 										<div {...stylex.props(styles.sheetTools)}>
 											<label {...stylex.props(styles.searchWrap)}>
@@ -475,6 +689,11 @@ const styles = stylex.create({
 		letterSpacing: ".08em",
 		textTransform: "uppercase"
 	},
+	coldStart: {
+		display: "grid",
+		gridTemplateColumns: "230px minmax(0, 1fr)",
+		gap: 10
+	},
 	emptyState: {
 		minHeight: 360,
 		border: "1px solid #343a36",
@@ -552,7 +771,110 @@ const styles = stylex.create({
 		color: "#d6a363",
 		fontSize: 9
 	},
-	contentGrid: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: 10 },
+	replacementNotice: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		padding: "9px 12px",
+		border: "1px solid #665337",
+		backgroundColor: "#1a1710",
+		color: "#d6a363",
+		fontSize: 9
+	},
+	noticeDismiss: {
+		border: 0,
+		backgroundColor: "transparent",
+		color: "#d6a363",
+		cursor: "pointer",
+		fontSize: 8,
+		letterSpacing: ".08em",
+		textTransform: "uppercase"
+	},
+	contentGrid: {
+		display: "grid",
+		gridTemplateColumns: "230px minmax(0, 1fr) 300px",
+		gap: 10
+	},
+	catalog: {
+		minHeight: 480,
+		border: "1px solid #39403b",
+		backgroundColor: "#0e110f",
+		overflow: "hidden"
+	},
+	catalogHeading: {
+		height: 58,
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		padding: "0 12px",
+		borderBottom: "1px solid #303632"
+	},
+	catalogTitle: { display: "flex", flexDirection: "column", gap: 4 },
+	catalogEyebrow: { color: "#718073", fontSize: 7, letterSpacing: ".14em" },
+	catalogName: { color: "#d9ded7", fontFamily: "Georgia, serif", fontSize: 18, fontWeight: 400 },
+	catalogRefresh: {
+		width: 28,
+		height: 28,
+		border: "1px solid #39413b",
+		backgroundColor: { default: "transparent", ":hover": "#202720" },
+		color: "#9dab9e",
+		cursor: "pointer"
+	},
+	catalogSearch: {
+		width: "calc(100% - 20px)",
+		margin: 10,
+		border: "1px solid #343b36",
+		backgroundColor: "#090b0a",
+		color: "#e0e5dd",
+		padding: "8px 9px",
+		outlineColor: "#b7e26d",
+		fontSize: 9
+	},
+	catalogStatus: { padding: 14, color: "#737d75", fontSize: 9, lineHeight: 1.6 },
+	catalogList: {
+		maxHeight: "calc(100vh - 350px)",
+		overflowY: "auto",
+		borderTop: "1px solid #252b27"
+	},
+	catalogItem: {
+		width: "100%",
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "flex-start",
+		gap: 5,
+		border: 0,
+		borderBottom: "1px solid #252b27",
+		borderLeft: "3px solid transparent",
+		backgroundColor: { default: "transparent", ":hover": "#171d18" },
+		color: "#b8c0b8",
+		padding: "11px 10px",
+		textAlign: "left",
+		cursor: "pointer",
+		fontSize: 10
+	},
+	catalogItemActive: { borderLeftColor: "#b7e26d", backgroundColor: "#1b241a" },
+	catalogItemName: {
+		width: "100%",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap"
+	},
+	catalogItemKind: { color: "#68736a", fontSize: 7, letterSpacing: ".1em" },
+	catalogDivergence: {
+		color: "#d6a363",
+		fontSize: 7,
+		letterSpacing: ".08em",
+		textTransform: "uppercase"
+	},
+	catalogWarning: {
+		borderBottom: "1px solid #665337",
+		backgroundColor: "#1a1710",
+		color: "#d6a363",
+		fontSize: 7,
+		letterSpacing: ".08em",
+		padding: "8px 10px",
+		textTransform: "uppercase"
+	},
 	sheet: { minWidth: 0, border: "1px solid #39403b", backgroundColor: "#101311" },
 	sheetTools: {
 		height: 48,

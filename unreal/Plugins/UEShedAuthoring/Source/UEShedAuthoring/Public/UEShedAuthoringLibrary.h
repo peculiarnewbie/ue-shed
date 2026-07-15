@@ -10,6 +10,9 @@ class UESHEDAUTHORING_API UUEShedAuthoringLibrary : public UBlueprintFunctionLib
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "UE Shed|Authoring")
+	static void ListTableObjectPaths(FString& ResultJson);
+
+	UFUNCTION(BlueprintCallable, Category = "UE Shed|Authoring")
 	static void GetTableSnapshot(const FString& TableObjectPath, FString& ResultJson);
 
 	UFUNCTION(BlueprintCallable, Category = "UE Shed|Authoring")
