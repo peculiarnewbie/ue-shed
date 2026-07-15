@@ -7,5 +7,6 @@ filesystem, process, raw Unreal, Apply, or Save access to a renderer.
 Trusted hosts may implement this client to embed the maintained extension. This package is not an
 untrusted-extension SDK, capability sandbox, custom-UI registry, or generated-interface platform.
 
-The package remains a boundary placeholder until Plan 004 implements the persistent authoring session
-service and its host-neutral client.
+The implemented v1 boundary exposes runtime-validated session views and atomic `set_cells` intents.
+The Workbench preload transports only these scoped values: the renderer receives no session paths,
+filesystem access, raw Unreal calls, Apply, or Save capability.

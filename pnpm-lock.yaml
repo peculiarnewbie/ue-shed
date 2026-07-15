@@ -59,9 +59,15 @@ importers:
       '@ue-shed/asset-audits':
         specifier: workspace:*
         version: link:../../packages/asset-audits
+      '@ue-shed/authoring':
+        specifier: workspace:*
+        version: link:../../packages/authoring
       '@ue-shed/authoring-catalog':
         specifier: workspace:*
         version: link:../../packages/authoring-catalog
+      '@ue-shed/authoring-sdk':
+        specifier: workspace:*
+        version: link:../../packages/authoring-sdk
       '@ue-shed/cameras':
         specifier: workspace:*
         version: link:../../packages/cameras
@@ -74,6 +80,9 @@ importers:
       '@ue-shed/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ue-shed/ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/ui-theme
       '@ue-shed/unreal-assets':
         specifier: workspace:*
         version: link:../../packages/unreal-assets
@@ -111,6 +120,12 @@ importers:
       '@ue-shed/asset-audits':
         specifier: workspace:*
         version: link:../../packages/asset-audits
+      '@ue-shed/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@ue-shed/ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/ui-theme
       solid-js:
         specifier: ^1.9.14
         version: 1.9.14
@@ -120,9 +135,18 @@ importers:
       '@stylexjs/stylex':
         specifier: ^0.19.0
         version: 0.19.0
+      '@ue-shed/authoring-sdk':
+        specifier: workspace:*
+        version: link:../../packages/authoring-sdk
       '@ue-shed/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@ue-shed/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@ue-shed/ui-theme':
+        specifier: workspace:*
+        version: link:../../packages/ui-theme
       peculiar-sheets:
         specifier: 0.9.1
         version: 0.9.1(solid-js@1.9.14)
@@ -169,6 +193,15 @@ importers:
         specifier: ^3.22.0
         version: 3.22.0
 
+  packages/authoring-sdk:
+    dependencies:
+      '@ue-shed/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      effect:
+        specifier: ^3.22.0
+        version: 3.22.0
+
   packages/cameras:
     dependencies:
       '@ue-shed/protocol':
@@ -183,6 +216,24 @@ importers:
       effect:
         specifier: ^3.22.0
         version: 3.22.0
+
+  packages/ui:
+    dependencies:
+      '@stylexjs/stylex':
+        specifier: ^0.19.0
+        version: 0.19.0
+      '@ue-shed/ui-theme':
+        specifier: workspace:*
+        version: link:../ui-theme
+      solid-js:
+        specifier: ^1.9.14
+        version: 1.9.14
+
+  packages/ui-theme:
+    dependencies:
+      '@stylexjs/stylex':
+        specifier: ^0.19.0
+        version: 0.19.0
 
   packages/unreal-assets:
     dependencies:

@@ -1,4 +1,5 @@
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import type { AuthoringSetCellsIntent } from "@ue-shed/authoring-sdk";
 import type {
 	RendererCameraFrame,
 	FixtureLaunchResult,
@@ -18,6 +19,13 @@ declare global {
 				readonly preview: (objectPath: string) => Promise<unknown>;
 			};
 			readonly authoring: {
+				readonly beginSession: (objectPath: string) => Promise<unknown>;
+				readonly editSession: (intent: AuthoringSetCellsIntent) => Promise<unknown>;
+				readonly applySession: (sessionId: string) => Promise<unknown>;
+				readonly reconcileSession: (sessionId: string) => Promise<unknown>;
+				readonly saveSession: (sessionId: string) => Promise<unknown>;
+				readonly undoSession: (sessionId: string) => Promise<unknown>;
+				readonly redoSession: (sessionId: string) => Promise<unknown>;
 				readonly loadConfiguredCatalog: () => Promise<unknown>;
 				readonly loadConfiguredTable: () => Promise<unknown>;
 				readonly openCatalogTable: (objectPath: string) => Promise<unknown>;

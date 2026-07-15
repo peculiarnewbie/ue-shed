@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { RendererCameraFrame, WorkbenchCameraMetrics } from "../main/preload.js";
@@ -672,7 +673,9 @@ function Slider(props: {
 const styles = stylex.create({
 	shell: {
 		minHeight: "100vh",
-		backgroundColor: "#0b0d0d",
+		backgroundColor: tokens.colorCanvas,
+		color: tokens.colorText,
+		fontFamily: tokens.fontBody,
 		backgroundImage:
 			"linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px)",
 		backgroundSize: "24px 24px",
@@ -682,13 +685,15 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "flex-end",
 		justifyContent: "space-between",
-		borderBottom: "1px solid #3b413e",
+		borderBottomColor: tokens.colorBorderStrong,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
 		paddingBottom: "18px"
 	},
 	eyebrow: { color: "#8f9992", fontSize: "10px", letterSpacing: "0.2em", margin: "0 0 7px" },
 	title: {
-		color: "#f0f2ed",
-		fontFamily: "Workbench Mono, monospace",
+		color: tokens.colorTextStrong,
+		fontFamily: tokens.fontBody,
 		fontSize: "30px",
 		fontWeight: 500,
 		letterSpacing: "0.045em",
@@ -728,13 +733,15 @@ const styles = stylex.create({
 		width: "7px",
 		height: "7px",
 		borderRadius: "50%",
-		backgroundColor: "#b9f227",
+		backgroundColor: tokens.colorAccentStrong,
 		boxShadow: "0 0 14px #b9f227"
 	},
 	instrumentBar: {
 		display: "grid",
 		gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-		borderBottom: "1px solid #303532"
+		borderBottomColor: tokens.colorBorder,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1
 	},
 	metric: {
 		borderRight: "1px solid #303532",

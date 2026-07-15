@@ -5,6 +5,13 @@ export const CompanionCapabilityManifest = Schema.Struct({
 	authoringObjectPath: Schema.optional(Schema.String),
 	camerasObjectPath: Schema.optional(Schema.String),
 	capabilities: Schema.Array(Schema.String),
+	authoringLimits: Schema.optional(
+		Schema.Struct({
+			maxCommands: Schema.NonNegativeInt,
+			maxPayloadBytes: Schema.NonNegativeInt,
+			maxTables: Schema.NonNegativeInt
+		})
+	),
 	producerKind: Schema.Literal("unreal_editor"),
 	projectName: Schema.optional(Schema.String),
 	schemaVersion: Schema.Literal(1)

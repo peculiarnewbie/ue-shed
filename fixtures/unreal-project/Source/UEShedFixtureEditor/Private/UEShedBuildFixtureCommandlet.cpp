@@ -630,6 +630,19 @@ int32 UUEShedBuildFixtureCommandlet::Main(const FString& Params)
 		UUEShedAuthoringLibrary::Apply(RequestJson, ResultJson);
 		bool bSucceeded = FFileHelper::SaveStringToFile(
 			ResultJson, *FPaths::ConvertRelativePathToFull(ApplyOutputPath));
+		FString SecondApplyRequest;
+		FString SecondApplyOutput;
+		if (FParse::Value(*Params, TEXT("SecondApplyRequest="), SecondApplyRequest)
+			&& FParse::Value(*Params, TEXT("SecondApplyOutput="), SecondApplyOutput))
+		{
+			FString SecondRequestJson;
+			FString SecondResultJson;
+			bSucceeded = FFileHelper::LoadFileToString(SecondRequestJson,
+				*FPaths::ConvertRelativePathToFull(SecondApplyRequest)) && bSucceeded;
+			UUEShedAuthoringLibrary::Apply(SecondRequestJson, SecondResultJson);
+			bSucceeded = FFileHelper::SaveStringToFile(SecondResultJson,
+				*FPaths::ConvertRelativePathToFull(SecondApplyOutput)) && bSucceeded;
+		}
 		FString LookupOperation;
 		FString LookupOutput;
 		if (FParse::Value(*Params, TEXT("LookupOperation="), LookupOperation)

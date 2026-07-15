@@ -84,7 +84,7 @@ describe("live authoring workflow", () => {
 			snapshots: [snapshot("2")],
 			status: "committed"
 		};
-		const rebased = acceptApplyResult(session, result, "2026-07-14T00:01:00Z");
+		const rebased = acceptApplyResult(session, request, result, "2026-07-14T00:01:00Z");
 		expect(rebased.commands).toEqual([]);
 		expect(rebased.awaitingSave).toEqual(["/Game/Fixture/DT_Test.DT_Test"]);
 		expect(rebased.fingerprints[result.snapshots[0]!.table.objectPath]).toBe(
@@ -113,6 +113,44 @@ describe("live authoring workflow", () => {
 		expect(outcome.session.commands).toEqual(session.commands);
 	});
 
+	it("rejects over-limit plans and mismatched results without clearing commands", () => {
+		const session = editedSession();
+		expect(() =>
+			buildApplyRequest(session, "limited", {
+				maxCommands: 0,
+				maxPayloadBytes: 1_048_576,
+				maxTables: 16
+			})
+		).toThrow(/editor limit is 0/);
+		const request = buildApplyRequest(session, "expected");
+		const wrongOperation: AuthoringApplyResult = {
+			contract: { name: "unreal-authoring-apply", version: { major: 1, minor: 0 } },
+			errors: [],
+			operationId: "other",
+			snapshots: [snapshot("2")],
+			status: "committed"
+		};
+		expect(() => acceptApplyResult(session, request, wrongOperation, "now")).toThrow(
+			/Expected operation expected/
+		);
+		expect(session.commands).toHaveLength(1);
+	});
+
+	it("rejects a committed snapshot that does not equal the drafted working state", () => {
+		const session = editedSession();
+		const request = buildApplyRequest(session, "operation");
+		const result: AuthoringApplyResult = {
+			contract: { name: "unreal-authoring-apply", version: { major: 1, minor: 0 } },
+			errors: [],
+			operationId: "operation",
+			snapshots: [snapshot("999")],
+			status: "committed"
+		};
+		expect(() => acceptApplyResult(session, request, result, "now")).toThrow(
+			/does not match the drafted result/
+		);
+	});
+
 	it("records Save independently and retains only failed packages", () => {
 		const session = { ...editedSession(), awaitingSave: ["/Game/A.A", "/Game/B.B"] };
 		const result: AuthoringSaveResult = {
@@ -138,7 +176,15 @@ describe("live authoring workflow", () => {
 			requestId: "save",
 			status: "partial"
 		};
-		const updated = acceptSaveResult(session, result, "2026-07-14T00:02:00Z");
+		const request = {
+			contract: {
+				name: "unreal-authoring-save" as const,
+				version: { major: 1 as const, minor: 0 }
+			},
+			objectPaths: ["/Game/A.A", "/Game/B.B"],
+			requestId: "save"
+		};
+		const updated = acceptSaveResult(session, request, result, "2026-07-14T00:02:00Z");
 		expect(updated.awaitingSave).toEqual(["/Game/B.B"]);
 		expect(updated.saveReceipts.at(-1)?.status).toBe("partial");
 	});

@@ -12,8 +12,8 @@ update the status row when done.
 | [002](002-authoring-boundary-and-grid-gate.md) | Freeze the product boundary and approve the grid dependency  | P0       | S      | —          | DONE                       |
 | [003](003-authoring-contract-and-catalog.md)   | Establish the authoritative schema and DataTable catalog     | P0       | L      | 002        | DONE                       |
 | [004](004-authoring-session-service.md)        | Build the persistent, headless authoring session service     | P0       | L      | 003        | IN PROGRESS                |
-| [005](005-peculiar-sheets-draft-editor.md)     | Ship the Peculiar Sheets draft editor and Session Review     | P1       | L      | 004        | TODO                       |
-| [006](006-live-apply-save-pipeline.md)         | Make Apply and Save safe, recoverable authority transitions  | P0       | L      | 005        | TODO                       |
+| [005](005-peculiar-sheets-draft-editor.md)     | Ship the Peculiar Sheets draft editor and Session Review     | P1       | L      | 004        | IN PROGRESS                |
+| [006](006-live-apply-save-pipeline.md)         | Make Apply and Save safe, recoverable authority transitions  | P0       | L      | 005        | DONE                       |
 | [007](007-conflicts-rich-types-and-views.md)   | Complete conflicts, rich Unreal types, composites, and views | P1       | XL     | 006        | TODO                       |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED` with a one-line reason, or `REJECTED` with a

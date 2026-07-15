@@ -1,4 +1,5 @@
 import type { CameraFeedMetrics, CameraFrame } from "@ue-shed/cameras";
+import type { AuthoringSetCellsIntent } from "@ue-shed/authoring-sdk";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -43,6 +44,20 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("asset-audits:textures:preview", objectPath)
 	},
 	authoring: {
+		beginSession: (objectPath: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:begin", objectPath),
+		editSession: (intent: AuthoringSetCellsIntent): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:edit", intent),
+		applySession: (sessionId: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:apply", sessionId),
+		reconcileSession: (sessionId: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:reconcile", sessionId),
+		saveSession: (sessionId: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:save", sessionId),
+		undoSession: (sessionId: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:undo", sessionId),
+		redoSession: (sessionId: string): Promise<unknown> =>
+			ipcRenderer.invoke("authoring:session:redo", sessionId),
 		loadConfiguredCatalog: (): Promise<unknown> =>
 			ipcRenderer.invoke("authoring:configured-catalog"),
 		loadConfiguredTable: (): Promise<unknown> =>

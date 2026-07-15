@@ -1,4 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
+import { Button, PageHeader } from "@ue-shed/ui";
+import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import {
 	filterTextureReport,
 	type DistributionSelection,
@@ -187,31 +189,21 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 
 	return (
 		<main {...stylex.props(styles.page)}>
-			<header {...stylex.props(styles.header)}>
-				<div>
-					<div {...stylex.props(styles.eyebrow)}>ASSET AUDITS / TEXTURE + IMPORT</div>
-					<h1 {...stylex.props(styles.title)}>Texture evidence desk</h1>
-					<p {...stylex.props(styles.subtitle)}>
-						Serialized facts, corpus shape, and explicit rules. No editor required.
-					</p>
-				</div>
-				<div {...stylex.props(styles.actions)}>
-					<button
-						type="button"
-						onClick={() => void run(true)}
-						{...stylex.props(styles.primaryButton)}
-					>
-						Choose project
-					</button>
-					<button
-						type="button"
-						onClick={() => void run(false)}
-						{...stylex.props(styles.secondaryButton)}
-					>
-						Rescan
-					</button>
-				</div>
-			</header>
+			<PageHeader
+				eyebrow="ASSET AUDITS / TEXTURE + IMPORT"
+				title="Texture evidence desk"
+				description="Serialized facts, corpus shape, and explicit rules. No editor required."
+				actions={
+					<>
+						<Button type="button" tone="primary" onClick={() => void run(true)}>
+							Choose project
+						</Button>
+						<Button type="button" onClick={() => void run(false)}>
+							Rescan
+						</Button>
+					</>
+				}
+			/>
 
 			<Switch>
 				<Match when={state().status === "loading"}>
@@ -666,45 +658,12 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 const styles = stylex.create({
 	page: {
 		minHeight: "100vh",
-		backgroundColor: "#0d0f0e",
-		color: "#e9e6dc",
+		backgroundColor: tokens.colorCanvas,
+		color: tokens.colorText,
 		padding: "34px 40px 44px",
 		backgroundImage:
 			"radial-gradient(circle at 14% -10%, #2b2c244d 0, transparent 34%), linear-gradient(#ffffff05 1px, transparent 1px)",
 		backgroundSize: "auto, 100% 28px"
-	},
-	header: {
-		display: "flex",
-		justifyContent: "space-between",
-		alignItems: "flex-end",
-		borderBottom: "1px solid #45463f",
-		paddingBottom: 24,
-		marginBottom: 18
-	},
-	eyebrow: { color: "#d7894a", fontSize: 11, letterSpacing: "0.2em", marginBottom: 10 },
-	title: {
-		fontFamily: "Georgia, serif",
-		fontWeight: 400,
-		fontSize: 44,
-		letterSpacing: "-0.035em",
-		margin: 0
-	},
-	subtitle: { color: "#969990", fontSize: 12, margin: "8px 0 0" },
-	actions: { display: "flex", gap: 8 },
-	primaryButton: {
-		backgroundColor: "#d7894a",
-		color: "#15130f",
-		border: 0,
-		padding: "11px 16px",
-		cursor: "pointer",
-		fontWeight: 700
-	},
-	secondaryButton: {
-		backgroundColor: "transparent",
-		color: "#d8d5cc",
-		border: "1px solid #5a5c54",
-		padding: "10px 16px",
-		cursor: "pointer"
 	},
 	emptyState: {
 		minHeight: 430,
@@ -712,7 +671,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		gap: 12,
-		color: "#aaa99f",
+		color: tokens.colorTextMuted,
 		border: "1px dashed #474941"
 	},
 	errorState: {
@@ -727,7 +686,7 @@ const styles = stylex.create({
 		width: 8,
 		height: 8,
 		borderRadius: "50%",
-		backgroundColor: "#d7894a",
+		backgroundColor: tokens.colorWarningStrong,
 		boxShadow: "0 0 18px #d7894a"
 	},
 	workspace: { display: "flex", flexDirection: "column", gap: 14 },
@@ -735,7 +694,7 @@ const styles = stylex.create({
 		display: "grid",
 		gridTemplateColumns: "1.8fr repeat(4, 1fr) 1fr",
 		border: "1px solid #3d3f39",
-		backgroundColor: "#151716"
+		backgroundColor: tokens.colorSurface
 	},
 	coverageStatus: {
 		padding: "14px 16px",

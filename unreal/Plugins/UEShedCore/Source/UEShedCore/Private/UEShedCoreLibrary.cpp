@@ -18,6 +18,11 @@ void UUEShedCoreLibrary::GetCapabilityManifest(FString& ResultJson)
 		Root->SetStringField(
 			TEXT("authoringObjectPath"),
 			TEXT("/Script/UEShedAuthoring.Default__UEShedAuthoringLibrary"));
+		const TSharedRef<FJsonObject> Limits = MakeShared<FJsonObject>();
+		Limits->SetNumberField(TEXT("maxCommands"), 1024);
+		Limits->SetNumberField(TEXT("maxPayloadBytes"), 1024 * 1024);
+		Limits->SetNumberField(TEXT("maxTables"), 16);
+		Root->SetObjectField(TEXT("authoringLimits"), Limits);
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("authoring.snapshot.v2")));
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("authoring.table-list.v1")));
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("authoring.apply.v1")));

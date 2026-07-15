@@ -1,5 +1,6 @@
 import type {
 	AuthoringFieldValue,
+	AuthoringFieldDescriptor,
 	AuthoringRow,
 	AuthoringTableSnapshot,
 	AuthoringValue
@@ -8,11 +9,16 @@ import type {
 export interface AuthoringColumn {
 	readonly name: string;
 	readonly typeName: string;
+	readonly descriptor?: AuthoringFieldDescriptor;
 }
 
 export function tableColumns(snapshot: AuthoringTableSnapshot): readonly AuthoringColumn[] {
 	if ("producer" in snapshot && snapshot.table.schema.status === "available") {
-		return snapshot.table.schema.fields.map(({ name, typeName }) => ({ name, typeName }));
+		return snapshot.table.schema.fields.map((descriptor) => ({
+			descriptor,
+			name: descriptor.name,
+			typeName: descriptor.typeName
+		}));
 	}
 	const columns = new Map<string, string>();
 	for (const row of snapshot.table.rows) {

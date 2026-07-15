@@ -12,6 +12,20 @@
 - **Risk**: HIGH — this plan crosses the live Unreal mutation boundary
 - **Depends on**: Plan 005
 - **Planned at**: commit `52df5c0`, 2026-07-15
+- **Status**: DONE — implemented and verified against Unreal Engine 5.7 on 2026-07-15
+
+## Completion evidence
+
+- Negotiated table, command, and payload limits are enforced before dispatch.
+- Apply and Save requests are persisted before transport; unresolved Apply blocks editing and is
+  reconciled by lookup after restart.
+- Response IDs, exact table/package sets, and committed working-state fingerprints are correlated
+  before commands can be cleared.
+- The Unreal cache binds operation IDs to canonical request digests and rejects collisions.
+- CLI and Workbench expose separate Apply, reconcile, and Save actions with Apply confirmation.
+- `pnpm test:unreal-authoring` builds the UE 5.7 plugin and verifies all command shapes,
+  multi-table commit/rollback, stale fingerprints, collisions, lookup recovery, partial/failed Save,
+  and saved disk state. Fast tests cover response mismatch and durable restart transitions.
 
 ## Outcome
 

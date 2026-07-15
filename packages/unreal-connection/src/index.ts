@@ -172,6 +172,20 @@ export function connectUnrealAuthoring(
 					})
 				);
 			}
+			if (
+				!manifest.authoringLimits ||
+				manifest.authoringLimits.maxCommands < 1 ||
+				manifest.authoringLimits.maxPayloadBytes < 1 ||
+				manifest.authoringLimits.maxTables < 1
+			) {
+				return Effect.fail(
+					new UnrealCapabilityError({
+						capability: "authoring.limits.v1",
+						message:
+							"Connected editor does not advertise valid authoring mutation limits"
+					})
+				);
+			}
 			const authoringObjectPath = manifest.authoringObjectPath;
 			const call = (functionName: string, parameters: Readonly<Record<string, unknown>>) =>
 				remoteCall(endpoint, authoringObjectPath, functionName, parameters);

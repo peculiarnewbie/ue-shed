@@ -162,6 +162,7 @@ const action = process.argv[2];
 if (
 	!new Set([
 		"apply",
+		"apply-pair",
 		"build",
 		"generate",
 		"launch",
@@ -218,4 +219,16 @@ if (action === "apply" || action === "save") {
 		);
 	}
 	runCommandlet(tools, args);
+}
+if (action === "apply-pair") {
+	const [firstInput, firstOutput, secondInput, secondOutput] = process.argv.slice(3);
+	if (!firstInput || !firstOutput || !secondInput || !secondOutput) {
+		throw new Error("apply-pair requires two input and two output JSON paths");
+	}
+	runCommandlet(tools, [
+		`-ApplyRequest=${resolve(firstInput)}`,
+		`-ApplyOutput=${resolve(firstOutput)}`,
+		`-SecondApplyRequest=${resolve(secondInput)}`,
+		`-SecondApplyOutput=${resolve(secondOutput)}`
+	]);
 }

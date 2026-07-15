@@ -4,6 +4,7 @@ import type {
 	AuthoringLoadFailure,
 	AuthoringLoadResult
 } from "@ue-shed/extension-data-authoring";
+import { decodeAuthoringSessionResult } from "@ue-shed/authoring-sdk";
 import { decodeAuthoringTableSnapshot } from "@ue-shed/protocol";
 import { Schema } from "effect";
 
@@ -107,11 +108,25 @@ export function decodeAuthoringCatalogResult(value: unknown): AuthoringCatalogRe
 }
 
 export const authoringClient: AuthoringClient = {
+	beginSession: async (objectPath) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.beginSession(objectPath)),
+	applySession: async (sessionId) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.applySession(sessionId)),
+	editSession: async (intent) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.editSession(intent)),
 	loadConfiguredCatalog: async () =>
 		decodeAuthoringCatalogResult(await window.ueShed.authoring.loadConfiguredCatalog()),
 	loadConfiguredTable: async () =>
 		decodeAuthoringLoadResult(await window.ueShed.authoring.loadConfiguredTable()),
 	openCatalogTable: async (objectPath) =>
 		decodeAuthoringLoadResult(await window.ueShed.authoring.openCatalogTable(objectPath)),
+	redoSession: async (sessionId) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.redoSession(sessionId)),
+	reconcileSession: async (sessionId) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.reconcileSession(sessionId)),
+	saveSession: async (sessionId) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.saveSession(sessionId)),
+	undoSession: async (sessionId) =>
+		decodeAuthoringSessionResult(await window.ueShed.authoring.undoSession(sessionId)),
 	chooseTable: async () => decodeAuthoringLoadResult(await window.ueShed.authoring.chooseTable())
 };

@@ -1,5 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
+import type {
+	AuthoringSessionResult,
+	AuthoringSessionView,
+	AuthoringSetCellsIntent
+} from "@ue-shed/authoring-sdk";
 import type { AuthoringFieldValue, AuthoringRow, AuthoringTableSnapshot } from "@ue-shed/protocol";
+import { Button, PageHeader } from "@ue-shed/ui";
+import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
 import {
 	fieldInRow,
@@ -8,6 +15,7 @@ import {
 	tableColumns,
 	valueSummary
 } from "./authoring-view.js";
+import { AuthoringTableGrid } from "./authoring-table-grid.js";
 
 export interface AuthoringLoadFailure {
 	readonly code: "reader_failure" | "contract_failure";
@@ -50,6 +58,13 @@ export interface AuthoringClient {
 	readonly loadConfiguredTable: () => Promise<AuthoringLoadResult>;
 	readonly openCatalogTable: (objectPath: string) => Promise<AuthoringLoadResult>;
 	readonly chooseTable: () => Promise<AuthoringLoadResult>;
+	readonly beginSession: (objectPath: string) => Promise<AuthoringSessionResult>;
+	readonly editSession: (intent: AuthoringSetCellsIntent) => Promise<AuthoringSessionResult>;
+	readonly undoSession: (sessionId: string) => Promise<AuthoringSessionResult>;
+	readonly redoSession: (sessionId: string) => Promise<AuthoringSessionResult>;
+	readonly applySession: (sessionId: string) => Promise<AuthoringSessionResult>;
+	readonly reconcileSession: (sessionId: string) => Promise<AuthoringSessionResult>;
+	readonly saveSession: (sessionId: string) => Promise<AuthoringSessionResult>;
 }
 
 type ViewState =
@@ -225,6 +240,25 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 	const [replacementNotice, setReplacementNotice] = createSignal<string>();
 	const [query, setQuery] = createSignal("");
 	const [selection, setSelection] = createSignal<CellSelection>();
+	const [session, setSession] = createSignal<AuthoringSessionView>();
+	const [sessionNotice, setSessionNotice] = createSignal<string>();
+	const [isPersisting, setIsPersisting] = createSignal(false);
+
+	const acceptSessionResult = (result: AuthoringSessionResult) => {
+		if (result.status === "failed") {
+			setSessionNotice(`${result.error.message} ${result.error.recovery}`);
+			return;
+		}
+		setSession(result.view);
+		setState({ snapshot: result.view.snapshot, status: "ready" });
+		setSessionNotice(undefined);
+	};
+
+	const beginSession = async (objectPath: string) => {
+		setSession(undefined);
+		setSessionNotice(undefined);
+		acceptSessionResult(await props.client.beginSession(objectPath));
+	};
 
 	const applyResult = (result: AuthoringLoadResult, preserveCurrent: boolean) => {
 		if (result.status === "ready") {
@@ -237,6 +271,7 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 					? { fieldName: firstField.name, rowId: firstRow.id }
 					: undefined
 			);
+			void beginSession(result.snapshot.table.objectPath);
 			return;
 		}
 		if (preserveCurrent) {
@@ -286,33 +321,30 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 
 	return (
 		<main {...stylex.props(styles.page)}>
-			<header {...stylex.props(styles.header)}>
-				<div>
-					<div {...stylex.props(styles.eyebrow)}>DATA AUTHORING / SAVED AUTHORITY</div>
-					<h1 {...stylex.props(styles.title)}>Table ledger</h1>
-					<p {...stylex.props(styles.subtitle)}>
-						Typed DataTable evidence directly from the package. Unreal can stay closed.
-					</p>
-				</div>
-				<div {...stylex.props(styles.headerActions)}>
-					<button
-						type="button"
-						disabled={isReplacing()}
-						onClick={() => void load(true)}
-						{...stylex.props(styles.primaryButton)}
-					>
-						{isReplacing() ? "Opening…" : "Open saved table"}
-					</button>
-					<button
-						type="button"
-						disabled={isReplacing()}
-						onClick={() => void load(false)}
-						{...stylex.props(styles.secondaryButton)}
-					>
-						Reload preset
-					</button>
-				</div>
-			</header>
+			<PageHeader
+				eyebrow="DATA AUTHORING / SAVED + LIVE AUTHORITY"
+				title="Table ledger"
+				description="Typed DataTable evidence with durable staged edits."
+				actions={
+					<>
+						<Button
+							type="button"
+							tone="primary"
+							disabled={isReplacing()}
+							onClick={() => void load(true)}
+						>
+							{isReplacing() ? "Opening…" : "Open saved table"}
+						</Button>
+						<Button
+							type="button"
+							disabled={isReplacing()}
+							onClick={() => void load(false)}
+						>
+							Reload preset
+						</Button>
+					</>
+				}
+			/>
 
 			<Switch>
 				<Match when={state().status === "loading"}>
@@ -452,6 +484,11 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 										</button>
 									</div>
 								</Show>
+								<Show when={sessionNotice()}>
+									<div {...stylex.props(styles.replacementNotice)}>
+										<span>{sessionNotice()}</span>
+									</div>
+								</Show>
 
 								<div {...stylex.props(styles.contentGrid)}>
 									<CatalogPanel
@@ -484,89 +521,274 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 											<span {...stylex.props(styles.rowStruct)}>
 												ROW STRUCT · {snapshot.table.rowStruct}
 											</span>
-										</div>
-										<div {...stylex.props(styles.tableScroll)}>
-											<div
-												{...stylex.props(styles.tableHeader)}
-												style={{ "grid-template-columns": gridTemplate }}
-											>
-												<span>ROW NAME</span>
-												<For each={columns}>
-													{(column) => (
-														<span
-															{...stylex.props(styles.columnHeading)}
-														>
-															<strong>{column.name}</strong>
-															<small>{column.typeName}</small>
-														</span>
-													)}
-												</For>
-											</div>
-											<Show
-												when={visibleRows().length > 0}
-												fallback={
-													<div {...stylex.props(styles.noRows)}>
-														No rows match “{query()}”.
-													</div>
-												}
-											>
-												<For each={visibleRows()}>
-													{(row: AuthoringRow) => (
-														<div
-															{...stylex.props(styles.tableRow)}
-															style={{
-																"grid-template-columns":
-																	gridTemplate
+											<Show when={session()}>
+												{(currentSession) => (
+													<>
+														<button
+															type="button"
+															disabled={
+																!currentSession().canUndo ||
+																isPersisting()
+															}
+															onClick={async () => {
+																setIsPersisting(true);
+																try {
+																	acceptSessionResult(
+																		await props.client.undoSession(
+																			currentSession()
+																				.sessionId
+																		)
+																	);
+																} finally {
+																	setIsPersisting(false);
+																}
 															}}
+															{...stylex.props(styles.sheetAction)}
 														>
-															<div {...stylex.props(styles.rowName)}>
-																<span>
-																	{row.name
-																		.slice(0, 1)
-																		.toUpperCase()}
-																</span>
-																<strong>{row.name}</strong>
-															</div>
-															<For each={columns}>
-																{(column) => {
-																	const field = fieldInRow(
-																		row,
-																		column.name
+															Undo
+														</button>
+														<button
+															type="button"
+															disabled={
+																!currentSession().canRedo ||
+																isPersisting()
+															}
+															onClick={async () => {
+																setIsPersisting(true);
+																try {
+																	acceptSessionResult(
+																		await props.client.redoSession(
+																			currentSession()
+																				.sessionId
+																		)
 																	);
-																	const active = () =>
-																		selection()?.rowId ===
-																			row.id &&
-																		selection()?.fieldName ===
-																			column.name;
-																	return (
-																		<button
-																			type="button"
-																			disabled={!field}
-																			onClick={() =>
-																				setSelection({
-																					fieldName:
-																						column.name,
-																					rowId: row.id
-																				})
-																			}
-																			{...stylex.props(
-																				styles.tableCell,
-																				active() &&
-																					styles.tableCellActive
-																			)}
-																		>
-																			<CellValue
-																				field={field}
-																			/>
-																		</button>
-																	);
+																} finally {
+																	setIsPersisting(false);
+																}
+															}}
+															{...stylex.props(styles.sheetAction)}
+														>
+															Redo
+														</button>
+														<Show
+															when={(() => {
+																const pipeline =
+																	currentSession().pipeline;
+																return (
+																	pipeline.kind === "draft" &&
+																	pipeline.canApply
+																);
+															})()}
+														>
+															<Button
+																disabled={isPersisting()}
+																onClick={async () => {
+																	if (
+																		!window.confirm(
+																			`Apply ${currentSession().commandCount} staged command(s) to the live editor? This does not save packages.`
+																		)
+																	)
+																		return;
+																	setIsPersisting(true);
+																	try {
+																		acceptSessionResult(
+																			await props.client.applySession(
+																				currentSession()
+																					.sessionId
+																			)
+																		);
+																	} finally {
+																		setIsPersisting(false);
+																	}
 																}}
-															</For>
-														</div>
-													)}
-												</For>
+															>
+																Apply
+															</Button>
+														</Show>
+														<Show
+															when={(() => {
+																const pipeline =
+																	currentSession().pipeline;
+																return (
+																	pipeline.kind ===
+																		"indeterminate" &&
+																	pipeline.operation === "apply"
+																);
+															})()}
+														>
+															<Button
+																disabled={isPersisting()}
+																onClick={async () => {
+																	setIsPersisting(true);
+																	try {
+																		acceptSessionResult(
+																			await props.client.reconcileSession(
+																				currentSession()
+																					.sessionId
+																			)
+																		);
+																	} finally {
+																		setIsPersisting(false);
+																	}
+																}}
+															>
+																Reconcile Apply
+															</Button>
+														</Show>
+														<Show
+															when={(() => {
+																const pipeline =
+																	currentSession().pipeline;
+																return (
+																	pipeline.kind === "applied" ||
+																	(pipeline.kind ===
+																		"indeterminate" &&
+																		pipeline.operation ===
+																			"save")
+																);
+															})()}
+														>
+															<Button
+																disabled={isPersisting()}
+																onClick={async () => {
+																	setIsPersisting(true);
+																	try {
+																		acceptSessionResult(
+																			await props.client.saveSession(
+																				currentSession()
+																					.sessionId
+																			)
+																		);
+																	} finally {
+																		setIsPersisting(false);
+																	}
+																}}
+															>
+																Save packages
+															</Button>
+														</Show>
+													</>
+												)}
 											</Show>
 										</div>
+										<AuthoringTableGrid
+											columns={columns}
+											disabled={!session() || isPersisting()}
+											onEditFailure={setSessionNotice}
+											onEditGesture={async (edits) => {
+												const currentSession = session();
+												if (!currentSession) return;
+												setIsPersisting(true);
+												try {
+													acceptSessionResult(
+														await props.client.editSession({
+															edits,
+															kind: "set_cells",
+															sessionId: currentSession.sessionId,
+															tableObjectPath:
+																snapshot.table.objectPath
+														})
+													);
+												} finally {
+													setIsPersisting(false);
+												}
+											}}
+											onSelectionChange={setSelection}
+											rows={visibleRows()}
+										/>
+										<Show when={false}>
+											<div {...stylex.props(styles.tableScroll)}>
+												<div
+													{...stylex.props(styles.tableHeader)}
+													style={{
+														"grid-template-columns": gridTemplate
+													}}
+												>
+													<span>ROW NAME</span>
+													<For each={columns}>
+														{(column) => (
+															<span
+																{...stylex.props(
+																	styles.columnHeading
+																)}
+															>
+																<strong>{column.name}</strong>
+																<small>{column.typeName}</small>
+															</span>
+														)}
+													</For>
+												</div>
+												<Show
+													when={visibleRows().length > 0}
+													fallback={
+														<div {...stylex.props(styles.noRows)}>
+															No rows match “{query()}”.
+														</div>
+													}
+												>
+													<For each={visibleRows()}>
+														{(row: AuthoringRow) => (
+															<div
+																{...stylex.props(styles.tableRow)}
+																style={{
+																	"grid-template-columns":
+																		gridTemplate
+																}}
+															>
+																<div
+																	{...stylex.props(
+																		styles.rowName
+																	)}
+																>
+																	<span>
+																		{row.name
+																			.slice(0, 1)
+																			.toUpperCase()}
+																	</span>
+																	<strong>{row.name}</strong>
+																</div>
+																<For each={columns}>
+																	{(column) => {
+																		const field = fieldInRow(
+																			row,
+																			column.name
+																		);
+																		const active = () =>
+																			selection()?.rowId ===
+																				row.id &&
+																			selection()
+																				?.fieldName ===
+																				column.name;
+																		return (
+																			<button
+																				type="button"
+																				disabled={!field}
+																				onClick={() =>
+																					setSelection({
+																						fieldName:
+																							column.name,
+																						rowId: row.id
+																					})
+																				}
+																				{...stylex.props(
+																					styles.tableCell,
+																					active() &&
+																						styles.tableCellActive
+																				)}
+																			>
+																				<CellValue
+																					field={field}
+																				/>
+																			</button>
+																		);
+																	}}
+																</For>
+															</div>
+														)}
+													</For>
+												</Show>
+											</div>
+										</Show>
 									</section>
 
 									<aside {...stylex.props(styles.inspector)}>
@@ -645,49 +867,11 @@ const styles = stylex.create({
 	page: {
 		minHeight: "calc(100vh - 52px)",
 		padding: "32px 36px 42px",
-		color: "#e8ebe5",
-		backgroundColor: "#0b0d0d",
+		color: tokens.colorText,
+		backgroundColor: tokens.colorCanvas,
 		backgroundImage:
 			"linear-gradient(90deg, #ffffff05 1px, transparent 1px), linear-gradient(#ffffff04 1px, transparent 1px)",
 		backgroundSize: "32px 32px"
-	},
-	header: {
-		display: "flex",
-		alignItems: "end",
-		justifyContent: "space-between",
-		gap: 32,
-		paddingBottom: 26
-	},
-	eyebrow: { color: "#8fa080", fontSize: 9, letterSpacing: ".18em", marginBottom: 10 },
-	title: {
-		margin: 0,
-		fontFamily: "Georgia, serif",
-		fontSize: 46,
-		fontWeight: 400,
-		letterSpacing: "-.035em"
-	},
-	subtitle: { margin: "8px 0 0", color: "#89938c", fontSize: 11, lineHeight: 1.6 },
-	headerActions: { display: "flex", gap: 8 },
-	primaryButton: {
-		border: "1px solid #b7e26d",
-		backgroundColor: { default: "#b7e26d", ":hover": "#caef88" },
-		color: "#10140d",
-		padding: "11px 16px",
-		cursor: "pointer",
-		fontSize: 10,
-		fontWeight: 800,
-		letterSpacing: ".08em",
-		textTransform: "uppercase"
-	},
-	secondaryButton: {
-		border: "1px solid #414843",
-		backgroundColor: { default: "#141816", ":hover": "#202621" },
-		color: "#c9cec7",
-		padding: "11px 16px",
-		cursor: "pointer",
-		fontSize: 10,
-		letterSpacing: ".08em",
-		textTransform: "uppercase"
 	},
 	coldStart: {
 		display: "grid",
@@ -903,6 +1087,15 @@ const styles = stylex.create({
 		color: "#58615a",
 		fontSize: 8
 	},
+	sheetAction: {
+		border: "1px solid #39413b",
+		backgroundColor: { default: "#111512", ":hover": "#202720" },
+		color: "#aeb9af",
+		cursor: "pointer",
+		fontSize: 8,
+		padding: "6px 9px",
+		textTransform: "uppercase"
+	},
 	tableScroll: { maxHeight: "calc(100vh - 285px)", minHeight: 430, overflow: "auto" },
 	tableHeader: {
 		minWidth: "max-content",
@@ -955,8 +1148,10 @@ const styles = stylex.create({
 	noRows: { padding: 40, textAlign: "center", color: "#6e766f", fontSize: 10 },
 	inspector: {
 		minHeight: 480,
-		border: "1px solid #39403b",
-		backgroundColor: "#111412",
+		borderColor: tokens.colorBorderStrong,
+		borderStyle: "solid",
+		borderWidth: 1,
+		backgroundColor: tokens.colorSurface,
 		padding: 20,
 		overflow: "hidden"
 	},

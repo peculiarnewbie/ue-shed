@@ -1,4 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
+import { workbenchDarkTheme } from "@ue-shed/ui-theme/themes.stylex.js";
+import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import { AuthoringRoute } from "@ue-shed/extension-data-authoring";
 import { TextureAuditRoute } from "@ue-shed/extension-asset-audits";
 import { For, Match, Show, Switch, createSignal, onCleanup, onMount } from "solid-js";
@@ -60,7 +62,7 @@ export function AppShell() {
 		onCleanup(() => window.removeEventListener("hashchange", onHashChange));
 	});
 	return (
-		<div {...stylex.props(styles.app)}>
+		<div {...stylex.props(workbenchDarkTheme, styles.app)}>
 			<nav aria-label="Workbench" {...stylex.props(styles.nav)}>
 				<a href="#/" {...stylex.props(styles.brand)}>
 					<span {...stylex.props(styles.brandMark)}>UE</span>
@@ -213,13 +215,20 @@ function Readiness(props: {
 }
 
 const styles = stylex.create({
-	app: { minHeight: "100vh", backgroundColor: "#0b0d0d" },
+	app: {
+		minHeight: "100vh",
+		backgroundColor: tokens.colorCanvas,
+		color: tokens.colorText,
+		fontFamily: tokens.fontBody
+	},
 	nav: {
 		height: 52,
 		display: "flex",
 		alignItems: "center",
-		borderBottom: "1px solid #303632",
-		backgroundColor: "#0b0d0df2",
+		borderBottomColor: tokens.colorBorder,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		backgroundColor: tokens.colorCanvasTranslucent,
 		position: "sticky",
 		top: 0,
 		zIndex: 20
@@ -230,15 +239,17 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: 10,
 		padding: "0 24px",
-		color: "#eef0e9",
+		color: tokens.colorTextStrong,
 		textDecoration: "none",
 		fontWeight: 800,
 		letterSpacing: "0.14em",
-		borderRight: "1px solid #303632"
+		borderRightColor: tokens.colorBorder,
+		borderRightStyle: "solid",
+		borderRightWidth: 1
 	},
 	brandMark: {
-		color: "#0b0d0d",
-		backgroundColor: "#b7e26d",
+		color: tokens.colorCanvas,
+		backgroundColor: tokens.colorAccent,
 		padding: "4px 5px",
 		letterSpacing: 0
 	},
@@ -247,14 +258,19 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		padding: "0 18px",
-		color: { default: "#7f8982", ":hover": "#e4e8df" },
+		color: { default: tokens.colorTextSubtle, ":hover": tokens.colorText },
 		textDecoration: "none",
 		fontSize: 10,
 		textTransform: "uppercase",
 		letterSpacing: "0.08em",
 		borderRight: "1px solid #252a27"
 	},
-	linkActive: { color: "#e9ede4", boxShadow: "inset 0 -2px #b7e26d" },
+	linkActive: {
+		borderBottomColor: tokens.colorAccent,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 2,
+		color: tokens.colorText
+	},
 	version: {
 		marginLeft: "auto",
 		paddingRight: 24,
@@ -265,7 +281,7 @@ const styles = stylex.create({
 	home: {
 		minHeight: "calc(100vh - 52px)",
 		padding: "44px 48px 28px",
-		color: "#e9ede5",
+		color: tokens.colorText,
 		backgroundImage:
 			"linear-gradient(90deg, transparent 49.8%, #ffffff08 50%, transparent 50.2%), radial-gradient(circle at 85% 3%, #b7e26d12, transparent 28%)"
 	},
@@ -279,7 +295,7 @@ const styles = stylex.create({
 	eyebrow: { margin: "0 0 17px", color: "#89938c", fontSize: 10, letterSpacing: "0.18em" },
 	title: {
 		margin: 0,
-		fontFamily: "Georgia, serif",
+		fontFamily: tokens.fontDisplay,
 		fontWeight: 400,
 		fontSize: 62,
 		lineHeight: 0.94,
@@ -298,7 +314,9 @@ const styles = stylex.create({
 		display: "grid",
 		gridTemplateColumns: "repeat(3, 1fr)",
 		margin: "42px 0 18px",
-		border: "1px solid #303632"
+		borderColor: tokens.colorBorder,
+		borderStyle: "solid",
+		borderWidth: 1
 	},
 	readinessItem: {
 		display: "flex",
@@ -317,7 +335,7 @@ const styles = stylex.create({
 		border: "1px solid #343a36",
 		display: "flex",
 		flexDirection: "column",
-		backgroundColor: "#111412"
+		backgroundColor: tokens.colorSurface
 	},
 	green: { borderTop: "3px solid #91c976" },
 	amber: { borderTop: "3px solid #d98f53" },
@@ -352,7 +370,7 @@ const styles = stylex.create({
 		border: 0,
 		borderTop: "1px solid #3c433e",
 		padding: "14px 2px 0",
-		color: { default: "#e4e9df", ":hover": "#b7e26d" },
+		color: { default: tokens.colorText, ":hover": tokens.colorAccent },
 		backgroundColor: "transparent",
 		cursor: "pointer",
 		textDecoration: "none",

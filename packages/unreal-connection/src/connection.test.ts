@@ -36,6 +36,11 @@ describe("Remote Control authoring adapter", () => {
 				const result =
 					call.functionName === "GetCapabilityManifest"
 						? resultJson({
+								authoringLimits: {
+									maxCommands: 1024,
+									maxPayloadBytes: 1048576,
+									maxTables: 16
+								},
 								authoringObjectPath:
 									"/Script/UEShedAuthoring.Default__UEShedAuthoringLibrary",
 								capabilities: [
@@ -121,6 +126,11 @@ describe("Remote Control authoring adapter", () => {
 			response.setHeader("content-type", "application/json");
 			response.end(
 				resultJson({
+					authoringLimits: {
+						maxCommands: 1024,
+						maxPayloadBytes: 1048576,
+						maxTables: 16
+					},
 					capabilities: [
 						"authoring.snapshot.v2",
 						"authoring.table-list.v1",

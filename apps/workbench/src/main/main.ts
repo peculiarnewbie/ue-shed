@@ -13,6 +13,17 @@ import {
 	type TextureAuditScanError
 } from "@ue-shed/asset-audits";
 import { discoverAuthoringProjectCatalog } from "@ue-shed/authoring-catalog";
+import {
+	makeAuthoringSessionService,
+	workingTable,
+	type AuthoringSessionDocument,
+	type AuthoringSessionService
+} from "@ue-shed/authoring";
+import {
+	decodeAuthoringSetCellsIntent,
+	type AuthoringSessionResult,
+	type AuthoringSessionView
+} from "@ue-shed/authoring-sdk";
 import { decodeCompanionCapabilityManifest, type CameraScheduleConfig } from "@ue-shed/protocol";
 import { discoverSavedTables, readSavedTable } from "@ue-shed/unreal-assets";
 import { connectUnrealAuthoring, type UnrealAuthoringConnection } from "@ue-shed/unreal-connection";
@@ -79,8 +90,89 @@ type AuthoringCatalogIpcResult =
 	| { readonly status: "failed"; readonly error: AuthoringIpcFailure };
 
 const authoringAssetPaths = new Map<string, string>();
+const authoringSnapshots = new Map<string, import("@ue-shed/protocol").AuthoringTableSnapshot>();
 const authoringLiveObjectPaths = new Set<string>();
 let authoringLiveConnection: UnrealAuthoringConnection | undefined;
+let authoringSessions: AuthoringSessionService | undefined;
+
+function sessionService(): AuthoringSessionService {
+	const projectRoot = process.env.UE_SHED_PROJECT_ROOT;
+	if (!projectRoot) throw new Error("UE_SHED_PROJECT_ROOT is not configured");
+	return (authoringSessions ??= Effect.runSync(makeAuthoringSessionService({ projectRoot })));
+}
+
+function sessionView(document: AuthoringSessionDocument, objectPath: string): AuthoringSessionView {
+	const pending = document.pendingOperation;
+	const pipeline: AuthoringSessionView["pipeline"] =
+		pending.kind === "apply"
+			? pending.status === "indeterminate"
+				? { id: pending.request.operationId, kind: "indeterminate", operation: "apply" }
+				: { kind: "applying", operationId: pending.request.operationId }
+			: pending.kind === "save"
+				? pending.status === "indeterminate"
+					? { id: pending.request.requestId, kind: "indeterminate", operation: "save" }
+					: { kind: "saving", requestId: pending.request.requestId }
+				: document.draft.awaitingSave.length > 0
+					? { kind: "applied", objectPaths: document.draft.awaitingSave }
+					: document.draft.saveReceipts.length > 0
+						? { kind: "saved" }
+						: { canApply: document.draft.undoPointer > 0, kind: "draft" };
+	return {
+		canRedo: document.draft.undoPointer < document.draft.commands.length,
+		canUndo: document.draft.undoPointer > 0,
+		commandCount: document.draft.commands.length,
+		dirty: document.draft.undoPointer > 0,
+		lifecycle: document.lifecycle,
+		pipeline,
+		sessionId: document.draft.id,
+		snapshot: workingTable(document.draft, objectPath),
+		updatedAt: document.updatedAt
+	};
+}
+
+function sessionFailure(cause: unknown): AuthoringSessionResult {
+	const error = cause as {
+		readonly _tag?: string;
+		readonly message?: string;
+		readonly recovery?: string;
+	};
+	return {
+		error: {
+			code: error._tag ?? "authoring_session_failure",
+			message: error.message ?? String(cause),
+			recovery: error.recovery ?? "Retry the operation or create a new draft session.",
+			retrySafe: error._tag === "AuthoringSessionStorageError"
+		},
+		status: "failed"
+	};
+}
+
+async function beginAuthoringSession(objectPath: string): Promise<AuthoringSessionResult> {
+	try {
+		const service = sessionService();
+		const listed = await Effect.runPromise(service.list());
+		const existing = listed.sessions.find((candidate) =>
+			candidate.tableObjectPaths.includes(objectPath)
+		);
+		const document = existing
+			? await Effect.runPromise(
+					existing.lifecycle === "closed"
+						? service.resume(existing.id)
+						: service.open(existing.id)
+				)
+			: await Effect.runPromise(
+					service.create([
+						authoringSnapshots.get(objectPath) ??
+							(() => {
+								throw new Error(`No loaded snapshot exists for ${objectPath}`);
+							})()
+					])
+				);
+		return { status: "ready", view: sessionView(document, objectPath) };
+	} catch (cause) {
+		return sessionFailure(cause);
+	}
+}
 
 async function loadAuthoringTable(assetPath: string): Promise<AuthoringIpcResult> {
 	try {
@@ -88,6 +180,7 @@ async function loadAuthoringTable(assetPath: string): Promise<AuthoringIpcResult
 		const snapshot = await Effect.runPromise(
 			readSavedTable({ assetPath, ...(executable ? { executable } : {}) })
 		);
+		authoringSnapshots.set(snapshot.table.objectPath, snapshot);
 		return { status: "ready", snapshot };
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);
@@ -108,10 +201,11 @@ async function loadLiveAuthoringTable(objectPath: string): Promise<AuthoringIpcR
 	try {
 		if (!authoringLiveConnection)
 			throw new Error("The live authoring connection is unavailable");
-		return {
-			status: "ready",
-			snapshot: await Effect.runPromise(authoringLiveConnection.getTableSnapshot(objectPath))
-		};
+		const snapshot = await Effect.runPromise(
+			authoringLiveConnection.getTableSnapshot(objectPath)
+		);
+		authoringSnapshots.set(objectPath, snapshot);
+		return { status: "ready", snapshot };
 	} catch (cause) {
 		return {
 			error: {
@@ -520,6 +614,137 @@ ipcMain.handle("authoring:choose-table", async (): Promise<AuthoringIpcResult> =
 	});
 	const assetPath = choice.filePaths[0];
 	return choice.canceled || !assetPath ? { status: "cancelled" } : loadAuthoringTable(assetPath);
+});
+
+ipcMain.handle(
+	"authoring:session:begin",
+	async (_event, objectPath: unknown): Promise<AuthoringSessionResult> =>
+		typeof objectPath === "string"
+			? beginAuthoringSession(objectPath)
+			: sessionFailure("Session begin requires a table object path")
+);
+
+ipcMain.handle(
+	"authoring:session:edit",
+	async (_event, input: unknown): Promise<AuthoringSessionResult> => {
+		try {
+			const intent = decodeAuthoringSetCellsIntent(input);
+			const document = await Effect.runPromise(
+				sessionService().setCells({
+					edits: intent.edits,
+					sessionId: intent.sessionId,
+					tableObjectPath: intent.tableObjectPath
+				})
+			);
+			return { status: "ready", view: sessionView(document, intent.tableObjectPath) };
+		} catch (cause) {
+			return sessionFailure(cause);
+		}
+	}
+);
+
+async function moveAuthoringHistory(
+	sessionId: unknown,
+	direction: "undo" | "redo"
+): Promise<AuthoringSessionResult> {
+	try {
+		if (typeof sessionId !== "string") throw new Error(`${direction} requires a session id`);
+		const service = sessionService();
+		const document = await Effect.runPromise(
+			direction === "undo" ? service.undo(sessionId) : service.redo(sessionId)
+		);
+		const objectPath = Object.keys(document.draft.base)[0];
+		if (!objectPath) throw new Error(`Session ${sessionId} has no table`);
+		return { status: "ready", view: sessionView(document, objectPath) };
+	} catch (cause) {
+		return sessionFailure(cause);
+	}
+}
+
+ipcMain.handle("authoring:session:undo", (_event, sessionId: unknown) =>
+	moveAuthoringHistory(sessionId, "undo")
+);
+ipcMain.handle("authoring:session:redo", (_event, sessionId: unknown) =>
+	moveAuthoringHistory(sessionId, "redo")
+);
+
+async function liveAuthoringConnection(): Promise<UnrealAuthoringConnection> {
+	return (authoringLiveConnection ??= await Effect.runPromise(
+		connectUnrealAuthoring(remoteControlEndpoint)
+	));
+}
+
+function documentView(document: AuthoringSessionDocument): AuthoringSessionResult {
+	const objectPath = Object.keys(document.draft.base)[0];
+	if (!objectPath) return sessionFailure(`Session ${document.draft.id} has no table`);
+	return { status: "ready", view: sessionView(document, objectPath) };
+}
+
+ipcMain.handle("authoring:session:apply", async (_event, sessionId: unknown) => {
+	if (typeof sessionId !== "string") return sessionFailure("Apply requires a session id");
+	const service = sessionService();
+	try {
+		const connection = await liveAuthoringConnection();
+		const limits = connection.manifest.authoringLimits;
+		if (!limits) throw new Error("The editor did not negotiate authoring mutation limits");
+		const prepared = await Effect.runPromise(service.prepareApply(sessionId, limits));
+		if (prepared.pendingOperation.kind !== "apply") throw new Error("Apply was not prepared");
+		try {
+			const result = await Effect.runPromise(
+				connection.apply(prepared.pendingOperation.request)
+			);
+			return documentView(await Effect.runPromise(service.completeApply(sessionId, result)));
+		} catch (cause) {
+			await Effect.runPromise(service.markApplyIndeterminate(sessionId, String(cause)));
+			throw cause;
+		}
+	} catch (cause) {
+		return sessionFailure(cause);
+	}
+});
+
+ipcMain.handle("authoring:session:reconcile", async (_event, sessionId: unknown) => {
+	if (typeof sessionId !== "string") return sessionFailure("Reconcile requires a session id");
+	try {
+		const service = sessionService();
+		const document = await Effect.runPromise(service.open(sessionId));
+		if (document.pendingOperation.kind !== "apply") {
+			throw new Error("Session has no unresolved Apply operation");
+		}
+		const result = await Effect.runPromise(
+			(await liveAuthoringConnection()).lookupApplyResult(
+				document.pendingOperation.request.operationId
+			)
+		);
+		return documentView(await Effect.runPromise(service.completeApply(sessionId, result)));
+	} catch (cause) {
+		return sessionFailure(cause);
+	}
+});
+
+ipcMain.handle("authoring:session:save", async (_event, sessionId: unknown) => {
+	if (typeof sessionId !== "string") return sessionFailure("Save requires a session id");
+	const service = sessionService();
+	try {
+		const existing = await Effect.runPromise(service.open(sessionId));
+		const prepared =
+			existing.pendingOperation.kind === "save" &&
+			existing.pendingOperation.status === "indeterminate"
+				? existing
+				: await Effect.runPromise(service.prepareSave(sessionId));
+		if (prepared.pendingOperation.kind !== "save") throw new Error("Save was not prepared");
+		try {
+			const result = await Effect.runPromise(
+				(await liveAuthoringConnection()).save(prepared.pendingOperation.request)
+			);
+			return documentView(await Effect.runPromise(service.completeSave(sessionId, result)));
+		} catch (cause) {
+			await Effect.runPromise(service.markSaveIndeterminate(sessionId, String(cause)));
+			throw cause;
+		}
+	} catch (cause) {
+		return sessionFailure(cause);
+	}
 });
 
 ipcMain.handle("camera:metrics", () => {

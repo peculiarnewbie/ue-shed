@@ -319,6 +319,53 @@ export function buildSetCellCommand(args: {
 	};
 }
 
+export function buildSetCellCommandGroup(args: {
+	readonly session: DraftSession;
+	readonly tableObjectPath: string;
+	readonly edits: readonly {
+		readonly rowId: string;
+		readonly fieldName: string;
+		readonly value: AuthoringValue;
+	}[];
+	readonly commandIds: readonly string[];
+	readonly groupId: string;
+	readonly authoredAt: string;
+	readonly author?: string;
+}): readonly CommandEnvelope[] {
+	if (args.edits.length !== args.commandIds.length) {
+		throw new DraftBuildError({ message: "Every cell edit requires one command identity" });
+	}
+	let staged = args.session;
+	const commands: CommandEnvelope[] = [];
+	for (const [index, edit] of args.edits.entries()) {
+		const table = workingTable(staged, args.tableObjectPath);
+		const row = table.table.rows.find((candidate) => candidate.id === edit.rowId);
+		if (!row) throw new DraftBuildError({ message: `Row ${edit.rowId} does not exist` });
+		const field = row.fields.find((candidate) => candidate.name === edit.fieldName);
+		if (!field) {
+			throw new DraftBuildError({ message: `Field ${edit.fieldName} does not exist` });
+		}
+		const command: CommandEnvelope = {
+			authoredAt: args.authoredAt,
+			baseFingerprint: args.session.fingerprints[args.tableObjectPath]!,
+			body: {
+				fieldName: edit.fieldName,
+				kind: "set_cell",
+				newValue: edit.value,
+				oldValue: field.value,
+				rowId: edit.rowId
+			},
+			groupId: args.groupId,
+			id: args.commandIds[index]!,
+			tableObjectPath: args.tableObjectPath,
+			...(args.author === undefined ? {} : { author: args.author })
+		};
+		commands.push(command);
+		staged = appendCommandGroup(staged, [command]);
+	}
+	return commands;
+}
+
 export function invertCommand(command: AuthoringCommand): AuthoringCommand {
 	switch (command.kind) {
 		case "set_cell":

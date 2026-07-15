@@ -1,5 +1,5 @@
 {
-	"name": "@ue-shed/extension-data-authoring",
+	"name": "@ue-shed/authoring-sdk",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
@@ -13,12 +13,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@stylexjs/stylex": "^0.19.0",
-		"@ue-shed/authoring-sdk": "workspace:*",
 		"@ue-shed/protocol": "workspace:*",
-		"@ue-shed/ui": "workspace:*",
-		"@ue-shed/ui-theme": "workspace:*",
-		"peculiar-sheets": "0.9.1",
-		"solid-js": "^1.9.14"
+		"effect": "^3.22.0"
 	}
 }

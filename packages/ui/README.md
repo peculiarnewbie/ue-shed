@@ -1,8 +1,4 @@
 # `@ue-shed/ui`
 
-Accessible SolidJS primitives styled with StyleX. It owns the tested Solid/StyleX adapter, focus and
-interaction invariants, constrained style-prop contracts, and the component states reused across
-product extensions.
-
-This package is not a second application framework. Domain components remain with their extension,
-using shared primitives and tokens where they genuinely improve consistency.
+Shared SolidJS primitives for maintained UE Shed interfaces. Components use semantic variables from
+`@ue-shed/ui-theme`; extensions keep product-specific composition and layout local.

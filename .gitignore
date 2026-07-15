@@ -12,6 +12,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# Project-local UE Shed sessions, caches, and user state
+.ue-shed/
+
 # Generated or locally installed Unreal content
 fixtures/unreal-project/Binaries/
 fixtures/unreal-project/DerivedDataCache/

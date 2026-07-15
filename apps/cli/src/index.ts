@@ -35,6 +35,7 @@ Usage:
   ue-shed authoring sessions create <asset> --project <project-root> [--id <session-id>] [--reader <path>]
   ue-shed authoring sessions show|resume|close|discard|undo|redo <session-id> --project <project-root>
   ue-shed authoring sessions set-cell <session-id> <table> <row> <field> <value-json> --project <project-root>
+  ue-shed authoring sessions apply|reconcile|save <session-id> <endpoint> --project <project-root>
   ue-shed authoring session create <asset> <session-file> [--reader <path>]
   ue-shed authoring session create-live <endpoint> <table> <session-file>
   ue-shed authoring session show <session-file>
@@ -374,6 +375,77 @@ async function authoring(args: readonly string[]): Promise<void> {
 			});
 			return;
 		}
+		if (action === "apply") {
+			const [sessionId, endpoint, ...unexpected] = idOption.args;
+			if (!sessionId || !endpoint || unexpected.length > 0) {
+				throw new Error("sessions apply requires session id and endpoint");
+			}
+			const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+			const limits = connection.manifest.authoringLimits;
+			if (!limits) throw new Error("Editor did not negotiate authoring mutation limits");
+			const prepared = await Effect.runPromise(service.prepareApply(sessionId, limits));
+			if (prepared.pendingOperation.kind !== "apply")
+				throw new Error("Apply was not prepared");
+			try {
+				const result = await Effect.runPromise(
+					connection.apply(prepared.pendingOperation.request)
+				);
+				printJson({
+					result,
+					session: await Effect.runPromise(service.completeApply(sessionId, result))
+				});
+			} catch (cause) {
+				await Effect.runPromise(service.markApplyIndeterminate(sessionId, String(cause)));
+				throw cause;
+			}
+			return;
+		}
+		if (action === "reconcile") {
+			const [sessionId, endpoint, ...unexpected] = idOption.args;
+			if (!sessionId || !endpoint || unexpected.length > 0) {
+				throw new Error("sessions reconcile requires session id and endpoint");
+			}
+			const document = await Effect.runPromise(service.open(sessionId));
+			if (document.pendingOperation.kind !== "apply") {
+				throw new Error("Session has no unresolved Apply operation");
+			}
+			const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+			const result = await Effect.runPromise(
+				connection.lookupApplyResult(document.pendingOperation.request.operationId)
+			);
+			printJson({
+				result,
+				session: await Effect.runPromise(service.completeApply(sessionId, result))
+			});
+			return;
+		}
+		if (action === "save") {
+			const [sessionId, endpoint, ...unexpected] = idOption.args;
+			if (!sessionId || !endpoint || unexpected.length > 0) {
+				throw new Error("sessions save requires session id and endpoint");
+			}
+			const existing = await Effect.runPromise(service.open(sessionId));
+			const prepared =
+				existing.pendingOperation.kind === "save" &&
+				existing.pendingOperation.status === "indeterminate"
+					? existing
+					: await Effect.runPromise(service.prepareSave(sessionId));
+			if (prepared.pendingOperation.kind !== "save") throw new Error("Save was not prepared");
+			const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
+			try {
+				const result = await Effect.runPromise(
+					connection.save(prepared.pendingOperation.request)
+				);
+				printJson({
+					result,
+					session: await Effect.runPromise(service.completeSave(sessionId, result))
+				});
+			} catch (cause) {
+				await Effect.runPromise(service.markSaveIndeterminate(sessionId, String(cause)));
+				throw cause;
+			}
+			return;
+		}
 		throw new Error(`Unknown authoring sessions command: ${action}`);
 	}
 	if (area === "session" && action === "create") {
@@ -470,7 +542,7 @@ async function authoring(args: readonly string[]): Promise<void> {
 		const connection = await Effect.runPromise(connectUnrealAuthoring(endpoint));
 		const request = buildSaveRequest(session, randomUUID());
 		const result = await Effect.runPromise(connection.save(request));
-		const next = acceptSaveResult(session, result, new Date().toISOString());
+		const next = acceptSaveResult(session, request, result, new Date().toISOString());
 		await Effect.runPromise(saveDraftSession(sessionPath, next));
 		printJson({ result, session: next });
 		return;

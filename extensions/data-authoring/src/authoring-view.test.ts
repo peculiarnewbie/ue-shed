@@ -92,7 +92,9 @@ describe("authoring table presentation", () => {
 			}
 		};
 
-		expect(tableColumns(empty)).toEqual([{ name: "Count", typeName: "IntProperty" }]);
+		expect(tableColumns(empty)).toEqual([
+			expect.objectContaining({ name: "Count", typeName: "IntProperty" })
+		]);
 	});
 
 	it("filters by row names and formatted typed values", () => {

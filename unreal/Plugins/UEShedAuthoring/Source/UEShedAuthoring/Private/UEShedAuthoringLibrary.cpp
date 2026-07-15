@@ -992,14 +992,21 @@ TSharedPtr<FJsonValue> OperationError(
 	return MakeShared<FJsonValueObject>(Error);
 }
 
-TMap<FString, FString> ApplyResultCache;
+struct FApplyCacheEntry
+{
+	FString RequestDigest;
+	FString Result;
+};
+
+TMap<FString, FApplyCacheEntry> ApplyResultCache;
 TArray<FString> ApplyResultOrder;
 constexpr int32 MaxApplyResults = 128;
 
-void CacheApplyResult(const FString& OperationId, const FString& Result)
+void CacheApplyResult(
+	const FString& OperationId, const FString& RequestDigest, const FString& Result)
 {
 	if (!ApplyResultCache.Contains(OperationId)) ApplyResultOrder.Add(OperationId);
-	ApplyResultCache.Add(OperationId, Result);
+	ApplyResultCache.Add(OperationId, { RequestDigest, Result });
 	while (ApplyResultOrder.Num() > MaxApplyResults)
 	{
 		ApplyResultCache.Remove(ApplyResultOrder[0]);
@@ -1256,9 +1263,28 @@ void UUEShedAuthoringLibrary::Apply(const FString& RequestJson, FString& ResultJ
 		ResultJson = ErrorJson(TEXT("invalid_request"), TEXT("operationId is required"));
 		return;
 	}
-	if (const FString* Cached = ApplyResultCache.Find(OperationId))
+	const FString CanonicalRequest = CanonicalJson(MakeShared<FJsonValueObject>(Request.ToSharedRef()));
+	const FTCHARToUTF8 RequestBytes(*CanonicalRequest);
+	const FString RequestDigest = Sha256Hex(
+		reinterpret_cast<const uint8*>(RequestBytes.Get()), RequestBytes.Length());
+	if (const FApplyCacheEntry* Cached = ApplyResultCache.Find(OperationId))
 	{
-		ResultJson = *Cached;
+		if (Cached->RequestDigest == RequestDigest)
+		{
+			ResultJson = Cached->Result;
+			return;
+		}
+		const TSharedRef<FJsonObject> Collision = MakeShared<FJsonObject>();
+		Collision->SetObjectField(
+			TEXT("contract"), OperationContract(TEXT("unreal-authoring-apply")));
+		Collision->SetStringField(TEXT("operationId"), OperationId);
+		Collision->SetStringField(TEXT("status"), TEXT("rejected"));
+		Collision->SetArrayField(TEXT("snapshots"), TArray<TSharedPtr<FJsonValue>>());
+		TArray<TSharedPtr<FJsonValue>> CollisionErrors;
+		CollisionErrors.Add(OperationError(TEXT("operation_id_collision"),
+			TEXT("operationId was already used for a different canonical request"), false));
+		Collision->SetArrayField(TEXT("errors"), CollisionErrors);
+		ResultJson = JsonString(Collision);
 		return;
 	}
 	const TArray<TSharedPtr<FJsonValue>>* TablePlans;
@@ -1331,7 +1357,7 @@ void UUEShedAuthoringLibrary::Apply(const FString& RequestJson, FString& ResultJ
 		}
 		Result->SetArrayField(TEXT("snapshots"), Snapshots);
 		ResultJson = JsonString(Result);
-		CacheApplyResult(OperationId, ResultJson);
+		CacheApplyResult(OperationId, RequestDigest, ResultJson);
 	};
 
 	if (Errors.Num() > 0 || Tables.Num() != TablePlans->Num())
@@ -1383,9 +1409,9 @@ void UUEShedAuthoringLibrary::Apply(const FString& RequestJson, FString& ResultJ
 void UUEShedAuthoringLibrary::LookupApplyResult(
 	const FString& OperationId, FString& ResultJson)
 {
-	if (const FString* Result = ApplyResultCache.Find(OperationId))
+	if (const FApplyCacheEntry* Entry = ApplyResultCache.Find(OperationId))
 	{
-		ResultJson = *Result;
+		ResultJson = Entry->Result;
 		return;
 	}
 	ResultJson = ErrorJson(TEXT("operation_not_found"), OperationId);

@@ -1,7 +1,7 @@
 # `@ue-shed/ui-theme`
 
-Shared StyleX variables and semantic themes for color, typography, spacing, radius, elevation,
-density, and motion. It contains no product layout or domain-specific component styles.
+Semantic StyleX variables and host-selected themes shared by maintained UE Shed interfaces. Feature
+packages consume these variables without depending on host class names or stylesheet order.
 
-Themes are explicit imports and compositions. Consumers do not depend on generated class names or
-magic global CSS-variable strings.
+Change the default palette, typography, density, radii, or motion here to update every migrated
+surface. Hosts apply a theme at their root; extensions retain local layout and feature styles.

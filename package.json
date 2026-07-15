@@ -22,6 +22,8 @@
 		"format:check": "oxfmt --check .",
 		"showcase": "node scripts/showcase.mjs",
 		"test": "node scripts/test.mjs",
+		"test:fast": "node scripts/test.mjs --exclude packages/authoring/src/unreal-mutation.integration.test.ts",
+		"test:unreal-authoring": "node scripts/test-unreal-authoring.mjs",
 		"uasset:build": "cargo build --locked -p uasset-parser",
 		"uasset:check": "cargo fmt --all -- --check && cargo clippy -p uasset-parser --all-targets -- -D warnings && cargo test -p uasset-parser --all-targets",
 		"ue-shed": "node scripts/ue-shed.mjs"

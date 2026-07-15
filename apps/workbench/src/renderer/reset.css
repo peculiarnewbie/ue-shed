@@ -13,9 +13,7 @@ body,
 	margin: 0;
 }
 body {
-	background: #0b0d0d;
-	color: #e8ebe5;
-	font-family: "Workbench Mono", monospace;
+	min-width: 960px;
 }
 button,
 input {

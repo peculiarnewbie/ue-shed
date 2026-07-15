@@ -5,6 +5,7 @@ import { Data, Effect, Schema } from "effect";
 import {
 	DraftSessionSchema,
 	appendCommandGroup,
+	buildSetCellCommandGroup,
 	createDraftSession,
 	redo,
 	undo,
@@ -13,14 +14,39 @@ import {
 	type DraftSession
 } from "./draft.js";
 import { fingerprintTable } from "./fingerprint.js";
-import type { AuthoringTableSnapshot } from "@ue-shed/protocol";
+import {
+	AuthoringApplyRequest,
+	AuthoringSaveRequest,
+	type AuthoringApplyResult,
+	type AuthoringSaveResult,
+	type AuthoringTableSnapshot
+} from "@ue-shed/protocol";
+import {
+	acceptApplyResult,
+	acceptSaveResult,
+	buildApplyRequest,
+	buildSaveRequest,
+	type AuthoringMutationLimits
+} from "./live.js";
 
 const SessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 const PendingOperation = Schema.Union(
 	Schema.Struct({ kind: Schema.Literal("none") }),
-	Schema.Struct({ kind: Schema.Literal("apply"), operationId: Schema.String }),
-	Schema.Struct({ kind: Schema.Literal("save"), requestId: Schema.String })
+	Schema.Struct({
+		kind: Schema.Literal("apply"),
+		lastError: Schema.optional(Schema.String),
+		request: AuthoringApplyRequest,
+		startedAt: Schema.String,
+		status: Schema.Literal("dispatching", "indeterminate")
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("save"),
+		lastError: Schema.optional(Schema.String),
+		request: AuthoringSaveRequest,
+		startedAt: Schema.String,
+		status: Schema.Literal("dispatching", "indeterminate")
+	})
 );
 
 export const AuthoringSessionDocument = Schema.Struct({
@@ -116,11 +142,46 @@ export interface AuthoringSessionService {
 		sessionId: string,
 		commands: readonly CommandEnvelope[]
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly setCells: (args: {
+		readonly sessionId: string;
+		readonly tableObjectPath: string;
+		readonly edits: readonly {
+			readonly rowId: string;
+			readonly fieldName: string;
+			readonly value: import("@ue-shed/protocol").AuthoringValue;
+		}[];
+		readonly author?: string;
+	}) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
 	readonly undo: (
 		sessionId: string
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
 	readonly redo: (
 		sessionId: string
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly prepareApply: (
+		sessionId: string,
+		limits: AuthoringMutationLimits,
+		operationId?: string
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly markApplyIndeterminate: (
+		sessionId: string,
+		message: string
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly completeApply: (
+		sessionId: string,
+		result: AuthoringApplyResult
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly prepareSave: (
+		sessionId: string,
+		requestId?: string
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly markSaveIndeterminate: (
+		sessionId: string,
+		message: string
+	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly completeSave: (
+		sessionId: string,
+		result: AuthoringSaveResult
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
 	readonly close: (
 		sessionId: string
@@ -312,6 +373,14 @@ export function makeAuthoringSessionService(
 				)
 			);
 
+		const requireIdle = (document: AuthoringSessionDocument): void => {
+			if (document.pendingOperation.kind !== "none") {
+				throw new Error(
+					`Session has an unresolved ${document.pendingOperation.kind} operation; reconcile it first`
+				);
+			}
+		};
+
 		return {
 			storageRoot,
 			create: (snapshots, options) =>
@@ -429,6 +498,7 @@ export function makeAuthoringSessionService(
 				),
 			append: (sessionId, commands) =>
 				update(sessionId, (document) => {
+					requireIdle(document);
 					const draft = appendCommandGroup(document.draft as DraftSession, commands);
 					for (const objectPath of new Set(
 						commands.map((command) => command.tableObjectPath)
@@ -437,18 +507,143 @@ export function makeAuthoringSessionService(
 					}
 					return { ...document, draft, updatedAt: dependencies.now() };
 				}),
+			setCells: (args) =>
+				update(args.sessionId, (document) => {
+					requireIdle(document);
+					const commands = buildSetCellCommandGroup({
+						authoredAt: dependencies.now(),
+						commandIds: args.edits.map(() => dependencies.makeId()),
+						edits: args.edits,
+						groupId: dependencies.makeId(),
+						session: document.draft as DraftSession,
+						tableObjectPath: args.tableObjectPath,
+						...(args.author === undefined ? {} : { author: args.author })
+					});
+					const draft = appendCommandGroup(document.draft as DraftSession, commands);
+					workingTable(draft, args.tableObjectPath);
+					return { ...document, draft, updatedAt: dependencies.now() };
+				}),
 			undo: (sessionId) =>
-				update(sessionId, (document) => ({
-					...document,
-					draft: undo(document.draft as DraftSession),
-					updatedAt: dependencies.now()
-				})),
+				update(sessionId, (document) => {
+					requireIdle(document);
+					return {
+						...document,
+						draft: undo(document.draft as DraftSession),
+						updatedAt: dependencies.now()
+					};
+				}),
 			redo: (sessionId) =>
-				update(sessionId, (document) => ({
-					...document,
-					draft: redo(document.draft as DraftSession),
-					updatedAt: dependencies.now()
-				})),
+				update(sessionId, (document) => {
+					requireIdle(document);
+					return {
+						...document,
+						draft: redo(document.draft as DraftSession),
+						updatedAt: dependencies.now()
+					};
+				}),
+			prepareApply: (sessionId, limits, operationId) =>
+				update(sessionId, (document) => {
+					requireIdle(document);
+					const request = buildApplyRequest(
+						document.draft as DraftSession,
+						operationId ?? dependencies.makeId(),
+						limits
+					);
+					const now = dependencies.now();
+					return {
+						...document,
+						pendingOperation: {
+							kind: "apply",
+							request,
+							startedAt: now,
+							status: "dispatching"
+						},
+						updatedAt: now
+					};
+				}),
+			markApplyIndeterminate: (sessionId, message) =>
+				update(sessionId, (document) => {
+					if (document.pendingOperation.kind !== "apply") {
+						throw new Error("Session has no pending Apply operation");
+					}
+					return {
+						...document,
+						pendingOperation: {
+							...document.pendingOperation,
+							lastError: message,
+							status: "indeterminate"
+						},
+						updatedAt: dependencies.now()
+					};
+				}),
+			completeApply: (sessionId, result) =>
+				update(sessionId, (document) => {
+					if (document.pendingOperation.kind !== "apply") {
+						throw new Error("Session has no pending Apply operation");
+					}
+					return {
+						...document,
+						draft: acceptApplyResult(
+							document.draft as DraftSession,
+							document.pendingOperation.request,
+							result,
+							dependencies.now()
+						),
+						pendingOperation: { kind: "none" },
+						updatedAt: dependencies.now()
+					};
+				}),
+			prepareSave: (sessionId, requestId) =>
+				update(sessionId, (document) => {
+					requireIdle(document);
+					const request = buildSaveRequest(
+						document.draft as DraftSession,
+						requestId ?? dependencies.makeId()
+					);
+					const now = dependencies.now();
+					return {
+						...document,
+						pendingOperation: {
+							kind: "save",
+							request,
+							startedAt: now,
+							status: "dispatching"
+						},
+						updatedAt: now
+					};
+				}),
+			markSaveIndeterminate: (sessionId, message) =>
+				update(sessionId, (document) => {
+					if (document.pendingOperation.kind !== "save") {
+						throw new Error("Session has no pending Save operation");
+					}
+					return {
+						...document,
+						pendingOperation: {
+							...document.pendingOperation,
+							lastError: message,
+							status: "indeterminate"
+						},
+						updatedAt: dependencies.now()
+					};
+				}),
+			completeSave: (sessionId, result) =>
+				update(sessionId, (document) => {
+					if (document.pendingOperation.kind !== "save") {
+						throw new Error("Session has no pending Save operation");
+					}
+					return {
+						...document,
+						draft: acceptSaveResult(
+							document.draft as DraftSession,
+							document.pendingOperation.request,
+							result,
+							dependencies.now()
+						),
+						pendingOperation: { kind: "none" },
+						updatedAt: dependencies.now()
+					};
+				}),
 			close: (sessionId) =>
 				update(sessionId, (document) => ({
 					...document,

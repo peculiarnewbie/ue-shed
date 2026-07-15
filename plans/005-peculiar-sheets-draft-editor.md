@@ -7,11 +7,26 @@
 
 ## Status
 
+- **State**: IN PROGRESS — Peculiar Sheets is wired to durable scalar cell gestures
 - **Priority**: P1
 - **Effort**: L (multi-day)
 - **Risk**: MED — interaction churn is contained by the adapter, but codecs protect persisted data
 - **Depends on**: Plan 004
 - **Planned at**: commit `52df5c0`, 2026-07-15
+
+## Progress checkpoint — 2026-07-15
+
+- Replaced the rendered CSS ledger with the pinned `peculiar-sheets@0.9.1` `Sheet` adapter. The
+  production Workbench bundle includes its public component and stylesheet.
+- Added the browser-safe `@ue-shed/authoring-sdk` with runtime schemas for scoped session views and
+  atomic `set_cells` intents. Workbench main/preload are transport adapters over the headless service.
+- Direct edits, paste, fill, and delete operations pass through one adapter decoder. Exact integers
+  remain strings; unsupported or schema-unproven fields remain read-only; batch failures persist
+  none of the gesture.
+- The route resumes or creates a project session, refreshes from persisted working state after every
+  gesture, and exposes service-backed Undo/Redo. Apply and Save remain unavailable.
+- Remaining Plan 005 work includes row operations, draft navigation/review, richer validation UI,
+  removal of the dormant legacy ledger markup, and full visual/manual fixture coverage.
 
 ## Outcome
 
