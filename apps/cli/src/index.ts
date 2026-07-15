@@ -11,6 +11,7 @@ import {
 	fingerprintTable,
 	loadDraftSession,
 	makeAuthoringSessionService,
+	authoringSessionLivePortLayer,
 	redo,
 	saveDraftSession,
 	undo,
@@ -412,21 +413,13 @@ async function authoring(args: readonly string[]): Promise<void> {
 			const connection = await runRemoteControl(connectUnrealAuthoring(endpoint));
 			const limits = connection.manifest.authoringLimits;
 			if (!limits) throw new Error("Editor did not negotiate authoring mutation limits");
-			const prepared = await Effect.runPromise(service.prepareApply(sessionId, limits));
-			if (prepared.pendingOperation.kind !== "apply")
-				throw new Error("Apply was not prepared");
-			try {
-				const result = await Effect.runPromise(
-					connection.apply(prepared.pendingOperation.request)
-				);
-				printJson({
-					result,
-					session: await Effect.runPromise(service.completeApply(sessionId, result))
-				});
-			} catch (cause) {
-				await Effect.runPromise(service.markApplyIndeterminate(sessionId, String(cause)));
-				throw cause;
-			}
+			printJson({
+				session: await Effect.runPromise(
+					service
+						.apply(sessionId, limits)
+						.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
+				)
+			});
 			return;
 		}
 		if (action === "reconcile") {
@@ -434,17 +427,13 @@ async function authoring(args: readonly string[]): Promise<void> {
 			if (!sessionId || !endpoint || unexpected.length > 0) {
 				throw new Error("sessions reconcile requires session id and endpoint");
 			}
-			const document = await Effect.runPromise(service.open(sessionId));
-			if (document.pendingOperation.kind !== "apply") {
-				throw new Error("Session has no unresolved Apply operation");
-			}
 			const connection = await runRemoteControl(connectUnrealAuthoring(endpoint));
-			const result = await Effect.runPromise(
-				connection.lookupApplyResult(document.pendingOperation.request.operationId)
-			);
 			printJson({
-				result,
-				session: await Effect.runPromise(service.completeApply(sessionId, result))
+				session: await Effect.runPromise(
+					service
+						.reconcileApply(sessionId)
+						.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
+				)
 			});
 			return;
 		}
@@ -453,26 +442,14 @@ async function authoring(args: readonly string[]): Promise<void> {
 			if (!sessionId || !endpoint || unexpected.length > 0) {
 				throw new Error("sessions save requires session id and endpoint");
 			}
-			const existing = await Effect.runPromise(service.open(sessionId));
-			const prepared =
-				existing.pendingOperation.kind === "save" &&
-				existing.pendingOperation.status === "indeterminate"
-					? existing
-					: await Effect.runPromise(service.prepareSave(sessionId));
-			if (prepared.pendingOperation.kind !== "save") throw new Error("Save was not prepared");
 			const connection = await runRemoteControl(connectUnrealAuthoring(endpoint));
-			try {
-				const result = await Effect.runPromise(
-					connection.save(prepared.pendingOperation.request)
-				);
-				printJson({
-					result,
-					session: await Effect.runPromise(service.completeSave(sessionId, result))
-				});
-			} catch (cause) {
-				await Effect.runPromise(service.markSaveIndeterminate(sessionId, String(cause)));
-				throw cause;
-			}
+			printJson({
+				session: await Effect.runPromise(
+					service
+						.save(sessionId)
+						.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
+				)
+			});
 			return;
 		}
 		throw new Error(`Unknown authoring sessions command: ${action}`);

@@ -34,6 +34,7 @@ import {
 } from "@ue-shed/asset-audits";
 import { discoverAuthoringProjectCatalog } from "@ue-shed/authoring-catalog";
 import {
+	authoringSessionLivePortLayer,
 	makeAuthoringSessionService,
 	workingTable,
 	type AuthoringSessionDocument
@@ -1063,17 +1064,13 @@ ipcMain.handle("authoring:session:apply", async (_event, sessionId: unknown) => 
 		const connection = await liveAuthoringConnection();
 		const limits = connection.manifest.authoringLimits;
 		if (!limits) throw new Error("The editor did not negotiate authoring mutation limits");
-		const prepared = await Effect.runPromise(service.prepareApply(sessionId, limits));
-		if (prepared.pendingOperation.kind !== "apply") throw new Error("Apply was not prepared");
-		try {
-			const result = await Effect.runPromise(
-				connection.apply(prepared.pendingOperation.request)
-			);
-			return documentView(await Effect.runPromise(service.completeApply(sessionId, result)));
-		} catch (cause) {
-			await Effect.runPromise(service.markApplyIndeterminate(sessionId, String(cause)));
-			throw cause;
-		}
+		return documentView(
+			await Effect.runPromise(
+				service
+					.apply(sessionId, limits)
+					.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
+			)
+		);
 	} catch (cause) {
 		return sessionFailure(cause);
 	}
@@ -1083,16 +1080,14 @@ ipcMain.handle("authoring:session:reconcile", async (_event, sessionId: unknown)
 	if (typeof sessionId !== "string") return sessionFailure("Reconcile requires a session id");
 	try {
 		const service = await sessionService();
-		const document = await Effect.runPromise(service.open(sessionId));
-		if (document.pendingOperation.kind !== "apply") {
-			throw new Error("Session has no unresolved Apply operation");
-		}
-		const result = await Effect.runPromise(
-			(await liveAuthoringConnection()).lookupApplyResult(
-				document.pendingOperation.request.operationId
+		const connection = await liveAuthoringConnection();
+		return documentView(
+			await Effect.runPromise(
+				service
+					.reconcileApply(sessionId)
+					.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
 			)
 		);
-		return documentView(await Effect.runPromise(service.completeApply(sessionId, result)));
 	} catch (cause) {
 		return sessionFailure(cause);
 	}
@@ -1102,22 +1097,14 @@ ipcMain.handle("authoring:session:save", async (_event, sessionId: unknown) => {
 	if (typeof sessionId !== "string") return sessionFailure("Save requires a session id");
 	const service = await sessionService();
 	try {
-		const existing = await Effect.runPromise(service.open(sessionId));
-		const prepared =
-			existing.pendingOperation.kind === "save" &&
-			existing.pendingOperation.status === "indeterminate"
-				? existing
-				: await Effect.runPromise(service.prepareSave(sessionId));
-		if (prepared.pendingOperation.kind !== "save") throw new Error("Save was not prepared");
-		try {
-			const result = await Effect.runPromise(
-				(await liveAuthoringConnection()).save(prepared.pendingOperation.request)
-			);
-			return documentView(await Effect.runPromise(service.completeSave(sessionId, result)));
-		} catch (cause) {
-			await Effect.runPromise(service.markSaveIndeterminate(sessionId, String(cause)));
-			throw cause;
-		}
+		const connection = await liveAuthoringConnection();
+		return documentView(
+			await Effect.runPromise(
+				service
+					.save(sessionId)
+					.pipe(Effect.provide(authoringSessionLivePortLayer(connection)))
+			)
+		);
 	} catch (cause) {
 		return sessionFailure(cause);
 	}

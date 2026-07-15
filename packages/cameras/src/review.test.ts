@@ -1,19 +1,26 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { captureReviewSet, type ReviewCapturePort } from "./review-capture.js";
+import {
+	ReviewCapture,
+	ReviewCaptureLive,
+	reviewCapturePortLayer,
+	reviewIdGeneratorLayer,
+	type ReviewCapturePortShape
+} from "./review-capture.js";
 import {
 	captureRunPath,
+	captureRunsRoot,
 	isPathWithin,
 	listCaptureRuns,
 	loadCaptureRun,
 	loadReviewSet,
+	ReviewRepository,
 	ReviewRepositoryLive,
-	saveReviewSet,
-	type ReviewRepository
+	saveReviewSet
 } from "./review-repository.js";
 import {
 	CaptureProfileId,
@@ -24,8 +31,6 @@ import {
 } from "./review-schema.js";
 
 const decodeReviewSet = (input: unknown) => Effect.runSync(decodeReviewSetEffect(input));
-const runReviewRepository = <A, E>(effect: Effect.Effect<A, E, ReviewRepository>) =>
-	Effect.runPromise(effect.pipe(Effect.provide(ReviewRepositoryLive)));
 
 const temporaryDirectories: string[] = [];
 
@@ -78,6 +83,30 @@ function fixtureReviewSet(): ReviewSet {
 	});
 }
 
+function runCapture(
+	options: {
+		readonly projectRoot: string;
+		readonly reviewSetPath: string;
+	},
+	port: ReviewCapturePortShape,
+	makeId: () => string
+) {
+	return Effect.runPromise(
+		Effect.flatMap(ReviewCapture, (service) =>
+			service.captureSet({
+				endpoint: "http://127.0.0.1:30001",
+				projectRoot: options.projectRoot,
+				reviewSetPath: options.reviewSetPath
+			})
+		).pipe(
+			Effect.provide(ReviewCaptureLive),
+			Effect.provide(reviewCapturePortLayer(port)),
+			Effect.provide(reviewIdGeneratorLayer(makeId)),
+			Effect.provide(ReviewRepositoryLive)
+		)
+	);
+}
+
 describe("Map Review contracts", () => {
 	it("keeps domain identities branded and validates a complete Review Set", () => {
 		const reviewSet = fixtureReviewSet();
@@ -105,8 +134,12 @@ describe("Map Review contracts", () => {
 		temporaryDirectories.push(root);
 		const path = join(root, "sets", "fixture.json");
 		const reviewSet = fixtureReviewSet();
-		await runReviewRepository(saveReviewSet({ path, reviewSet }));
-		await expect(runReviewRepository(loadReviewSet(path))).resolves.toEqual(reviewSet);
+		await Effect.runPromise(
+			saveReviewSet({ path, reviewSet }).pipe(Effect.provide(ReviewRepositoryLive))
+		);
+		await expect(
+			Effect.runPromise(loadReviewSet(path).pipe(Effect.provide(ReviewRepositoryLive)))
+		).resolves.toEqual(reviewSet);
 	});
 });
 
@@ -115,11 +148,13 @@ describe("durable capture loop", () => {
 		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-run-"));
 		temporaryDirectories.push(projectRoot);
 		const reviewSetPath = join(projectRoot, ".ue-shed", "review", "sets", "fixture.json");
-		await runReviewRepository(
-			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() })
+		await Effect.runPromise(
+			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() }).pipe(
+				Effect.provide(ReviewRepositoryLive)
+			)
 		);
 		const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
-		const port: ReviewCapturePort = {
+		const port: ReviewCapturePortShape = {
 			capture: (request) =>
 				Effect.tryPromise({
 					try: async () => {
@@ -152,31 +187,16 @@ describe("durable capture loop", () => {
 					catch: (cause) => cause
 				})
 		};
+		const ids = ["run-001", "operation-001"];
 
-		const run = await runReviewRepository(
-			captureReviewSet(
-				{
-					endpoint: "http://127.0.0.1:30001",
-					projectRoot,
-					reviewSetPath
-				},
-				{
-					makeId: (() => {
-						const ids = ["run-001", "operation-001"];
-						return () => ids.shift()!;
-					})(),
-					now: (() => {
-						const times = ["2026-07-15T08:00:00.000Z", "2026-07-15T08:00:01.000Z"];
-						return () => times.shift()!;
-					})(),
-					port
-				}
-			)
-		);
+		const run = await runCapture({ projectRoot, reviewSetPath }, port, () => ids.shift()!);
 
 		expect(run.status).toBe("completed");
-		const persisted = await runReviewRepository(
-			loadCaptureRun(captureRunPath(projectRoot, run.id))
+		expect(run.id).toBe("run-001");
+		const persisted = await Effect.runPromise(
+			loadCaptureRun(captureRunPath(projectRoot, run.id)).pipe(
+				Effect.provide(ReviewRepositoryLive)
+			)
 		);
 		expect(persisted).toEqual(run);
 		const artifactPath = join(
@@ -197,7 +217,11 @@ describe("durable capture loop", () => {
 			},
 			status: "captured"
 		});
-		await expect(runReviewRepository(listCaptureRuns(projectRoot))).resolves.toMatchObject([
+		await expect(
+			Effect.runPromise(
+				listCaptureRuns(projectRoot).pipe(Effect.provide(ReviewRepositoryLive))
+			)
+		).resolves.toMatchObject([
 			{ failedViews: 0, id: "run-001", status: "completed", successfulViews: 1 }
 		]);
 	});
@@ -206,11 +230,13 @@ describe("durable capture loop", () => {
 		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-reject-"));
 		temporaryDirectories.push(projectRoot);
 		const reviewSetPath = join(projectRoot, "set.json");
-		await runReviewRepository(
-			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() })
+		await Effect.runPromise(
+			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() }).pipe(
+				Effect.provide(ReviewRepositoryLive)
+			)
 		);
 		const outside = join(dirname(projectRoot), "outside.png");
-		const port: ReviewCapturePort = {
+		const port: ReviewCapturePortShape = {
 			capture: (request) =>
 				Effect.succeed({
 					actorPath: request.subject.actorPath,
@@ -227,32 +253,130 @@ describe("durable capture loop", () => {
 					width: 1280
 				})
 		};
-		const run = await runReviewRepository(
-			captureReviewSet(
-				{ endpoint: "unused", projectRoot, reviewSetPath },
-				{
-					makeId: (() => {
-						const ids = ["run-rejected", "operation-rejected"];
-						return () => ids.shift()!;
-					})(),
-					now: () => "2026-07-15T08:00:00.000Z",
-					port
-				}
-			)
-		);
+		const ids = ["run-rejected", "operation-rejected"];
+		const run = await runCapture({ projectRoot, reviewSetPath }, port, () => ids.shift()!);
 		expect(run.status).toBe("failed");
 		expect(run.results[0]).toMatchObject({
 			code: "capture_staging_path_rejected",
 			status: "failed"
 		});
 	});
+
+	it("discards staging directories when capture fails before promotion", async () => {
+		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-cleanup-"));
+		temporaryDirectories.push(projectRoot);
+		const reviewSetPath = join(projectRoot, "set.json");
+		await Effect.runPromise(
+			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() }).pipe(
+				Effect.provide(ReviewRepositoryLive)
+			)
+		);
+		const port: ReviewCapturePortShape = {
+			capture: () => Effect.die(new Error("capture boom"))
+		};
+		const ids = ["run-cleanup", "operation-cleanup"];
+		await expect(
+			runCapture({ projectRoot, reviewSetPath }, port, () => ids.shift()!)
+		).rejects.toThrow(/capture boom/);
+		await expect(
+			access(join(captureRunsRoot(projectRoot), ".staging-run-cleanup"))
+		).rejects.toThrow();
+	});
+
+	it("finishes promotion before observing interruption", async () => {
+		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-promotion-"));
+		temporaryDirectories.push(projectRoot);
+		const reviewSetPath = join(projectRoot, "set.json");
+		await Effect.runPromise(
+			saveReviewSet({ path: reviewSetPath, reviewSet: fixtureReviewSet() }).pipe(
+				Effect.provide(ReviewRepositoryLive)
+			)
+		);
+		const png = new Uint8Array([137, 80, 78, 71]);
+		const port: ReviewCapturePortShape = {
+			capture: (request) =>
+				Effect.tryPromise({
+					try: async () => {
+						const stagingPath = join(
+							projectRoot,
+							"Saved",
+							"UEShed",
+							"ReviewStaging",
+							request.operationId,
+							"pure.png"
+						);
+						await mkdir(dirname(stagingPath), { recursive: true });
+						await writeFile(stagingPath, png);
+						return {
+							actorPath: request.subject.actorPath,
+							captureDurationMs: 1,
+							contract: request.contract,
+							height: 1,
+							mapPackageDirtyAfter: false,
+							mapPackageDirtyBefore: false,
+							mapPath: request.expectedMapPath,
+							operationId: request.operationId,
+							stagingPath,
+							status: "captured" as const,
+							viewId: request.viewId,
+							width: 1
+						};
+					},
+					catch: (cause) => cause
+				})
+		};
+		const repository = await Effect.runPromise(
+			Effect.gen(function* () {
+				return yield* ReviewRepository;
+			}).pipe(Effect.provide(ReviewRepositoryLive))
+		);
+		const promotionStarted = await Effect.runPromise(Deferred.make<void>());
+		const releasePromotion = await Effect.runPromise(Deferred.make<void>());
+		const gatedRepository = ReviewRepository.of({
+			...repository,
+			finalizeRun: (args) =>
+				Effect.gen(function* () {
+					yield* Deferred.succeed(promotionStarted, undefined);
+					yield* Deferred.await(releasePromotion);
+					yield* repository.finalizeRun(args);
+				})
+		});
+		const ids = ["run-promotion", "operation-promotion"];
+		const makeId = () => {
+			const id = ids.shift();
+			if (!id) throw new Error("Promotion test exhausted its deterministic IDs");
+			return id;
+		};
+		const capture = Effect.flatMap(ReviewCapture, (service) =>
+			service.captureSet({
+				endpoint: "unused",
+				projectRoot,
+				reviewSetPath
+			})
+		).pipe(
+			Effect.provide(ReviewCaptureLive),
+			Effect.provide(reviewCapturePortLayer(port)),
+			Effect.provide(reviewIdGeneratorLayer(makeId)),
+			Effect.provide(Layer.succeed(ReviewRepository, gatedRepository))
+		);
+		const captureFiber = Effect.runFork(capture);
+		await Effect.runPromise(Deferred.await(promotionStarted));
+		const interruptFiber = Effect.runFork(Fiber.interrupt(captureFiber));
+		await Effect.runPromise(Deferred.succeed(releasePromotion, undefined));
+		await Effect.runPromise(Fiber.await(interruptFiber));
+		await Effect.runPromise(Fiber.await(captureFiber));
+
+		await expect(access(captureRunPath(projectRoot, "run-promotion"))).resolves.toBeUndefined();
+		await expect(
+			access(join(captureRunsRoot(projectRoot), ".staging-run-promotion"))
+		).rejects.toThrow();
+	});
 });
 
 describe("review staging path validation", () => {
-	it("accepts descendants and rejects siblings and the root itself", () => {
-		const root = join("C:\\project", "Saved", "UEShed", "ReviewStaging");
-		expect(isPathWithin(root, join(root, "operation", "pure.png"))).toBe(true);
-		expect(isPathWithin(root, root)).toBe(false);
-		expect(isPathWithin(root, join(root, "..", "outside.png"))).toBe(false);
+	it("accepts nested project paths and rejects escapes", () => {
+		const root = "C:\\Projects\\Fixture";
+		expect(isPathWithin(root, join(root, "Saved", "UEShed", "a.png"))).toBe(true);
+		expect(isPathWithin(root, join(root, "..", "elsewhere.png"))).toBe(false);
 	});
 });

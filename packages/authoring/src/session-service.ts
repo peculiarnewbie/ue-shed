@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { Clock, Context, Effect, Layer, Schema, Semaphore } from "effect";
+import { Clock, Context, Effect, Exit, Layer, Option, Schema, Semaphore } from "effect";
 import {
 	DraftSessionSchema,
 	appendCommandGroup,
@@ -26,6 +26,7 @@ import {
 	acceptSaveResult,
 	buildApplyRequest,
 	buildSaveRequest,
+	type AuthoringLivePort,
 	type AuthoringMutationLimits
 } from "./live.js";
 
@@ -110,6 +111,58 @@ export type AuthoringSessionServiceError =
 	| AuthoringSessionStorageError
 	| AuthoringSessionTransitionError;
 
+export class AuthoringSessionLiveError extends Schema.TaggedErrorClass<AuthoringSessionLiveError>()(
+	"AuthoringSessionLiveError",
+	{
+		message: Schema.String,
+		operation: Schema.Literals(["apply", "lookup_apply", "save"]),
+		retrySafe: Schema.Boolean
+	}
+) {}
+
+export type AuthoringSessionLivePortShape = AuthoringLivePort<AuthoringSessionLiveError>;
+
+export class AuthoringSessionLivePort extends Context.Service<
+	AuthoringSessionLivePort,
+	AuthoringSessionLivePortShape
+>()("@ue-shed/authoring/AuthoringSessionLivePort") {}
+
+function liveError(
+	operation: AuthoringSessionLiveError["operation"],
+	cause: unknown
+): AuthoringSessionLiveError {
+	const retrySafe =
+		typeof cause === "object" &&
+		cause !== null &&
+		"retrySafe" in cause &&
+		typeof cause.retrySafe === "boolean"
+			? cause.retrySafe
+			: false;
+	return new AuthoringSessionLiveError({
+		message: cause instanceof Error ? cause.message : String(cause),
+		operation,
+		retrySafe
+	});
+}
+
+export function authoringSessionLivePortLayer<E>(
+	port: AuthoringLivePort<E>
+): Layer.Layer<AuthoringSessionLivePort> {
+	return Layer.succeed(
+		AuthoringSessionLivePort,
+		AuthoringSessionLivePort.of({
+			apply: (request) =>
+				port.apply(request).pipe(Effect.mapError((cause) => liveError("apply", cause))),
+			lookupApplyResult: (operationId) =>
+				port
+					.lookupApplyResult(operationId)
+					.pipe(Effect.mapError((cause) => liveError("lookup_apply", cause))),
+			save: (request) =>
+				port.save(request).pipe(Effect.mapError((cause) => liveError("save", cause)))
+		})
+	);
+}
+
 export interface AuthoringSessionSummary {
 	readonly id: string;
 	readonly lifecycle: "open" | "closed";
@@ -175,6 +228,22 @@ export interface AuthoringSessionService {
 		sessionId: string,
 		result: AuthoringApplyResult
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly apply: (
+		sessionId: string,
+		limits: AuthoringMutationLimits,
+		operationId?: string
+	) => Effect.Effect<
+		AuthoringSessionDocument,
+		AuthoringSessionServiceError | AuthoringSessionLiveError,
+		AuthoringSessionLivePort
+	>;
+	readonly reconcileApply: (
+		sessionId: string
+	) => Effect.Effect<
+		AuthoringSessionDocument,
+		AuthoringSessionServiceError | AuthoringSessionLiveError,
+		AuthoringSessionLivePort
+	>;
 	readonly prepareSave: (
 		sessionId: string,
 		requestId?: string
@@ -187,6 +256,14 @@ export interface AuthoringSessionService {
 		sessionId: string,
 		result: AuthoringSaveResult
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
+	readonly save: (
+		sessionId: string,
+		requestId?: string
+	) => Effect.Effect<
+		AuthoringSessionDocument,
+		AuthoringSessionServiceError | AuthoringSessionLiveError,
+		AuthoringSessionLivePort
+	>;
 	readonly close: (
 		sessionId: string
 	) => Effect.Effect<AuthoringSessionDocument, AuthoringSessionServiceError>;
@@ -528,6 +605,126 @@ function makeAuthoringSessionServiceEffect(): Effect.Effect<
 			}
 		};
 
+		const prepareApply = Effect.fn("AuthoringSessions.prepareApply")(
+			(sessionId: string, limits: AuthoringMutationLimits, operationId?: string) =>
+				Effect.gen(function* () {
+					const requestId = operationId ?? (yield* ids.generate());
+					return yield* update(sessionId, (document, timestamp) => {
+						requireIdle(document);
+						const request = buildApplyRequest(
+							document.draft as DraftSession,
+							requestId,
+							limits
+						);
+						return {
+							...document,
+							pendingOperation: {
+								kind: "apply",
+								request,
+								startedAt: timestamp,
+								status: "dispatching"
+							},
+							updatedAt: timestamp
+						};
+					});
+				})
+		);
+		const markApplyIndeterminate = Effect.fn("AuthoringSessions.markApplyIndeterminate")(
+			(sessionId: string, message: string) =>
+				update(sessionId, (document, timestamp) => {
+					if (document.pendingOperation.kind !== "apply") {
+						throw new Error("Session has no pending Apply operation");
+					}
+					return {
+						...document,
+						pendingOperation: {
+							...document.pendingOperation,
+							lastError: message,
+							status: "indeterminate"
+						},
+						updatedAt: timestamp
+					};
+				})
+		);
+		const completeApply = Effect.fn("AuthoringSessions.completeApply")(
+			(sessionId: string, result: AuthoringApplyResult) =>
+				update(sessionId, (document, timestamp) => {
+					if (document.pendingOperation.kind !== "apply") {
+						throw new Error("Session has no pending Apply operation");
+					}
+					return {
+						...document,
+						draft: acceptApplyResult(
+							document.draft as DraftSession,
+							document.pendingOperation.request,
+							result,
+							timestamp
+						),
+						pendingOperation: { kind: "none" },
+						updatedAt: timestamp
+					};
+				})
+		);
+		const prepareSave = Effect.fn("AuthoringSessions.prepareSave")(
+			(sessionId: string, requestId?: string) =>
+				Effect.gen(function* () {
+					const operationId = requestId ?? (yield* ids.generate());
+					return yield* update(sessionId, (document, timestamp) => {
+						requireIdle(document);
+						const request = buildSaveRequest(
+							document.draft as DraftSession,
+							operationId
+						);
+						return {
+							...document,
+							pendingOperation: {
+								kind: "save",
+								request,
+								startedAt: timestamp,
+								status: "dispatching"
+							},
+							updatedAt: timestamp
+						};
+					});
+				})
+		);
+		const markSaveIndeterminate = Effect.fn("AuthoringSessions.markSaveIndeterminate")(
+			(sessionId: string, message: string) =>
+				update(sessionId, (document, timestamp) => {
+					if (document.pendingOperation.kind !== "save") {
+						throw new Error("Session has no pending Save operation");
+					}
+					return {
+						...document,
+						pendingOperation: {
+							...document.pendingOperation,
+							lastError: message,
+							status: "indeterminate"
+						},
+						updatedAt: timestamp
+					};
+				})
+		);
+		const completeSave = Effect.fn("AuthoringSessions.completeSave")(
+			(sessionId: string, result: AuthoringSaveResult) =>
+				update(sessionId, (document, timestamp) => {
+					if (document.pendingOperation.kind !== "save") {
+						throw new Error("Session has no pending Save operation");
+					}
+					return {
+						...document,
+						draft: acceptSaveResult(
+							document.draft as DraftSession,
+							document.pendingOperation.request,
+							result,
+							timestamp
+						),
+						pendingOperation: { kind: "none" },
+						updatedAt: timestamp
+					};
+				})
+		);
+
 		return {
 			storageRoot: repository.storageRoot,
 			create: Effect.fn("AuthoringSessions.create")((snapshots, options) =>
@@ -667,122 +864,105 @@ function makeAuthoringSessionServiceEffect(): Effect.Effect<
 					};
 				})
 			),
-			prepareApply: Effect.fn("AuthoringSessions.prepareApply")(
-				(sessionId, limits, operationId) =>
-					Effect.gen(function* () {
-						const requestId = operationId ?? (yield* ids.generate());
-						return yield* update(sessionId, (document, timestamp) => {
-							requireIdle(document);
-							const request = buildApplyRequest(
-								document.draft as DraftSession,
-								requestId,
-								limits
-							);
-							return {
-								...document,
-								pendingOperation: {
-									kind: "apply",
-									request,
-									startedAt: timestamp,
-									status: "dispatching"
-								},
-								updatedAt: timestamp
-							};
-						});
-					})
-			),
-			markApplyIndeterminate: Effect.fn("AuthoringSessions.markApplyIndeterminate")(
-				(sessionId, message) =>
-					update(sessionId, (document, timestamp) => {
-						if (document.pendingOperation.kind !== "apply") {
-							throw new Error("Session has no pending Apply operation");
-						}
-						return {
-							...document,
-							pendingOperation: {
-								...document.pendingOperation,
-								lastError: message,
-								status: "indeterminate"
-							},
-							updatedAt: timestamp
-						};
-					})
-			),
-			completeApply: Effect.fn("AuthoringSessions.completeApply")((sessionId, result) =>
-				update(sessionId, (document, timestamp) => {
-					if (document.pendingOperation.kind !== "apply") {
-						throw new Error("Session has no pending Apply operation");
-					}
-					return {
-						...document,
-						draft: acceptApplyResult(
-							document.draft as DraftSession,
-							document.pendingOperation.request,
-							result,
-							timestamp
-						),
-						pendingOperation: { kind: "none" },
-						updatedAt: timestamp
-					};
-				})
-			),
-			prepareSave: Effect.fn("AuthoringSessions.prepareSave")((sessionId, requestId) =>
-				Effect.gen(function* () {
-					const operationId = requestId ?? (yield* ids.generate());
-					return yield* update(sessionId, (document, timestamp) => {
-						requireIdle(document);
-						const request = buildSaveRequest(
-							document.draft as DraftSession,
-							operationId
-						);
-						return {
-							...document,
-							pendingOperation: {
-								kind: "save",
-								request,
-								startedAt: timestamp,
-								status: "dispatching"
-							},
-							updatedAt: timestamp
-						};
+			prepareApply,
+			markApplyIndeterminate,
+			completeApply,
+			apply: Effect.fn("AuthoringSessions.apply")(function* (
+				sessionId: string,
+				limits: AuthoringMutationLimits,
+				operationId?: string
+			) {
+				const port = yield* AuthoringSessionLivePort;
+				const prepared = yield* prepareApply(sessionId, limits, operationId);
+				if (prepared.pendingOperation.kind !== "apply") {
+					return yield* new AuthoringSessionTransitionError({
+						message: "Apply was not prepared",
+						recovery: "Retry the Apply gesture from an idle session.",
+						sessionId
 					});
-				})
-			),
-			markSaveIndeterminate: Effect.fn("AuthoringSessions.markSaveIndeterminate")(
-				(sessionId, message) =>
-					update(sessionId, (document, timestamp) => {
-						if (document.pendingOperation.kind !== "save") {
-							throw new Error("Session has no pending Save operation");
-						}
-						return {
-							...document,
-							pendingOperation: {
-								...document.pendingOperation,
-								lastError: message,
-								status: "indeterminate"
-							},
-							updatedAt: timestamp
-						};
-					})
-			),
-			completeSave: Effect.fn("AuthoringSessions.completeSave")((sessionId, result) =>
-				update(sessionId, (document, timestamp) => {
-					if (document.pendingOperation.kind !== "save") {
-						throw new Error("Session has no pending Save operation");
-					}
-					return {
-						...document,
-						draft: acceptSaveResult(
-							document.draft as DraftSession,
-							document.pendingOperation.request,
-							result,
-							timestamp
-						),
-						pendingOperation: { kind: "none" },
-						updatedAt: timestamp
-					};
-				})
-			),
+				}
+				const request = prepared.pendingOperation.request;
+				return yield* Effect.gen(function* () {
+					const result = yield* port.apply(request);
+					return yield* completeApply(sessionId, result);
+				}).pipe(
+					Effect.onExit((exit) =>
+						Exit.isSuccess(exit)
+							? Effect.void
+							: markApplyIndeterminate(
+									sessionId,
+									Exit.hasInterrupts(exit)
+										? "Apply dispatch was interrupted before durable completion"
+										: String(
+												Option.getOrElse(
+													Exit.getCause(exit),
+													() => "unknown"
+												)
+											)
+								).pipe(Effect.uninterruptible, Effect.asVoid)
+					)
+				);
+			}),
+			reconcileApply: Effect.fn("AuthoringSessions.reconcileApply")(function* (
+				sessionId: string
+			) {
+				const port = yield* AuthoringSessionLivePort;
+				const document = yield* load(sessionId);
+				if (document.pendingOperation.kind !== "apply") {
+					return yield* new AuthoringSessionTransitionError({
+						message: "Session has no unresolved Apply operation",
+						recovery: "Open a session with a pending Apply before reconciling.",
+						sessionId
+					});
+				}
+				const result = yield* port.lookupApplyResult(
+					document.pendingOperation.request.operationId
+				);
+				return yield* completeApply(sessionId, result);
+			}),
+			prepareSave,
+			markSaveIndeterminate,
+			completeSave,
+			save: Effect.fn("AuthoringSessions.save")(function* (
+				sessionId: string,
+				requestId?: string
+			) {
+				const port = yield* AuthoringSessionLivePort;
+				const existing = yield* load(sessionId);
+				const prepared =
+					existing.pendingOperation.kind === "save" &&
+					existing.pendingOperation.status === "indeterminate"
+						? existing
+						: yield* prepareSave(sessionId, requestId);
+				if (prepared.pendingOperation.kind !== "save") {
+					return yield* new AuthoringSessionTransitionError({
+						message: "Save was not prepared",
+						recovery: "Retry the Save gesture from an idle or indeterminate session.",
+						sessionId
+					});
+				}
+				const request = prepared.pendingOperation.request;
+				return yield* Effect.gen(function* () {
+					const result = yield* port.save(request);
+					return yield* completeSave(sessionId, result);
+				}).pipe(
+					Effect.onExit((exit) =>
+						Exit.isSuccess(exit)
+							? Effect.void
+							: markSaveIndeterminate(
+									sessionId,
+									Exit.hasInterrupts(exit)
+										? "Save dispatch was interrupted before durable completion"
+										: String(
+												Option.getOrElse(
+													Exit.getCause(exit),
+													() => "unknown"
+												)
+											)
+								).pipe(Effect.uninterruptible, Effect.asVoid)
+					)
+				);
+			}),
 			close: Effect.fn("AuthoringSessions.close")((sessionId) =>
 				update(sessionId, (document, timestamp) => ({
 					...document,

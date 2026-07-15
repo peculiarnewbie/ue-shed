@@ -7,6 +7,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P0
 - **Effort**: XL
 - **Risk**: HIGH — these packages are the headless product APIs used by both CLI and Workbench
@@ -110,7 +111,9 @@ storage through services/layers. Use bounded Effect concurrency for view capture
 failure versus whole-run failure explicitly and retain provenance.
 
 **Verify**: capture, framing approval, preview failure, partial capture, interruption, and storage
-cleanup tests pass.
+cleanup tests pass. Unreal `CaptureReviewView` mutates shared editor camera state, so the live
+default capture concurrency is `1`; `Effect.forEach` still owns the limit so tests and safe ports
+can raise it explicitly.
 
 ### Step 5: Remove free-function compatibility paths
 
@@ -130,12 +133,15 @@ and side-effect free. No service may call `Effect.run*`.
 
 ## Done criteria
 
-- [ ] Every public stateful/effectful domain workflow is a named service operation.
-- [ ] Live/test/config layer constructors are available without app dependencies.
-- [ ] Domain packages contain no `Effect.run*`, Promise orchestration, direct env reads, or hidden
+- [x] Every public stateful/effectful domain workflow is a named service operation.
+- [x] Live/test/config layer constructors are available without app dependencies.
+- [x] Domain packages contain no `Effect.run*`, Promise orchestration, direct env reads, or hidden
       global services.
-- [ ] Failure/partial-result policy is explicit and tested.
-- [ ] `pnpm check` and `pnpm test:e2e:cli` pass.
+- [x] Failure/partial-result policy is explicit and tested.
+- [x] Apply/Save mark indeterminate for any non-success exit before durable completion.
+- [x] Review capture discards staging on failure/cancellation and uses explicit capture concurrency.
+- [x] Domain services obtain Remote Control, clocks, IDs, and optional live connections from layers.
+- [x] `pnpm check` and `pnpm test:e2e:cli` pass.
 
 ## STOP conditions
 

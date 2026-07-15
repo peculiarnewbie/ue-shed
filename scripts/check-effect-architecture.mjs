@@ -15,14 +15,12 @@ const catalogOwned = new Set([
 
 const legacyBaselines = {
 	"Effect.runPromise": {
-		"apps/cli/src/index.ts": 68,
-		"apps/workbench/src/main/main.ts": 42,
+		"apps/cli/src/index.ts": 23,
+		"apps/workbench/src/main/main.ts": 21,
 		"apps/workbench/src/renderer/asset-audits-client.ts": 2,
 		"apps/workbench/src/renderer/authoring-client.ts": 9,
 		"apps/workbench/src/renderer/game-text-client.ts": 1,
-		"apps/workbench/src/renderer/map-review-client.ts": 5,
-		"packages/cameras/src/index.ts": 4,
-		"packages/cameras/src/review-authoring-live.ts": 1
+		"apps/workbench/src/renderer/map-review-client.ts": 5
 	},
 	"Effect.runSync": {
 		"apps/cli/src/index.ts": 1,
@@ -42,23 +40,16 @@ const legacyBaselines = {
 		"extensions/data-authoring/src/authoring-route.tsx": 11,
 		"extensions/data-authoring/src/authoring-table-grid.tsx": 1,
 		"extensions/game-text/src/game-text-route.tsx": 2,
-		"packages/cameras/src/index.ts": 5,
-		"packages/cameras/src/review-authoring-live.ts": 1,
-		"packages/cameras/src/review-capture.ts": 1,
+		"packages/cameras/src/index.ts": 1,
 		"packages/cameras/src/review-repository.ts": 1,
 		"packages/unreal-assets/src/index.ts": 1
 	},
 	"process.env": {
-		"apps/workbench/src/main/main.ts": 20,
+		"apps/workbench/src/main/main.ts": 16,
 		"packages/unreal-assets/src/index.ts": 1
 	},
 	"fetch(": {
-		"apps/workbench/src/main/main.ts": 2,
-		"packages/asset-audits/src/live.ts": 1,
-		"packages/cameras/src/index.ts": 1,
-		"packages/cameras/src/review-authoring-live.ts": 1,
-		"packages/cameras/src/review-live.ts": 1,
-		"packages/unreal-connection/src/index.ts": 1
+		"apps/workbench/src/main/main.ts": 2
 	}
 };
 
@@ -146,8 +137,124 @@ export async function checkCatalogUsage(root) {
 	return failures;
 }
 
+export async function checkDomainServices(root = repositoryRoot) {
+	const required = [
+		["packages/asset-audits/src/texture.ts", "export class TextureAudit"],
+		["packages/game-text/src/corpus.ts", "export class TextCorpusService"],
+		["packages/authoring-catalog/src/index.ts", "export class AuthoringCatalog"],
+		["packages/authoring/src/session-service.ts", "export class AuthoringSessions"],
+		["packages/cameras/src/review-capture.ts", "export class ReviewCapture"],
+		["packages/cameras/src/review-authoring-live.ts", "export class ReviewAuthoring"]
+	];
+	const failures = [];
+	for (const [path, needle] of required) {
+		const text = await readFile(join(root, path), "utf8");
+		if (!text.includes(needle)) {
+			failures.push(`${path}: missing domain service declaration ${needle}`);
+		}
+		if (!text.includes("Context.Service")) {
+			failures.push(`${path}: domain service file must use Context.Service`);
+		}
+		if (!text.includes("Effect.fn(")) {
+			failures.push(`${path}: domain service operations must use Effect.fn`);
+		}
+	}
+
+	const capture = await readFile(join(root, "packages/cameras/src/review-capture.ts"), "utf8");
+	if (/captureSet:\s*\([^)]*dependencies/.test(capture)) {
+		failures.push(
+			"packages/cameras/src/review-capture.ts: captureSet must not take ad-hoc dependencies"
+		);
+	}
+	if (!capture.includes("Effect.forEach(") || !capture.includes("concurrency")) {
+		failures.push(
+			"packages/cameras/src/review-capture.ts: view capture must use Effect.forEach concurrency"
+		);
+	}
+	if (!capture.includes("discardStaging")) {
+		failures.push(
+			"packages/cameras/src/review-capture.ts: capture must discard staging on non-promotion exits"
+		);
+	}
+	const finalizeRun = capture.indexOf(".finalizeRun(");
+	if (
+		finalizeRun === -1 ||
+		!capture.slice(finalizeRun, finalizeRun + 400).includes("Effect.uninterruptible")
+	) {
+		failures.push(
+			"packages/cameras/src/review-capture.ts: durable promotion must be uninterruptible through promotion-state persistence"
+		);
+	}
+
+	const catalog = await readFile(join(root, "packages/authoring-catalog/src/index.ts"), "utf8");
+	if (/export interface AuthoringCatalogDiscoverArgs \{[^}]*live\?/s.test(catalog)) {
+		failures.push(
+			"packages/authoring-catalog/src/index.ts: discover args must not take an ad-hoc live connection"
+		);
+	}
+	if (!catalog.includes("AuthoringLiveConnection")) {
+		failures.push(
+			"packages/authoring-catalog/src/index.ts: live catalog evidence must come from AuthoringLiveConnection"
+		);
+	}
+
+	const authoring = await readFile(
+		join(root, "packages/cameras/src/review-authoring-live.ts"),
+		"utf8"
+	);
+	if (
+		/inspectSelection:[\s\S]*?RemoteControlClient/.test(authoring) &&
+		authoring.includes("ReviewAuthoringShape")
+	) {
+		const shape = authoring.slice(
+			authoring.indexOf("export interface ReviewAuthoringShape"),
+			authoring.indexOf("export class ReviewAuthoring")
+		);
+		if (shape.includes("RemoteControlClient")) {
+			failures.push(
+				"packages/cameras/src/review-authoring-live.ts: ReviewAuthoring methods must not require RemoteControlClient from callers"
+			);
+		}
+	}
+
+	const sessions = await readFile(
+		join(root, "packages/authoring/src/session-service.ts"),
+		"utf8"
+	);
+	if (!sessions.includes("Effect.onExit") || !sessions.includes("markApplyIndeterminate")) {
+		failures.push(
+			"packages/authoring/src/session-service.ts: apply/save must finalize indeterminate state on non-success exits"
+		);
+	}
+	if (!sessions.includes("AuthoringSessionLivePort")) {
+		failures.push(
+			"packages/authoring/src/session-service.ts: live mutation dependencies must come from AuthoringSessionLivePort"
+		);
+	}
+	const sessionShape = sessions.slice(
+		sessions.indexOf("export interface AuthoringSessionService"),
+		sessions.indexOf("export interface AuthoringSessionServiceConfig")
+	);
+	if (sessionShape.includes("port: AuthoringLivePort")) {
+		failures.push(
+			"packages/authoring/src/session-service.ts: session operations must not take ad-hoc live ports"
+		);
+	}
+	if (sessions.includes("Effect.uninterruptible, Effect.asVoid, Effect.ignore")) {
+		failures.push(
+			"packages/authoring/src/session-service.ts: indeterminate-state persistence failures must remain visible"
+		);
+	}
+
+	return failures;
+}
+
 export async function checkArchitecture(root = repositoryRoot) {
-	return [...(await checkCatalogUsage(root)), ...(await checkSourceBaselines(root))];
+	return [
+		...(await checkCatalogUsage(root)),
+		...(await checkSourceBaselines(root)),
+		...(await checkDomainServices(root))
+	];
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {

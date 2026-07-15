@@ -1,13 +1,13 @@
 import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import {
-	discoverSavedAssets,
-	readSavedAsset,
-	type AssetReader,
+	AssetReader,
+	type AssetReaderShape,
 	type SavedAssetInspection,
 	type SavedProperty
 } from "@ue-shed/unreal-assets";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
+import { maximumDimensionKey } from "./report.js";
 import {
 	AuditRuleId,
 	TextureObjectPath,
@@ -21,7 +21,6 @@ import {
 	type TextureDistributions,
 	type TextureRecord
 } from "./schema.js";
-import { maximumDimensionKey } from "./report.js";
 
 const makeTextureObjectPath = TextureObjectPath.make;
 const makeAuditRuleId = AuditRuleId.make;
@@ -31,12 +30,15 @@ export class TextureAuditScanError extends Schema.TaggedErrorClass<TextureAuditS
 	TextureAuditPublicError.fields
 ) {}
 
-export interface ScanTextureAuditOptions {
-	readonly projectRoot: string;
-	readonly ruleFile: string;
-	readonly concurrency?: number;
-	readonly maximumAssets?: number;
-}
+export const TextureAuditScanOptions = Schema.Struct({
+	concurrency: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+	maximumAssets: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+	projectRoot: Schema.String,
+	ruleFile: Schema.String
+});
+export type TextureAuditScanOptions = Schema.Schema.Type<typeof TextureAuditScanOptions>;
+
+const decodeScanOptions = Schema.decodeUnknownEffect(TextureAuditScanOptions);
 
 const unavailable = (reason: "not_serialized" | "wrong_value_kind" | "missing_source") => ({
 	status: "unavailable" as const,
@@ -273,12 +275,13 @@ function readRuleSet(path: string): Effect.Effect<TextureAuditRuleSet, TextureAu
 	);
 }
 
-export function scanTextureAudit(
-	options: ScanTextureAuditOptions
-): Effect.Effect<TextureAuditReport, TextureAuditScanError, AssetReader> {
+function scanTextureAuditWith(
+	reader: AssetReaderShape,
+	options: TextureAuditScanOptions
+): Effect.Effect<TextureAuditReport, TextureAuditScanError> {
 	return Effect.gen(function* () {
 		const rules = yield* readRuleSet(options.ruleFile);
-		const assets = yield* discoverSavedAssets(options.projectRoot).pipe(
+		const assets = yield* reader.discoverAssets(options.projectRoot).pipe(
 			Effect.mapError(
 				(error) =>
 					new TextureAuditScanError({
@@ -302,7 +305,7 @@ export function scanTextureAudit(
 			assets,
 			(assetPath) =>
 				Effect.all({
-					inspection: readSavedAsset({ assetPath }),
+					inspection: reader.readAsset(assetPath),
 					file: Effect.tryPromise(() => stat(assetPath))
 				}).pipe(
 					Effect.map(({ inspection, file }) => ({
@@ -368,4 +371,50 @@ export function scanTextureAudit(
 			diagnostics
 		};
 	}).pipe(Effect.withSpan("asset-audits.scan-textures"));
+}
+
+export interface TextureAuditShape {
+	readonly scan: (
+		options: TextureAuditScanOptions
+	) => Effect.Effect<TextureAuditReport, TextureAuditScanError>;
+}
+
+export class TextureAudit extends Context.Service<TextureAudit, TextureAuditShape>()(
+	"@ue-shed/asset-audits/TextureAudit"
+) {}
+
+export const TextureAuditLive = Layer.effect(
+	TextureAudit,
+	Effect.gen(function* () {
+		const reader = yield* AssetReader;
+		const scan = Effect.fn("TextureAudit.scan")(function* (options: TextureAuditScanOptions) {
+			const validated = yield* decodeScanOptions(options).pipe(
+				Effect.mapError(
+					(cause) =>
+						new TextureAuditScanError({
+							code: "scan_failed",
+							message: `Invalid texture audit scan options: ${String(cause)}`,
+							recovery:
+								"Provide a project root, rule file, and positive scan limits.",
+							retrySafe: false
+						})
+				)
+			);
+			return yield* scanTextureAuditWith(reader, validated);
+		});
+		return TextureAudit.of({ scan });
+	})
+);
+
+export function makeTextureAuditTestLayer(service: TextureAuditShape): Layer.Layer<TextureAudit> {
+	return Layer.succeed(TextureAudit, TextureAudit.of(service));
+}
+
+/** Compatibility accessor until Plans 012–014 compose TextureAudit layers directly. */
+export function scanTextureAudit(
+	options: TextureAuditScanOptions
+): Effect.Effect<TextureAuditReport, TextureAuditScanError, AssetReader> {
+	return Effect.flatMap(TextureAudit, (service) => service.scan(options)).pipe(
+		Effect.provide(TextureAuditLive)
+	);
 }

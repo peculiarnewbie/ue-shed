@@ -1,12 +1,12 @@
 import { AuthoringFieldDescriptor, type AuthoringTableSnapshot } from "@ue-shed/protocol";
 import {
-	type AssetReader,
-	discoverSavedTables,
+	AssetReader,
+	type AssetReaderShape,
 	type SavedTableCatalog,
 	type SavedTableDescriptor
 } from "@ue-shed/unreal-assets";
 import type { UnrealAuthoringConnection } from "@ue-shed/unreal-connection";
-import { Effect, Result, Schema } from "effect";
+import { Context, Effect, Layer, Option, Result, Schema } from "effect";
 
 const SchemaEvidence = Schema.Union([
 	Schema.Struct({
@@ -166,33 +166,52 @@ export function mergeAuthoringTableCatalogs(args: {
 		});
 }
 
-export function discoverAuthoringProjectCatalog(options: {
+export interface AuthoringCatalogDiscoverArgs {
 	readonly concurrency?: number;
-	readonly live?: UnrealAuthoringConnection;
 	readonly projectRoot?: string;
 	readonly savedCatalog?: SavedTableCatalog;
-}): Effect.Effect<AuthoringProjectCatalog, never, AssetReader> {
+}
+
+export class AuthoringLiveConnection extends Context.Service<
+	AuthoringLiveConnection,
+	UnrealAuthoringConnection
+>()("@ue-shed/authoring-catalog/AuthoringLiveConnection") {}
+
+export function authoringLiveConnectionLayer(
+	connection: UnrealAuthoringConnection
+): Layer.Layer<AuthoringLiveConnection> {
+	return Layer.succeed(AuthoringLiveConnection, AuthoringLiveConnection.of(connection));
+}
+
+function discoverAuthoringProjectCatalogWith(
+	reader: AssetReaderShape,
+	options: AuthoringCatalogDiscoverArgs,
+	liveConnection: Option.Option<UnrealAuthoringConnection>
+): Effect.Effect<AuthoringProjectCatalog> {
 	const saved = options.savedCatalog
 		? Effect.succeed(Result.succeed(options.savedCatalog))
 		: options.projectRoot
-			? discoverSavedTables({
-					...(options.concurrency ? { concurrency: options.concurrency } : {}),
-					projectRoot: options.projectRoot
-				}).pipe(Effect.result)
+			? reader
+					.discoverTables({
+						...(options.concurrency ? { concurrency: options.concurrency } : {}),
+						projectRoot: options.projectRoot
+					})
+					.pipe(Effect.result)
 			: Effect.succeed(undefined);
-	const live = options.live
-		? options.live.listTableObjectPaths().pipe(
+	const live = Option.match(liveConnection, {
+		onNone: () => Effect.succeed(undefined),
+		onSome: (connection) =>
+			connection.listTableObjectPaths().pipe(
 				Effect.flatMap((objectPaths) =>
 					Effect.forEach(
 						objectPaths,
-						(objectPath) =>
-							options.live!.getTableSnapshot(objectPath).pipe(Effect.result),
+						(objectPath) => connection.getTableSnapshot(objectPath).pipe(Effect.result),
 						{ concurrency: options.concurrency ?? 4 }
 					)
 				),
 				Effect.result
 			)
-		: Effect.succeed(undefined);
+	});
 
 	return Effect.all({ live, saved }).pipe(
 		Effect.map(({ live, saved }) => {
@@ -240,9 +259,55 @@ export function discoverAuthoringProjectCatalog(options: {
 		}),
 		Effect.withSpan("authoring.catalog.discover", {
 			attributes: {
-				"authoring.catalog.live_configured": options.live !== undefined,
+				"authoring.catalog.live_configured": Option.isSome(liveConnection),
 				"authoring.catalog.saved_configured": options.projectRoot !== undefined
 			}
 		})
 	);
+}
+
+export interface AuthoringCatalogShape {
+	readonly discover: (
+		options: AuthoringCatalogDiscoverArgs
+	) => Effect.Effect<AuthoringProjectCatalog>;
+}
+
+export class AuthoringCatalog extends Context.Service<AuthoringCatalog, AuthoringCatalogShape>()(
+	"@ue-shed/authoring-catalog/AuthoringCatalog"
+) {}
+
+export const AuthoringCatalogLive = Layer.effect(
+	AuthoringCatalog,
+	Effect.gen(function* () {
+		const reader = yield* AssetReader;
+		const discover = Effect.fn("AuthoringCatalog.discover")(function* (
+			options: AuthoringCatalogDiscoverArgs
+		) {
+			const liveConnection = yield* Effect.serviceOption(AuthoringLiveConnection);
+			return yield* discoverAuthoringProjectCatalogWith(reader, options, liveConnection);
+		});
+		return AuthoringCatalog.of({ discover });
+	})
+);
+
+export function makeAuthoringCatalogTestLayer(
+	service: AuthoringCatalogShape
+): Layer.Layer<AuthoringCatalog> {
+	return Layer.succeed(AuthoringCatalog, AuthoringCatalog.of(service));
+}
+
+/** Compatibility accessor until Plans 012–014 compose AuthoringCatalog layers directly. */
+export function discoverAuthoringProjectCatalog(options: {
+	readonly concurrency?: number;
+	readonly live?: UnrealAuthoringConnection;
+	readonly projectRoot?: string;
+	readonly savedCatalog?: SavedTableCatalog;
+}): Effect.Effect<AuthoringProjectCatalog, never, AssetReader> {
+	const { live, ...discoverOptions } = options;
+	const program = Effect.flatMap(AuthoringCatalog, (service) =>
+		service.discover(discoverOptions)
+	).pipe(Effect.provide(AuthoringCatalogLive));
+	return live === undefined
+		? program
+		: program.pipe(Effect.provide(authoringLiveConnectionLayer(live)));
 }

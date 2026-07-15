@@ -1,13 +1,12 @@
 import { relative } from "node:path";
 import {
-	discoverSavedAssets,
-	readSavedAsset,
-	type AssetReader,
+	AssetReader,
+	type AssetReaderShape,
 	type SavedAssetInspection,
 	type SavedProperty,
 	type SavedPropertyValue
 } from "@ue-shed/unreal-assets";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import {
 	TextOccurrenceId,
 	TextUnitId,
@@ -32,11 +31,17 @@ export class TextCorpusScanError extends Schema.TaggedErrorClass<TextCorpusScanE
 	}
 ) {}
 
-export interface ScanTextCorpusOptions {
-	readonly projectRoot: string;
-	readonly concurrency?: number;
-	readonly maximumAssets?: number;
-}
+export const TextCorpusScanOptions = Schema.Struct({
+	concurrency: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+	maximumAssets: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+	projectRoot: Schema.String
+});
+export type TextCorpusScanOptions = Schema.Schema.Type<typeof TextCorpusScanOptions>;
+
+const decodeScanOptions = Schema.decodeUnknownEffect(TextCorpusScanOptions);
+
+/** @deprecated Prefer TextCorpusScanOptions */
+export type ScanTextCorpusOptions = TextCorpusScanOptions;
 
 export type TextPackageOutcome =
 	| {
@@ -343,11 +348,12 @@ export function buildTextCorpus(outcomes: readonly TextPackageOutcome[]): TextCo
 	};
 }
 
-export function scanTextCorpus(
-	options: ScanTextCorpusOptions
-): Effect.Effect<TextCorpus, TextCorpusScanError, AssetReader> {
+function scanTextCorpusWith(
+	reader: AssetReaderShape,
+	options: TextCorpusScanOptions
+): Effect.Effect<TextCorpus, TextCorpusScanError> {
 	return Effect.gen(function* () {
-		const assets = yield* discoverSavedAssets(options.projectRoot).pipe(
+		const assets = yield* reader.discoverAssets(options.projectRoot).pipe(
 			Effect.mapError(
 				(error) =>
 					new TextCorpusScanError({
@@ -370,7 +376,7 @@ export function scanTextCorpus(
 		const outcomes = yield* Effect.forEach(
 			assets,
 			(assetPath) =>
-				readSavedAsset({ assetPath }).pipe(
+				reader.readAsset(assetPath).pipe(
 					Effect.map(
 						(inspection): TextPackageOutcome => ({
 							status: "inspected",
@@ -390,4 +396,52 @@ export function scanTextCorpus(
 		);
 		return buildTextCorpus(outcomes);
 	}).pipe(Effect.withSpan("game-text.scan-corpus"));
+}
+
+export interface TextCorpusServiceShape {
+	readonly scan: (
+		options: TextCorpusScanOptions
+	) => Effect.Effect<TextCorpus, TextCorpusScanError>;
+}
+
+/** Canonical TextCorpus domain service (plan name: TextCorpus.Service). */
+export class TextCorpusService extends Context.Service<TextCorpusService, TextCorpusServiceShape>()(
+	"@ue-shed/game-text/TextCorpus"
+) {}
+
+export const TextCorpusServiceLive = Layer.effect(
+	TextCorpusService,
+	Effect.gen(function* () {
+		const reader = yield* AssetReader;
+		const scan = Effect.fn("TextCorpus.scan")(function* (options: TextCorpusScanOptions) {
+			const validated = yield* decodeScanOptions(options).pipe(
+				Effect.mapError(
+					(cause) =>
+						new TextCorpusScanError({
+							code: "scan_limit_exceeded",
+							message: `Invalid text corpus scan options: ${String(cause)}`,
+							recovery: "Provide a project root and positive scan limits.",
+							retrySafe: false
+						})
+				)
+			);
+			return yield* scanTextCorpusWith(reader, validated);
+		});
+		return TextCorpusService.of({ scan });
+	})
+);
+
+export function makeTextCorpusServiceTestLayer(
+	service: TextCorpusServiceShape
+): Layer.Layer<TextCorpusService> {
+	return Layer.succeed(TextCorpusService, TextCorpusService.of(service));
+}
+
+/** Compatibility accessor until Plans 012–014 compose TextCorpusService layers directly. */
+export function scanTextCorpus(
+	options: TextCorpusScanOptions
+): Effect.Effect<TextCorpus, TextCorpusScanError, AssetReader> {
+	return Effect.flatMap(TextCorpusService, (service) => service.scan(options)).pipe(
+		Effect.provide(TextCorpusServiceLive)
+	);
 }

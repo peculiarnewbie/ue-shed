@@ -26,6 +26,7 @@ export class ReviewStorageError extends Schema.TaggedErrorClass<ReviewStorageErr
 	{
 		message: Schema.String,
 		operation: Schema.Literals([
+			"discard_staging",
 			"finalize_run",
 			"list_runs",
 			"load_run",
@@ -224,6 +225,7 @@ export function runIdFromPath(path: string): string {
 }
 
 export interface ReviewRepositoryShape {
+	readonly discardStaging: (stagingRoot: string) => Effect.Effect<void, ReviewStorageError>;
 	readonly finalizeRun: (args: {
 		readonly finalRoot: string;
 		readonly run: CaptureRun;
@@ -331,7 +333,22 @@ const makeReviewRepository = (): ReviewRepositoryShape => {
 				})
 		});
 	});
+	const discardStaging = Effect.fn("ReviewRepository.discardStaging")(function* (
+		stagingRoot: string
+	) {
+		yield* Effect.tryPromise({
+			try: () => rm(stagingRoot, { force: true, recursive: true }),
+			catch: (cause) =>
+				new ReviewStorageError({
+					message: String(cause),
+					operation: "discard_staging",
+					path: stagingRoot,
+					recovery: "Remove the leftover .staging-* directory manually if it remains."
+				})
+		});
+	});
 	return ReviewRepository.of({
+		discardStaging,
 		finalizeRun,
 		listRuns: Effect.fn("ReviewRepository.listRuns")(listCaptureRunsWithNode),
 		loadRun: Effect.fn("ReviewRepository.loadRun")(loadCaptureRunWithNode),
