@@ -90,6 +90,11 @@ type TextureContract = {
 };
 
 const fixtureRoot = dirname(fileURLToPath(import.meta.url));
+const parserTargetFiles = [
+	"FixtureExpected/parser-targets/string-table.json",
+	"FixtureExpected/parser-targets/text-data-asset.json",
+	"FixtureExpected/parser-targets/texture2d.json"
+] as const;
 
 function readJson(path: string): unknown {
 	return JSON.parse(readFileSync(path, "utf8"));
@@ -310,6 +315,7 @@ describe("generic Unreal fixture contract", () => {
 		const portableFiles = [
 			"fixture-contract.json",
 			"UEShedFixture.uproject",
+			...parserTargetFiles,
 			contract.textureAudit.source,
 			contract.textureAudit.rules,
 			...contract.tables.flatMap((table) =>
@@ -321,6 +327,37 @@ describe("generic Unreal fixture contract", () => {
 			expect(contents, relativePath).not.toMatch(/\b[A-Za-z]:[\\/]/);
 			expect(contents, relativePath).not.toMatch(/\/(?:Users|home|mnt)\//);
 		}
+	});
+
+	it("publishes real-Unreal target shapes for the next parser asset types", () => {
+		const targets = parserTargetFiles.map((path) => readJson(resolve(fixtureRoot, path)));
+		expect(targets.map((target) => (isRecord(target) ? target.assetType : undefined))).toEqual([
+			"string_table",
+			"text_data_asset",
+			"texture2d"
+		]);
+		for (const target of targets) {
+			expect(target).toEqual(
+				expect.objectContaining({
+					contract: {
+						name: "ue-shed-unreal-asset-evidence",
+						version: { major: 1, minor: 0 }
+					}
+				})
+			);
+		}
+		const stringTable = targets[0];
+		const textAsset = targets[1];
+		const textures = targets[2];
+		expect(isRecord(stringTable) && stringTable.objectPath).toBe(
+			contract.gameText.stringTable.assetPath
+		);
+		expect(isRecord(textAsset) && textAsset.objectPath).toBe(
+			contract.gameText.occurrenceAsset.assetPath
+		);
+		expect(
+			isRecord(textures) && Array.isArray(textures.assets) ? textures.assets : []
+		).toHaveLength(contract.textureAudit.textures.length);
 	});
 });
 

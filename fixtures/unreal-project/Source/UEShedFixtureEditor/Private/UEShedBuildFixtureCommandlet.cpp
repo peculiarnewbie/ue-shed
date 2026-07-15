@@ -14,6 +14,7 @@
 #include "HAL/FileManager.h"
 #include "Internationalization/StringTable.h"
 #include "Internationalization/StringTableCore.h"
+#include "Internationalization/Text.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Misc/FileHelper.h"
@@ -81,6 +82,37 @@ bool ParseMipGeneration(const FString& Value, TextureMipGenSettings& Result)
 	else if (Value == TEXT("TMGS_NoMipmaps")) Result = TMGS_NoMipmaps;
 	else return false;
 	return true;
+}
+
+FString TextureGroupName(const TextureGroup Value)
+{
+	switch (Value)
+	{
+	case TEXTUREGROUP_World: return TEXT("TEXTUREGROUP_World");
+	case TEXTUREGROUP_UI: return TEXT("TEXTUREGROUP_UI");
+	case TEXTUREGROUP_Effects: return TEXT("TEXTUREGROUP_Effects");
+	default: return FString::Printf(TEXT("unsupported:%d"), static_cast<int32>(Value));
+	}
+}
+
+FString TextureCompressionName(const TextureCompressionSettings Value)
+{
+	switch (Value)
+	{
+	case TC_Default: return TEXT("TC_Default");
+	case TC_EditorIcon: return TEXT("TC_EditorIcon");
+	default: return FString::Printf(TEXT("unsupported:%d"), static_cast<int32>(Value));
+	}
+}
+
+FString MipGenerationName(const TextureMipGenSettings Value)
+{
+	switch (Value)
+	{
+	case TMGS_FromTextureGroup: return TEXT("TMGS_FromTextureGroup");
+	case TMGS_NoMipmaps: return TEXT("TMGS_NoMipmaps");
+	default: return FString::Printf(TEXT("unsupported:%d"), static_cast<int32>(Value));
+	}
 }
 
 bool LoadTextureDefinitions(TArray<FFixtureTextureDefinition>& Definitions)
@@ -191,6 +223,38 @@ UPackage* FindOrCreatePackage(const TCHAR* PackageName)
 	}
 
 	return CreatePackage(PackageName);
+}
+
+TSharedRef<FJsonObject> EvidenceContract()
+{
+	const TSharedRef<FJsonObject> Contract = MakeShared<FJsonObject>();
+	Contract->SetStringField(TEXT("name"), TEXT("ue-shed-unreal-asset-evidence"));
+	const TSharedRef<FJsonObject> Version = MakeShared<FJsonObject>();
+	Version->SetNumberField(TEXT("major"), 1);
+	Version->SetNumberField(TEXT("minor"), 0);
+	Contract->SetObjectField(TEXT("version"), Version);
+	return Contract;
+}
+
+
+TSharedRef<FJsonObject> EvidenceRoot(const TCHAR* AssetType, const UObject* Asset)
+{
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetObjectField(TEXT("contract"), EvidenceContract());
+	Root->SetStringField(TEXT("assetType"), AssetType);
+	Root->SetStringField(TEXT("objectPath"), Asset->GetPathName());
+	Root->SetStringField(TEXT("classPath"), Asset->GetClass()->GetPathName());
+	return Root;
+}
+
+bool WriteJsonEvidence(const FString& Filename, const TSharedRef<FJsonObject>& Evidence)
+{
+	FString Json;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Json);
+	if (!FJsonSerializer::Serialize(Evidence, Writer)) return false;
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Filename), true);
+	return FFileHelper::SaveStringToFile(Json + LINE_TERMINATOR, *Filename,
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
 TArray<uint8> GenerateTexturePixels(const FFixtureTextureDefinition& Definition)
@@ -608,6 +672,161 @@ bool VerifyGameTextCorpus()
 		&& TextAsset->StringTableReference.IsFromStringTable();
 }
 
+TSharedRef<FJsonObject> TextEvidence(const FText& Text)
+{
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetStringField(TEXT("kind"), TEXT("text"));
+	Result->SetStringField(TEXT("displayString"), Text.ToString());
+	if (const FString* Source = FTextInspector::GetSourceString(Text))
+	{
+		Result->SetStringField(TEXT("sourceString"), *Source);
+	}
+
+	FName TableId;
+	FString TableKey;
+	const TSharedRef<FJsonObject> Identity = MakeShared<FJsonObject>();
+	if (FTextInspector::GetTableIdAndKey(Text, TableId, TableKey))
+	{
+		Identity->SetStringField(TEXT("kind"), TEXT("string_table"));
+		Identity->SetStringField(TEXT("tableId"), TableId.ToString());
+		Identity->SetStringField(TEXT("key"), TableKey);
+	}
+	else
+	{
+		Identity->SetStringField(TEXT("kind"), TEXT("localized"));
+		Identity->SetStringField(TEXT("namespace"),
+			FTextInspector::GetNamespace(Text).Get(FString()));
+		Identity->SetStringField(TEXT("key"), FTextInspector::GetKey(Text).Get(FString()));
+	}
+	Result->SetObjectField(TEXT("identity"), Identity);
+	return Result;
+}
+
+bool WriteStringTableEvidence(const FString& OutputDirectory)
+{
+	const UStringTable* StringTable = LoadObject<UStringTable>(
+		nullptr, TEXT("/Game/Fixture/Text/ST_Game.ST_Game"));
+	if (StringTable == nullptr) return false;
+
+	TArray<TPair<FString, FString>> SourceStrings;
+	StringTable->GetStringTable()->EnumerateSourceStrings(
+		[&SourceStrings](const FString& Key, const FString& Source)
+		{
+			SourceStrings.Emplace(Key, Source);
+			return true;
+		});
+	SourceStrings.Sort([](const TPair<FString, FString>& Left,
+		const TPair<FString, FString>& Right) { return Left.Key < Right.Key; });
+
+	const TSharedRef<FJsonObject> Root = EvidenceRoot(TEXT("string_table"), StringTable);
+	Root->SetStringField(TEXT("namespace"), StringTable->GetStringTable()->GetNamespace());
+	TArray<TSharedPtr<FJsonValue>> Entries;
+	for (const TPair<FString, FString>& SourceString : SourceStrings)
+	{
+		const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("key"), SourceString.Key);
+		Entry->SetStringField(TEXT("source"), SourceString.Value);
+		Entries.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+	Root->SetArrayField(TEXT("entries"), Entries);
+	return WriteJsonEvidence(
+		FPaths::Combine(OutputDirectory, TEXT("parser-targets/string-table.json")), Root);
+}
+
+bool WriteTextAssetEvidence(const FString& OutputDirectory)
+{
+	const UUEShedFixtureTextAsset* TextAsset = LoadObject<UUEShedFixtureTextAsset>(
+		nullptr, TEXT("/Game/Fixture/Text/DA_TextOccurrences.DA_TextOccurrences"));
+	if (TextAsset == nullptr) return false;
+
+	const TSharedRef<FJsonObject> Root = EvidenceRoot(TEXT("text_data_asset"), TextAsset);
+	TArray<TSharedPtr<FJsonValue>> Properties;
+	const TArray<TPair<FString, const FText*>> Values = {
+		{ TEXT("SharedPrimary"), &TextAsset->SharedPrimary },
+		{ TEXT("SharedSecondary"), &TextAsset->SharedSecondary },
+		{ TEXT("EqualSourceFirst"), &TextAsset->EqualSourceFirst },
+		{ TEXT("EqualSourceSecond"), &TextAsset->EqualSourceSecond },
+		{ TEXT("StringTableReference"), &TextAsset->StringTableReference }
+	};
+	for (const TPair<FString, const FText*>& Value : Values)
+	{
+		const TSharedRef<FJsonObject> Property = MakeShared<FJsonObject>();
+		Property->SetStringField(TEXT("name"), Value.Key);
+		Property->SetStringField(TEXT("typeName"), TEXT("TextProperty"));
+		Property->SetObjectField(TEXT("value"), TextEvidence(*Value.Value));
+		Properties.Add(MakeShared<FJsonValueObject>(Property));
+	}
+	Root->SetArrayField(TEXT("properties"), Properties);
+	return WriteJsonEvidence(
+		FPaths::Combine(OutputDirectory, TEXT("parser-targets/text-data-asset.json")), Root);
+}
+
+bool WriteTextureEvidence(const FString& OutputDirectory)
+{
+	TArray<FFixtureTextureDefinition> Definitions;
+	if (!LoadTextureDefinitions(Definitions)) return false;
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetObjectField(TEXT("contract"), EvidenceContract());
+	Root->SetStringField(TEXT("assetType"), TEXT("texture2d"));
+	TArray<TSharedPtr<FJsonValue>> Assets;
+	for (const FFixtureTextureDefinition& Definition : Definitions)
+	{
+		const UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, *Definition.ObjectPath);
+		if (Texture == nullptr) return false;
+		const TSharedRef<FJsonObject> Asset = MakeShared<FJsonObject>();
+		Asset->SetStringField(TEXT("objectPath"), Texture->GetPathName());
+		Asset->SetStringField(TEXT("classPath"), Texture->GetClass()->GetPathName());
+		const TSharedRef<FJsonObject> Source = MakeShared<FJsonObject>();
+		Source->SetNumberField(TEXT("width"), Texture->Source.GetSizeX());
+		Source->SetNumberField(TEXT("height"), Texture->Source.GetSizeY());
+		Source->SetNumberField(TEXT("slices"), Texture->Source.GetNumSlices());
+		Source->SetNumberField(TEXT("mips"), Texture->Source.GetNumMips());
+		Source->SetStringField(TEXT("format"), Texture->Source.GetFormat() == TSF_BGRA8
+			? TEXT("TSF_BGRA8") : TEXT("unsupported"));
+		Asset->SetObjectField(TEXT("source"), Source);
+		Asset->SetStringField(TEXT("textureGroup"), TextureGroupName(Texture->LODGroup));
+		Asset->SetStringField(TEXT("compression"),
+			TextureCompressionName(Texture->CompressionSettings));
+		Asset->SetBoolField(TEXT("sRGB"), Texture->SRGB);
+		Asset->SetStringField(TEXT("mipGeneration"), MipGenerationName(Texture->MipGenSettings));
+		Assets.Add(MakeShared<FJsonValueObject>(Asset));
+	}
+	Root->SetArrayField(TEXT("assets"), Assets);
+	return WriteJsonEvidence(
+		FPaths::Combine(OutputDirectory, TEXT("parser-targets/texture2d.json")), Root);
+}
+
+bool WriteAuthoringEvidence(const FString& OutputDirectory)
+{
+	bool bSucceeded = true;
+	for (const FFixtureTableDefinition& Definition : GetTableDefinitions())
+	{
+		FString SnapshotJson;
+		UUEShedAuthoringLibrary::GetTableSnapshot(ObjectPath(Definition), SnapshotJson);
+		const FString Filename = FPaths::Combine(
+			OutputDirectory, TEXT("authoring"), FString(Definition.AssetName) + TEXT(".json"));
+		IFileManager::Get().MakeDirectory(*FPaths::GetPath(Filename), true);
+		bSucceeded = FFileHelper::SaveStringToFile(SnapshotJson, *Filename,
+			FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) && bSucceeded;
+	}
+	FString CompositeJson;
+	UUEShedAuthoringLibrary::GetTableSnapshot(
+		TEXT("/Game/Fixture/Authoring/CDT_Scalars.CDT_Scalars"), CompositeJson);
+	const FString CompositeFilename = FPaths::Combine(
+		OutputDirectory, TEXT("authoring/CDT_Scalars.json"));
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(CompositeFilename), true);
+	return FFileHelper::SaveStringToFile(CompositeJson, *CompositeFilename,
+		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) && bSucceeded;
+}
+
+bool WriteConformanceEvidence(const FString& OutputDirectory)
+{
+	return WriteAuthoringEvidence(OutputDirectory)
+		&& WriteStringTableEvidence(OutputDirectory)
+		&& WriteTextAssetEvidence(OutputDirectory)
+		&& WriteTextureEvidence(OutputDirectory);
+}
+
 bool GenerateCameraMap()
 {
 	static const TCHAR* PackageName = TEXT("/Game/Fixture/Cameras/L_CameraLoad");
@@ -850,6 +1069,14 @@ int32 UUEShedBuildFixtureCommandlet::Main(const FString& Params)
 			CompositeJson, *FPaths::Combine(OutputDirectory, TEXT("CDT_Scalars.json")))
 			&& bSucceeded;
 		return bSucceeded ? 0 : 1;
+	}
+
+	FString ConformanceDirectory;
+	if (FParse::Value(*Params, TEXT("ConformanceDirectory="), ConformanceDirectory))
+	{
+		const FString OutputDirectory = FPaths::ConvertRelativePathToFull(ConformanceDirectory);
+		IFileManager::Get().MakeDirectory(*OutputDirectory, true);
+		return WriteConformanceEvidence(OutputDirectory) ? 0 : 1;
 	}
 
 	FString SnapshotTable;

@@ -8,6 +8,14 @@ const gates = [
 				: "set UE_SHED_REMOTE_CONTROL_ENDPOINT"
 	},
 	{
+		file: "packages/unreal-assets/src/commandlet-conformance.integration.test.ts",
+		name: "real Unreal commandlet UAsset conformance",
+		missing: (environment) =>
+			environment.UE_SHED_UNREAL_EVIDENCE_DIR
+				? undefined
+				: "set UE_SHED_UNREAL_EVIDENCE_DIR or run pnpm test:uasset-conformance"
+	},
+	{
 		file: "packages/unreal-assets/src/live-parity.integration.test.ts",
 		name: "saved and live authoring parity",
 		missing: (environment) =>

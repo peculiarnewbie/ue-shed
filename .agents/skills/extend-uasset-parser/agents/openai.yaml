@@ -1,0 +1,4 @@
+interface:
+    display_name: "Extend UAsset Parser"
+    short_description: "Design parser support for additional Unreal asset types"
+    default_prompt: "Use $extend-uasset-parser to design or implement support for another Unreal saved-asset type with proper projections and Unreal-backed conformance."

@@ -164,6 +164,8 @@ if (
 		"apply",
 		"apply-pair",
 		"build",
+		"conformance",
+		"evidence",
 		"generate",
 		"launch",
 		"launch-authoring",
@@ -173,7 +175,7 @@ if (
 	]).has(action)
 ) {
 	throw new Error(
-		"Usage: node scripts/unreal-fixture.mjs <apply|build|generate|launch|launch-authoring|save|verify|snapshot> [input] [output]"
+		"Usage: node scripts/unreal-fixture.mjs <apply|build|conformance|evidence|generate|launch|launch-authoring|save|verify|snapshot> [input] [output]"
 	);
 }
 
@@ -185,11 +187,18 @@ if (action === "launch") {
 if (action === "launch-authoring") {
 	launchAuthoring(tools);
 }
-if (action === "generate" || action === "verify") {
+if (action === "generate" || action === "verify" || action === "conformance") {
 	runCommandlet(tools);
 }
-if (action === "verify") {
+if (action === "verify" || action === "conformance") {
 	runCommandlet(tools, ["-VerifyOnly"]);
+}
+if (action === "evidence" || action === "conformance") {
+	const output = process.argv[3];
+	if (!output) {
+		throw new Error(`${action} requires an output directory`);
+	}
+	runCommandlet(tools, [`-ConformanceDirectory=${resolve(output)}`]);
 }
 if (action === "snapshot") {
 	const output = process.argv[3];

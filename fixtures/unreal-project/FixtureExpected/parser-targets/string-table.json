@@ -1,0 +1,27 @@
+{
+	"contract": {
+		"name": "ue-shed-unreal-asset-evidence",
+		"version": {
+			"major": 1,
+			"minor": 0
+		}
+	},
+	"assetType": "string_table",
+	"objectPath": "/Game/Fixture/Text/ST_Game.ST_Game",
+	"classPath": "/Script/Engine.StringTable",
+	"namespace": "Fixture.StringTable",
+	"entries": [
+		{
+			"key": "PromptContinue",
+			"source": "Continue"
+		},
+		{
+			"key": "PromptHold",
+			"source": "Hold to skip"
+		},
+		{
+			"key": "StatusSaving",
+			"source": "Saving progress…"
+		}
+	]
+}

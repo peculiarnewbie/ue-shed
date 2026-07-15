@@ -6,9 +6,10 @@
 	"type": "module",
 	"scripts": {
 		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
-		"check:unreal": "pnpm run fixture:verify && pnpm run test:unreal-authoring",
+		"check:unreal": "pnpm run test:uasset-conformance && pnpm run test:unreal-authoring",
 		"authoring:parity": "node scripts/ue-shed.mjs authoring parity",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
+		"fixture:evidence": "node scripts/unreal-fixture.mjs evidence",
 		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
 		"fixture:generate": "node scripts/unreal-fixture.mjs generate",
 		"fixture:launch": "node scripts/unreal-fixture.mjs launch",
@@ -33,6 +34,7 @@
 		"test:e2e:workbench:ui": "node scripts/test-workbench-e2e.mjs --ui",
 		"test:fast": "node scripts/test.mjs --exclude packages/authoring/src/unreal-mutation.integration.test.ts",
 		"test:unreal-authoring": "node scripts/test-unreal-authoring.mjs",
+		"test:uasset-conformance": "node scripts/test-uasset-conformance.mjs",
 		"uasset:build": "cargo build --locked -p uasset-parser",
 		"uasset:check": "cargo fmt --all -- --check && cargo clippy -p uasset-parser --all-targets -- -D warnings && cargo test -p uasset-parser --all-targets",
 		"ue-shed": "node scripts/ue-shed.mjs"

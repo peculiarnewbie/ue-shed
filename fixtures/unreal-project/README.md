@@ -21,6 +21,8 @@ pnpm fixture:build
 pnpm fixture:generate
 pnpm fixture:verify
 pnpm fixture:snapshot .tmp/live-snapshots
+pnpm fixture:evidence .tmp/uasset-evidence
+pnpm test:uasset-conformance
 ```
 
 `fixture:generate` compiles the project and regenerates the committed DataTables from JSON under
@@ -31,6 +33,17 @@ The fixture enables the separately packaged core and authoring companions plus s
 Remote Control binds to loopback on ports 30001 and 30002. A full editor used for live HTTP tests
 must retain rendering capability; `-RenderOffScreen` is suitable, while `-NullRHI` intentionally
 prevents Unreal's web Remote Control module from starting. Commandlet conformance remains headless.
+
+`fixture:evidence` loads the saved fixtures in a fresh commandlet and writes two independent evidence
+sets: shared authoring snapshots under `authoring/`, and parser implementation targets under
+`parser-targets/`. The checked-in target shapes in `FixtureExpected/parser-targets` cover StringTable,
+localized-text DataAsset, and Texture2D semantics. Regenerate and compare all evidence through
+`test:uasset-conformance`; do not hand-edit the expected shapes.
+
+`test:uasset-conformance` is the complete saved-package lane. It regenerates the assets, verifies them
+in a fresh Unreal process, emits evidence in another process, and structurally compares every
+DataTable and CompositeDataTable against the Rust parser. It also rejects drift between real Unreal
+and the three checked-in parser target shapes.
 
 `fixture:apply` and `fixture:save` are low-level conformance runners for checked-in protocol requests.
 Normal users should use the public libraries or the `ue-shed authoring` CLI flows.

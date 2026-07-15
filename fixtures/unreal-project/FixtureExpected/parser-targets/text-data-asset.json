@@ -1,0 +1,84 @@
+{
+	"contract": {
+		"name": "ue-shed-unreal-asset-evidence",
+		"version": {
+			"major": 1,
+			"minor": 0
+		}
+	},
+	"assetType": "text_data_asset",
+	"objectPath": "/Game/Fixture/Text/DA_TextOccurrences.DA_TextOccurrences",
+	"classPath": "/Script/UEShedFixture.UEShedFixtureTextAsset",
+	"properties": [
+		{
+			"name": "SharedPrimary",
+			"typeName": "TextProperty",
+			"value": {
+				"kind": "text",
+				"displayString": "Hold to skip",
+				"sourceString": "Hold to skip",
+				"identity": {
+					"kind": "localized",
+					"namespace": "Fixture.Shared",
+					"key": "SharedHoldPrompt"
+				}
+			}
+		},
+		{
+			"name": "SharedSecondary",
+			"typeName": "TextProperty",
+			"value": {
+				"kind": "text",
+				"displayString": "Hold to skip",
+				"sourceString": "Hold to skip",
+				"identity": {
+					"kind": "localized",
+					"namespace": "Fixture.Shared",
+					"key": "SharedHoldPrompt"
+				}
+			}
+		},
+		{
+			"name": "EqualSourceFirst",
+			"typeName": "TextProperty",
+			"value": {
+				"kind": "text",
+				"displayString": "Confirm",
+				"sourceString": "Confirm",
+				"identity": {
+					"kind": "localized",
+					"namespace": "Fixture.Context",
+					"key": "ConfirmAction"
+				}
+			}
+		},
+		{
+			"name": "EqualSourceSecond",
+			"typeName": "TextProperty",
+			"value": {
+				"kind": "text",
+				"displayString": "Confirm",
+				"sourceString": "Confirm",
+				"identity": {
+					"kind": "localized",
+					"namespace": "Fixture.Context",
+					"key": "ConfirmDeletion"
+				}
+			}
+		},
+		{
+			"name": "StringTableReference",
+			"typeName": "TextProperty",
+			"value": {
+				"kind": "text",
+				"displayString": "Continue",
+				"sourceString": "Continue",
+				"identity": {
+					"kind": "string_table",
+					"tableId": "/Game/Fixture/Text/ST_Game.ST_Game",
+					"key": "PromptContinue"
+				}
+			}
+		}
+	]
+}
