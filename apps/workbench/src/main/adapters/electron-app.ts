@@ -33,12 +33,15 @@ export interface ElectronAppHost {
 }
 
 export interface ElectronAppShape {
-	readonly getAppMetrics: () => Effect.Effect<ReadonlyArray<ElectronProcessMetric>>;
+	readonly getAppMetrics: () => Effect.Effect<
+		ReadonlyArray<ElectronProcessMetric>,
+		ElectronAppError
+	>;
 	readonly on: (
 		event: ElectronAppEvent,
 		listener: (event: { readonly preventDefault: () => void }) => void
-	) => Effect.Effect<void>;
-	readonly quit: () => Effect.Effect<void>;
+	) => Effect.Effect<void, ElectronAppError>;
+	readonly quit: () => Effect.Effect<void, ElectronAppError>;
 	readonly whenReady: () => Effect.Effect<void, ElectronAppError>;
 }
 
@@ -54,6 +57,20 @@ export class ElectronAppTest extends Context.Service<ElectronAppTest, ElectronAp
 	"@ue-shed/workbench/ElectronApp/Test"
 ) {}
 
+function appError(
+	operation: ElectronAppError["operation"],
+	cause: unknown,
+	recovery: string
+): ElectronAppError {
+	return new ElectronAppError({
+		causeText: cause instanceof Error ? cause.message : String(cause),
+		message: `Electron app ${operation} failed.`,
+		operation,
+		recovery,
+		retrySafe: false
+	});
+}
+
 export const electronAppLayer = (app: ElectronAppHost): Layer.Layer<ElectronApp> =>
 	Layer.effect(
 		ElectronApp,
@@ -68,11 +85,15 @@ export const electronAppLayer = (app: ElectronAppHost): Layer.Layer<ElectronApp>
 			yield* Effect.addFinalizer(() =>
 				Ref.get(listeners).pipe(
 					Effect.flatMap((registered) =>
-						Effect.sync(() => {
-							for (const entry of registered) {
-								app.removeListener(entry.event, entry.listener);
-							}
-						})
+						Effect.try({
+							try: () => {
+								for (const entry of registered) {
+									app.removeListener(entry.event, entry.listener);
+								}
+							},
+							catch: (cause) =>
+								appError("on", cause, "Restart Workbench to clear app listeners.")
+						}).pipe(Effect.ignore)
 					)
 				)
 			);
@@ -82,26 +103,37 @@ export const electronAppLayer = (app: ElectronAppHost): Layer.Layer<ElectronApp>
 					Effect.tryPromise({
 						try: () => app.whenReady(),
 						catch: (cause) =>
-							new ElectronAppError({
-								causeText: cause instanceof Error ? cause.message : String(cause),
-								message: "Electron app whenReady failed.",
-								operation: "whenReady",
-								recovery: "Restart Workbench and check Electron logs.",
-								retrySafe: false
-							})
+							appError(
+								"whenReady",
+								cause,
+								"Restart Workbench and check Electron logs."
+							)
 					}).pipe(Effect.asVoid)
 				),
 				getAppMetrics: Effect.fn("Workbench.ElectronApp.getAppMetrics")(() =>
-					Effect.sync(() => app.getAppMetrics())
+					Effect.try({
+						try: () => app.getAppMetrics(),
+						catch: (cause) =>
+							appError(
+								"getAppMetrics",
+								cause,
+								"Retry after Electron finishes starting."
+							)
+					})
 				),
 				quit: Effect.fn("Workbench.ElectronApp.quit")(() =>
-					Effect.sync(() => {
-						app.quit();
+					Effect.try({
+						try: () => app.quit(),
+						catch: (cause) => appError("quit", cause, "Close Workbench again.")
 					})
 				),
 				on: Effect.fn("Workbench.ElectronApp.on")(function* (event, listener) {
 					const wrapped = listener as (...args: Array<unknown>) => void;
-					app.on(event, wrapped);
+					yield* Effect.try({
+						try: () => app.on(event, wrapped),
+						catch: (cause) =>
+							appError("on", cause, `Restart Workbench to register ${event}.`)
+					});
 					yield* Ref.update(listeners, (current) => [
 						...current,
 						{ event, listener: wrapped }

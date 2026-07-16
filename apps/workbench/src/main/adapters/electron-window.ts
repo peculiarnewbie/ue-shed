@@ -36,14 +36,14 @@ export interface OpenDialogOptions {
 }
 
 export interface WorkbenchWindowShape {
-	readonly destroy: () => Effect.Effect<void>;
+	readonly destroy: () => Effect.Effect<void, WorkbenchWindowError>;
 	readonly isDestroyed: () => Effect.Effect<boolean>;
 	readonly load: () => Effect.Effect<void, WorkbenchWindowError>;
 	readonly openDialog: (
 		options: OpenDialogOptions
 	) => Effect.Effect<OpenDialogChoice, WorkbenchWindowError>;
 	readonly send: (channel: string, payload: unknown) => Effect.Effect<void, WorkbenchWindowError>;
-	readonly show: () => Effect.Effect<void>;
+	readonly show: () => Effect.Effect<void, WorkbenchWindowError>;
 }
 
 export class WorkbenchWindow extends Context.Service<WorkbenchWindow, WorkbenchWindowShape>()(
@@ -116,9 +116,13 @@ export const workbenchWindowLayer = (
 			});
 
 			yield* Effect.addFinalizer(() =>
-				Effect.sync(() => {
-					if (!window.isDestroyed()) window.destroy();
-				})
+				Effect.try({
+					try: () => {
+						if (!window.isDestroyed()) window.destroy();
+					},
+					catch: (cause) =>
+						windowError("destroy", cause, "Close the Electron process manually.")
+				}).pipe(Effect.ignore)
 			);
 
 			return WorkbenchWindow.of({
@@ -141,11 +145,17 @@ export const workbenchWindowLayer = (
 								);
 							}
 						);
+						return Effect.sync(() => {
+							window.removeListener("ready-to-show", onReadyToShow);
+						});
 					})
 				),
 				show: Effect.fn("Workbench.WorkbenchWindow.show")(() =>
-					Effect.sync(() => {
-						if (!window.isDestroyed()) window.show();
+					Effect.try({
+						try: () => {
+							if (!window.isDestroyed()) window.show();
+						},
+						catch: (cause) => windowError("show", cause, "Restart Workbench and retry.")
 					})
 				),
 				send: Effect.fn("Workbench.WorkbenchWindow.send")(function* (channel, payload) {
@@ -208,8 +218,12 @@ export const workbenchWindowLayer = (
 					Effect.sync(() => window.isDestroyed())
 				),
 				destroy: Effect.fn("Workbench.WorkbenchWindow.destroy")(() =>
-					Effect.sync(() => {
-						if (!window.isDestroyed()) window.destroy();
+					Effect.try({
+						try: () => {
+							if (!window.isDestroyed()) window.destroy();
+						},
+						catch: (cause) =>
+							windowError("destroy", cause, "Close the Electron process manually.")
 					})
 				)
 			});

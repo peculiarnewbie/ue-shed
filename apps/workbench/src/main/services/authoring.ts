@@ -4,8 +4,7 @@ import {
 	AuthoringSessionLiveError,
 	AuthoringSessions,
 	workingTable,
-	type AuthoringSessionDocument,
-	type AuthoringSessionService
+	type AuthoringSessionDocument
 } from "@ue-shed/authoring";
 import { AuthoringCatalog, AuthoringLiveConnection } from "@ue-shed/authoring-catalog";
 import {
@@ -56,6 +55,15 @@ export class WorkbenchAuthoring extends Context.Service<
 	WorkbenchAuthoring,
 	WorkbenchAuthoringShape
 >()("@ue-shed/workbench/WorkbenchAuthoring") {}
+
+/** Supplies the headless session service only when project persistence is configured. */
+export const WorkbenchAuthoringSessionsLive = Layer.unwrap(
+	Effect.map(WorkbenchConfiguration, (configuration) =>
+		configuration.project.status === "configured"
+			? authoringSessionServiceLayer({ projectRoot: configuration.project.projectRoot })
+			: Layer.empty
+	)
+);
 
 /** Pure host projection of a session document; exhaustively covers every pipeline variant. */
 export function sessionView(
@@ -152,23 +160,11 @@ export const WorkbenchAuthoringLive = Layer.effect(
 				),
 			{
 				capacity: 4,
-				timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero)
+				timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.seconds(30) : Duration.zero)
 			}
 		);
 
-		const sessions: Option.Option<AuthoringSessionService> =
-			configuration.project.status === "configured"
-				? Option.some(
-						Context.get(
-							yield* Layer.build(
-								authoringSessionServiceLayer({
-									projectRoot: configuration.project.projectRoot
-								})
-							),
-							AuthoringSessions
-						)
-					)
-				: Option.none();
+		const sessions = yield* Effect.serviceOption(AuthoringSessions);
 
 		const getConnectionResult = Effect.fn("Workbench.WorkbenchAuthoring.getConnectionResult")(
 			function* () {
@@ -220,10 +216,12 @@ export const WorkbenchAuthoringLive = Layer.effect(
 					).pipe(Effect.as({ snapshot, status: "ready" as const }))
 				),
 				Effect.catch((error) =>
-					Effect.succeed(
-						readerFailure(
-							`Could not read the live DataTable: ${error.message}`,
-							"Verify Unreal is connected, then refresh the project catalog."
+					Cache.invalidate(connectionCache, configuration.remoteControlEndpoint).pipe(
+						Effect.as(
+							readerFailure(
+								`Could not read the live DataTable: ${error.message}`,
+								"Verify Unreal is connected, then refresh the project catalog."
+							)
 						)
 					)
 				)
@@ -254,6 +252,9 @@ export const WorkbenchAuthoringLive = Layer.effect(
 						.discover({ projectRoot, savedCatalog })
 						.pipe(Effect.provideService(AuthoringLiveConnection, connection))
 			});
+			if (discovered.diagnostics.some((diagnostic) => diagnostic.authority === "live")) {
+				yield* Cache.invalidate(connectionCache, configuration.remoteControlEndpoint);
+			}
 
 			const assetPaths = new Map<string, string>();
 			for (const table of savedCatalog.tables)

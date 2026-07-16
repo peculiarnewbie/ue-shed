@@ -90,11 +90,16 @@ it.effect(
 		)
 );
 
-it.effect("FixtureHealth reports not_running when the project does not match", () =>
+it.effect("FixtureHealth reports incompatible when the endpoint belongs to another project", () =>
 	Effect.gen(function* () {
 		const health = yield* FixtureHealth;
 		const result = yield* health.check();
-		expect(result).toEqual({ status: "not_running" });
+		expect(result).toEqual({
+			status: "incompatible",
+			message: "The configured endpoint is running OtherProject, not Fixture.",
+			recovery:
+				"Close the incompatible Unreal instance or configure another endpoint, then retry."
+		});
 	}).pipe(
 		Effect.provide(
 			FixtureHealthLive.pipe(
@@ -381,6 +386,48 @@ it.effect("launch reports a timeout when Remote Control never becomes ready", ()
 				"Unreal launched, but Remote Control did not become ready within three minutes.",
 			recovery: "Check the Unreal process and Saved/Logs/UEShedFixture.log."
 		});
+		expect(yield* Ref.get(launches)).toBe(1);
+	})
+);
+
+it.effect("launch stops polling when the started editor is incompatible", () =>
+	Effect.gen(function* () {
+		const checks = yield* Ref.make(0);
+		const launches = yield* Ref.make(0);
+		const incompatible: FixtureHealthResult = {
+			status: "incompatible",
+			message: "Started editor lacks Map Review.",
+			recovery: "Enable UEShedCamerasEditor and retry."
+		};
+		const layer = FixtureLauncherLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					makeWorkbenchConfigurationLayer(configuredCheckout),
+					makeFixtureHealthTestLayer({
+						check: () =>
+							Ref.updateAndGet(checks, (count) => count + 1).pipe(
+								Effect.map((count) =>
+									count === 1
+										? ({ status: "not_running" } as const)
+										: incompatible
+								)
+							)
+					}),
+					scriptOnDisk,
+					Layer.succeed(FixtureProcess, readyFixtureProcess(launches))
+				)
+			)
+		);
+		const result = yield* Effect.gen(function* () {
+			const launcher = yield* FixtureLauncher;
+			return yield* launcher.launch("authoring");
+		}).pipe(Effect.provide(layer));
+		expect(result).toEqual({
+			status: "failed",
+			message: incompatible.message,
+			recovery: incompatible.recovery
+		});
+		expect(yield* Ref.get(checks)).toBe(2);
 		expect(yield* Ref.get(launches)).toBe(1);
 	})
 );

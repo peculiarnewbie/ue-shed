@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Ref, Schema, type Scope } from "effect";
+import { Context, Effect, Fiber, Layer, Ref, Schema, type Scope } from "effect";
 import { decodeInvokeArgs, decodeInvokeResult, type InvokeContract } from "../ipc-contracts.js";
 
 export class ElectronIpcError extends Schema.TaggedErrorClass<ElectronIpcError>()(
@@ -104,20 +104,10 @@ export const electronIpcLayer = (ipc: ElectronIpcHost): Layer.Layer<ElectronIpc>
 		Effect.gen(function* () {
 			const registered = yield* Ref.make<ReadonlySet<string>>(new Set());
 			const context = yield* Effect.context();
+			const scope = yield* Effect.scope;
 			const { runPromiseWith } = Effect;
-			const runPromise = runPromiseWith(context);
-
-			yield* Effect.addFinalizer(() =>
-				Ref.get(registered).pipe(
-					Effect.flatMap((channels) =>
-						Effect.sync(() => {
-							for (const channel of channels) {
-								ipc.removeHandler(channel);
-							}
-						})
-					)
-				)
-			);
+			const runPromise = <A, E>(effect: Effect.Effect<A, E>) =>
+				runPromiseWith(context)(effect, { onFiberStart: Fiber.runIn(scope) });
 
 			return ElectronIpc.of({
 				register: Effect.fn("Workbench.ElectronIpc.register")(
@@ -167,8 +157,10 @@ export const makeElectronIpcTestLayer = (): Layer.Layer<ElectronIpc | ElectronIp
 		Effect.gen(function* () {
 			const handlers = yield* Ref.make<ReadonlyArray<RegisteredHandler>>([]);
 			const context = yield* Effect.context();
+			const scope = yield* Effect.scope;
 			const { runPromiseWith } = Effect;
-			const runPromise = runPromiseWith(context);
+			const runPromise = <A, E>(effect: Effect.Effect<A, E>) =>
+				runPromiseWith(context)(effect, { onFiberStart: Fiber.runIn(scope) });
 
 			const register = Effect.fn("Workbench.ElectronIpc.Test.register")(
 				function* (contract, handler) {

@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest";
-import { Effect, Exit, Layer } from "effect";
+import { Deferred, Effect, Exit, Layer } from "effect";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,12 @@ import { expect } from "vitest";
 import { invokeContracts } from "../ipc-contracts.js";
 import { ElectronApp, makeElectronAppTestLayer } from "./electron-app.js";
 import { ElectronDialog, makeElectronDialogTestLayer } from "./electron-dialog.js";
-import { ElectronIpc, ElectronIpcTest, makeElectronIpcTestLayer } from "./electron-ipc.js";
+import {
+	electronIpcLayer,
+	ElectronIpc,
+	ElectronIpcTest,
+	makeElectronIpcTestLayer
+} from "./electron-ipc.js";
 import {
 	makeWorkbenchWindowTestLayer,
 	WorkbenchWindow,
@@ -116,6 +121,59 @@ it.effect("ElectronIpc removes handlers when the scope closes", () =>
 	})
 );
 
+it.effect("ElectronIpc removes each real host handler exactly once", () =>
+	Effect.gen(function* () {
+		const removed: Array<string> = [];
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const ipc = yield* ElectronIpc;
+				yield* ipc.register(invokeContracts["fixture:launch"], () =>
+					Effect.succeed({ status: "ready" as const })
+				);
+			}).pipe(
+				Effect.provide(
+					electronIpcLayer({
+						handle: () => undefined,
+						removeHandler: (channel) => removed.push(channel)
+					})
+				)
+			)
+		);
+		expect(removed).toEqual(["fixture:launch"]);
+	})
+);
+
+it.effect("ElectronIpc interrupts an in-flight handler when its owning scope closes", () =>
+	Effect.gen(function* () {
+		const started = yield* Deferred.make<void>();
+		const interrupted = yield* Deferred.make<void>();
+		const invocation = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const ipc = yield* ElectronIpc;
+				const probe = yield* ElectronIpcTest;
+				yield* ipc.register(invokeContracts["fixture:launch"], () =>
+					Deferred.succeed(started, undefined).pipe(
+						Effect.andThen(Effect.never),
+						Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined))
+					)
+				);
+				const handler = (yield* probe.handlers())[0];
+				if (!handler) return yield* Effect.die("fixture handler was not registered");
+				const promise = handler.invoke();
+				yield* Deferred.await(started);
+				return promise;
+			}).pipe(Effect.provide(makeElectronIpcTestLayer()))
+		);
+
+		yield* Deferred.await(interrupted);
+		const exit = yield* Effect.tryPromise({
+			try: () => invocation,
+			catch: (cause) => cause
+		}).pipe(Effect.exit);
+		expect(Exit.isFailure(exit)).toBe(true);
+	})
+);
+
 it.effect("FixtureProcess test layer records launches", () =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -154,4 +212,14 @@ it.effect("LocalFiles test layer serves in-memory fixtures", () =>
 		expect(yield* files.exists("memory://a")).toBe(true);
 		expect(Array.from(yield* files.readFile("memory://a"))).toEqual([9]);
 	}).pipe(Effect.provide(makeLocalFilesTestLayer(new Map([["memory://a", new Uint8Array([9])]]))))
+);
+
+it.effect("LocalFiles rejects artifact paths that escape their owning directory", () =>
+	Effect.gen(function* () {
+		const files = yield* LocalFiles;
+		const exit = yield* files
+			.readFileWithin("C:/captures/run-1", "../../secrets.txt")
+			.pipe(Effect.exit);
+		expect(Exit.isFailure(exit)).toBe(true);
+	}).pipe(Effect.provide(makeLocalFilesTestLayer()))
 );

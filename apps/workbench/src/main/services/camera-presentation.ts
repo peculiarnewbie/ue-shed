@@ -8,7 +8,7 @@ import {
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { RemoteControlClient } from "@ue-shed/unreal-connection";
 import { Clock, Context, Effect, HashMap, Layer, Option, Queue, Ref, Stream } from "effect";
-import { ElectronApp } from "../adapters/electron-app.js";
+import { ElectronApp, type ElectronAppError } from "../adapters/electron-app.js";
 import { WorkbenchWindow } from "../adapters/electron-window.js";
 import type { RendererCameraFrame, WorkbenchCameraMetrics } from "../ipc-contracts.js";
 import { WorkbenchConfiguration } from "../workbench-config.js";
@@ -54,13 +54,26 @@ function toRendererCameraFrame(frame: CameraFrame): RendererCameraFrame {
 }
 
 function takeOnePendingFrame(
-	pending: Ref.Ref<HashMap.HashMap<number, CameraFrame>>
+	state: Ref.Ref<{
+		readonly nextCameraIndex: number;
+		readonly pending: HashMap.HashMap<number, CameraFrame>;
+	}>
 ): Effect.Effect<Option.Option<CameraFrame>> {
-	return Ref.modify(pending, (map) => {
-		const first = HashMap.entries(map).next();
-		if (first.done) return [Option.none(), map];
-		const [cameraIndex, frame] = first.value;
-		return [Option.some(frame), HashMap.remove(map, cameraIndex)];
+	return Ref.modify(state, (current) => {
+		const cameraIndices = Array.from(HashMap.keys(current.pending)).toSorted((a, b) => a - b);
+		const cameraIndex =
+			cameraIndices.find((candidate) => candidate >= current.nextCameraIndex) ??
+			cameraIndices[0];
+		if (cameraIndex === undefined) return [Option.none(), current];
+		const frame = HashMap.get(current.pending, cameraIndex);
+		if (Option.isNone(frame)) return [Option.none(), current];
+		return [
+			frame,
+			{
+				nextCameraIndex: (cameraIndex + 1) % (maximumCameraIndex + 1),
+				pending: HashMap.remove(current.pending, cameraIndex)
+			}
+		];
 	});
 }
 
@@ -68,7 +81,7 @@ export interface CameraPresentationShape {
 	readonly configure: (
 		config: CameraScheduleConfig
 	) => Effect.Effect<CameraStatus, CameraControlError>;
-	readonly metrics: () => Effect.Effect<WorkbenchCameraMetrics>;
+	readonly metrics: () => Effect.Effect<WorkbenchCameraMetrics, ElectronAppError>;
 	readonly setPresentationBudget: (megabytesPerSecond: number) => Effect.Effect<number>;
 	readonly status: () => Effect.Effect<CameraStatus, CameraControlError>;
 }
@@ -87,7 +100,10 @@ export const CameraPresentationLive = Layer.effect(
 		const configuration = yield* WorkbenchConfiguration;
 		const remoteControl = yield* RemoteControlClient;
 
-		const pending = yield* Ref.make(HashMap.empty<number, CameraFrame>());
+		const presentationState = yield* Ref.make({
+			nextCameraIndex: minimumCameraIndex,
+			pending: HashMap.empty<number, CameraFrame>()
+		});
 		const wake = yield* Queue.sliding<void>(1);
 		const budget = yield* Ref.make(defaultPresentationBudgetMbPerSecond);
 		const nextPresentationAtMillis = yield* Ref.make(0);
@@ -95,7 +111,10 @@ export const CameraPresentationLive = Layer.effect(
 		const replacements = yield* Ref.make(0);
 
 		yield* Effect.addFinalizer(() =>
-			Ref.set(pending, HashMap.empty()).pipe(Effect.andThen(Queue.shutdown(wake)))
+			Ref.set(presentationState, {
+				nextCameraIndex: minimumCameraIndex,
+				pending: HashMap.empty()
+			}).pipe(Effect.andThen(Queue.shutdown(wake)))
 		);
 
 		const sendPendingFrame = Effect.fn("Workbench.CameraPresentation.sendPendingFrame")(
@@ -121,7 +140,7 @@ export const CameraPresentationLive = Layer.effect(
 
 		const drainPendingFrames: Effect.Effect<void> = Effect.gen(function* () {
 			while (true) {
-				const next = yield* takeOnePendingFrame(pending);
+				const next = yield* takeOnePendingFrame(presentationState);
 				if (Option.isNone(next)) return;
 				yield* sendPendingFrame(next.value);
 			}
@@ -138,9 +157,12 @@ export const CameraPresentationLive = Layer.effect(
 			frame: CameraFrame
 		) {
 			if (!isSupportedCameraIndex(frame.cameraIndex)) return;
-			const hadExisting = yield* Ref.modify(pending, (map) => [
-				HashMap.has(map, frame.cameraIndex),
-				HashMap.set(map, frame.cameraIndex, frame)
+			const hadExisting = yield* Ref.modify(presentationState, (current) => [
+				HashMap.has(current.pending, frame.cameraIndex),
+				{
+					...current,
+					pending: HashMap.set(current.pending, frame.cameraIndex, frame)
+				}
 			]);
 			if (hadExisting) yield* Ref.update(replacements, (count) => count + 1);
 			yield* Queue.offer(wake, undefined);

@@ -75,14 +75,27 @@ test("rejects Workbench main Effect.runPromise and Effect.runSync", async () => 
 	);
 });
 
-test("rejects Workbench main process.env outside FixtureProcess", async () => {
+test("rejects Workbench main process.env outside the Electron bootstrap", async () => {
 	await withWorkbenchFixture(
 		"apps/workbench/src/main/services/bad-env.ts",
 		"export const value = process.env.UE_SHED_PROJECT_ROOT;\n",
 		async (fixtureRoot) => {
 			const failures = await checkWorkbenchBoundaries(fixtureRoot);
 			assert.deepEqual(failures, [
-				"apps/workbench/src/main/services/bad-env.ts: Workbench main must not read process.env outside FixtureProcess"
+				"apps/workbench/src/main/services/bad-env.ts: Workbench main must receive environment from the Electron bootstrap"
+			]);
+		}
+	);
+});
+
+test("rejects hidden Workbench service layer builds", async () => {
+	await withWorkbenchFixture(
+		"apps/workbench/src/main/services/bad-layer.ts",
+		'import { Layer } from "effect";\nexport const hidden = Layer.build(layer);\n',
+		async (fixtureRoot) => {
+			const failures = await checkWorkbenchBoundaries(fixtureRoot);
+			assert.deepEqual(failures, [
+				"apps/workbench/src/main/services/bad-layer.ts: Workbench main must compose services through layers"
 			]);
 		}
 	);

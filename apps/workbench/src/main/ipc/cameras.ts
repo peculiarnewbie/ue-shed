@@ -8,7 +8,9 @@ export const register = Effect.gen(function* () {
 	const ipc = yield* ElectronIpc;
 	const presentation = yield* CameraPresentation;
 
-	yield* ipc.register(invokeContracts["camera:metrics"], () => presentation.metrics());
+	yield* ipc.register(invokeContracts["camera:metrics"], () =>
+		presentation.metrics().pipe(Effect.orDie)
+	);
 	yield* ipc.register(invokeContracts["camera:presentation-budget"], (...args) => {
 		const [megabytesPerSecond] = args as [PresentationBudgetMbPerSecond];
 		return presentation.setPresentationBudget(megabytesPerSecond);

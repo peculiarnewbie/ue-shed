@@ -17,7 +17,7 @@ import type {
 	MapReviewRunView
 } from "@ue-shed/cameras/review-contracts";
 import { Context, Effect, Layer } from "effect";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { LocalFiles } from "../adapters/local-files.js";
 import { WorkbenchConfiguration } from "../workbench-config.js";
 
@@ -92,8 +92,9 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			const captured = run.results.find((result) => result.status === "captured");
 			if (!captured) return summary satisfies MapReviewRunView;
 			const view = reviewSet.views.find((candidate) => candidate.id === captured.viewId);
-			const bytes = yield* localFiles.readFile(
-				join(dirname(summary.path), captured.artifact.relativePath)
+			const bytes = yield* localFiles.readFileWithin(
+				dirname(summary.path),
+				captured.artifact.relativePath
 			);
 			return {
 				...summary,

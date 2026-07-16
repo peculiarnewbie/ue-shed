@@ -36,18 +36,40 @@ export class WorkbenchConfiguration extends Context.Service<
 	WorkbenchConfigurationShape
 >()("@ue-shed/workbench/WorkbenchConfiguration") {}
 
-const HttpEndpoint = Schema.String.check(Schema.isPattern(/^https?:\/\//));
+const NonEmptyConfigString = Schema.NonEmptyString.check(Schema.isPattern(/\S/));
+const HttpEndpoint = Schema.NonEmptyString.check(
+	Schema.makeFilter((value) => {
+		try {
+			const url = new URL(value);
+			return url.protocol === "http:" || url.protocol === "https:"
+				? undefined
+				: "expected an HTTP or HTTPS URL";
+		} catch {
+			return "expected a valid HTTP or HTTPS URL";
+		}
+	})
+);
 
 const remoteControlEndpointConfig = Config.schema(
 	HttpEndpoint,
 	"UE_SHED_REMOTE_CONTROL_ENDPOINT"
 ).pipe(Config.withDefault("http://127.0.0.1:30001"));
-const projectRootConfig = Config.option(Config.string("UE_SHED_PROJECT_ROOT"));
-const reviewSetConfig = Config.option(Config.string("UE_SHED_REVIEW_SET"));
-const projectNameConfig = Config.option(Config.string("UE_SHED_PROJECT_NAME"));
-const repositoryRootConfig = Config.option(Config.string("UE_SHED_REPOSITORY_ROOT"));
-const textureAuditRulesConfig = Config.option(Config.string("UE_SHED_TEXTURE_AUDIT_RULES"));
-const authoringAssetConfig = Config.option(Config.string("UE_SHED_AUTHORING_ASSET"));
+const projectRootConfig = Config.option(
+	Config.schema(NonEmptyConfigString, "UE_SHED_PROJECT_ROOT")
+);
+const reviewSetConfig = Config.option(Config.schema(NonEmptyConfigString, "UE_SHED_REVIEW_SET"));
+const projectNameConfig = Config.option(
+	Config.schema(NonEmptyConfigString, "UE_SHED_PROJECT_NAME")
+);
+const repositoryRootConfig = Config.option(
+	Config.schema(NonEmptyConfigString, "UE_SHED_REPOSITORY_ROOT")
+);
+const textureAuditRulesConfig = Config.option(
+	Config.schema(NonEmptyConfigString, "UE_SHED_TEXTURE_AUDIT_RULES")
+);
+const authoringAssetConfig = Config.option(
+	Config.schema(NonEmptyConfigString, "UE_SHED_AUTHORING_ASSET")
+);
 
 function configuredPath(path: Option.Option<string>): ConfiguredPath {
 	return Option.match(path, {

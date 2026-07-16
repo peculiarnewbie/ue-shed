@@ -51,73 +51,105 @@ function terminateChild(child: ChildProcess): void {
 	child.kill();
 }
 
-export const FixtureProcessLive = Layer.succeed(
-	FixtureProcess,
-	FixtureProcess.of({
-		launch: Effect.fn("Workbench.FixtureProcess.launch")(function* (
-			options: FixtureProcessLaunchOptions
-		) {
-			return yield* Effect.acquireRelease(
-				Effect.sync(() =>
-					spawn(options.executable, [...options.args], {
-						cwd: options.cwd,
-						env: {
-							...process.env,
-							...(options.env ?? {}),
-							ELECTRON_RUN_AS_NODE: "1"
-						},
-						stdio: ["ignore", "ignore", "pipe"],
-						windowsHide: true
-					})
-				),
-				(child, exit) =>
-					Effect.sync(() => {
-						if (Exit.hasInterrupts(exit) || Exit.isFailure(exit)) {
-							terminateChild(child);
-						}
-					})
-			).pipe(
-				Effect.flatMap((child) =>
-					Effect.callback<FixtureProcessExit, FixtureProcessError>((resume) => {
-						let stderr = "";
-						child.stderr?.setEncoding("utf8");
-						child.stderr?.on("data", (chunk: string) => {
-							stderr = (stderr + chunk).slice(-16_384);
-						});
-						child.once("error", (cause) =>
-							resume(
-								Effect.succeed({
-									status: "failed",
-									message: `Could not start the fixture launcher: ${String(cause)}`,
-									recovery:
-										"Verify the configured Unreal installation and source checkout."
+export const fixtureProcessLayer = (
+	environment: Readonly<Record<string, string | undefined>>
+): Layer.Layer<FixtureProcess> =>
+	Layer.succeed(
+		FixtureProcess,
+		FixtureProcess.of({
+			launch: Effect.fn("Workbench.FixtureProcess.launch")(function* (
+				options: FixtureProcessLaunchOptions
+			) {
+				return yield* Effect.acquireRelease(
+					Effect.try({
+						try: () =>
+							spawn(options.executable, [...options.args], {
+								cwd: options.cwd,
+								env: {
+									...environment,
+									...options.env,
+									ELECTRON_RUN_AS_NODE: "1"
+								},
+								stdio: ["ignore", "ignore", "pipe"],
+								windowsHide: true
+							}),
+						catch: (cause) =>
+							new FixtureProcessError({
+								causeText: cause instanceof Error ? cause.message : String(cause),
+								message: "Could not spawn the fixture launcher.",
+								operation: "spawn",
+								recovery: "Verify the configured executable and project directory.",
+								retrySafe: false
+							})
+					}),
+					(child, exit) =>
+						Effect.try({
+							try: () => {
+								if (Exit.hasInterrupts(exit) || Exit.isFailure(exit)) {
+									terminateChild(child);
+								}
+							},
+							catch: (cause) =>
+								new FixtureProcessError({
+									causeText:
+										cause instanceof Error ? cause.message : String(cause),
+									message: "Could not terminate the fixture launcher.",
+									operation: "terminate",
+									recovery: "Terminate the Unreal fixture process manually.",
+									retrySafe: true
 								})
-							)
-						);
-						child.once("exit", (code) => {
-							if (code === 0) resume(Effect.succeed({ status: "ready" }));
-							else {
+						}).pipe(Effect.ignore)
+				).pipe(
+					Effect.flatMap((child) =>
+						Effect.callback<FixtureProcessExit, FixtureProcessError>((resume) => {
+							let stderr = "";
+							child.stderr?.setEncoding("utf8");
+							child.stderr?.on("data", (chunk: string) => {
+								stderr = (stderr + chunk).slice(-16_384);
+							});
+							child.once("error", (cause) =>
 								resume(
 									Effect.succeed({
 										status: "failed",
-										message:
-											stderr.trim() ||
-											`Fixture launcher exited with code ${code ?? "unknown"}.`,
+										message: `Could not start the fixture launcher: ${String(cause)}`,
 										recovery:
-											"Check the Unreal build output and Saved/Logs/UEShedFixture.log."
+											"Verify the configured Unreal installation and source checkout."
 									})
-								);
-							}
-						});
-						return Effect.sync(() => {
-							terminateChild(child);
-						});
-					})
-				)
-			);
+								)
+							);
+							child.once("exit", (code) => {
+								if (code === 0) resume(Effect.succeed({ status: "ready" }));
+								else {
+									resume(
+										Effect.succeed({
+											status: "failed",
+											message:
+												stderr.trim() ||
+												`Fixture launcher exited with code ${code ?? "unknown"}.`,
+											recovery:
+												"Check the Unreal build output and Saved/Logs/UEShedFixture.log."
+										})
+									);
+								}
+							});
+							return Effect.try({
+								try: () => terminateChild(child),
+								catch: (cause) =>
+									new FixtureProcessError({
+										causeText:
+											cause instanceof Error ? cause.message : String(cause),
+										message: "Could not terminate the fixture launcher.",
+										operation: "terminate",
+										recovery: "Terminate the Unreal fixture process manually.",
+										retrySafe: true
+									})
+							}).pipe(Effect.ignore);
+						})
+					)
+				);
+			})
 		})
-	})
-);
+	);
 
 export const makeFixtureProcessTestLayer = (
 	behavior: (

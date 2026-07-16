@@ -17,11 +17,11 @@ import { electronAppLayer, type ElectronAppHost } from "./adapters/electron-app.
 import { ElectronDialogLive } from "./adapters/electron-dialog.js";
 import { electronIpcLayer, type ElectronIpcHost } from "./adapters/electron-ipc.js";
 import { workbenchWindowLayer, type WorkbenchWindowOptions } from "./adapters/electron-window.js";
-import { FixtureProcessLive } from "./adapters/fixture-process.js";
+import { fixtureProcessLayer } from "./adapters/fixture-process.js";
 import { LocalFilesLive } from "./adapters/local-files.js";
 import { register as registerWorkbenchIpc } from "./ipc/register.js";
 import { WorkbenchAssetAuditsLive } from "./services/asset-audits.js";
-import { WorkbenchAuthoringLive } from "./services/authoring.js";
+import { WorkbenchAuthoringLive, WorkbenchAuthoringSessionsLive } from "./services/authoring.js";
 import { CameraPresentationLive } from "./services/camera-presentation.js";
 import { FixtureHealthLive, FixtureLauncherLive } from "./services/fixture-launcher.js";
 import { WorkbenchGameTextLive } from "./services/game-text.js";
@@ -31,6 +31,7 @@ import { WorkbenchConfiguration, WorkbenchConfigurationLive } from "./workbench-
 
 export interface WorkbenchHosts {
 	readonly app: ElectronAppHost;
+	readonly environment: Readonly<Record<string, string | undefined>>;
 	readonly ipc: ElectronIpcHost;
 }
 
@@ -60,7 +61,7 @@ function baseLayer(hosts: WorkbenchHosts) {
 		ReviewIdGeneratorLive,
 		cameraFeedLayer(),
 		LocalFilesLive,
-		FixtureProcessLive
+		fixtureProcessLayer(hosts.environment)
 	).pipe(Layer.provideMerge(WorkbenchConfigurationLive));
 }
 
@@ -90,11 +91,12 @@ function reviewAndFixtureLayer(hosts: WorkbenchHosts) {
 
 /** Workbench-owned application services surfaced directly to IPC registration. */
 function featureLayer(hosts: WorkbenchHosts) {
+	const authoring = WorkbenchAuthoringLive.pipe(Layer.provide(WorkbenchAuthoringSessionsLive));
 	return Layer.mergeAll(
 		ShowcaseLive,
 		WorkbenchAssetAuditsLive,
 		WorkbenchGameTextLive,
-		WorkbenchAuthoringLive,
+		authoring,
 		WorkbenchMapReviewLive,
 		CameraPresentationLive
 	).pipe(Layer.provideMerge(reviewAndFixtureLayer(hosts)));

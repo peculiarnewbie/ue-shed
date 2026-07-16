@@ -21,7 +21,11 @@ import {
 	makeWorkbenchConfigurationLayer,
 	type WorkbenchConfigurationShape
 } from "../workbench-config.js";
-import { WorkbenchAuthoring, WorkbenchAuthoringLive } from "./authoring.js";
+import {
+	WorkbenchAuthoring,
+	WorkbenchAuthoringLive,
+	WorkbenchAuthoringSessionsLive
+} from "./authoring.js";
 
 function fixtureSnapshot(): AuthoringTableSnapshot {
 	return {
@@ -260,6 +264,90 @@ it.effect(
 		})
 );
 
+it.effect("invalidates negotiated authoring connections after live catalog failures", () =>
+	Effect.gen(function* () {
+		const manifestCalls = yield* Ref.make(0);
+		const remoteControl = Layer.succeed(
+			RemoteControlClient,
+			RemoteControlClient.of({
+				request: ({ functionName }) => {
+					if (functionName !== "GetCapabilityManifest") {
+						return Effect.die(`unexpected Remote Control call ${functionName}`);
+					}
+					return Ref.update(manifestCalls, (count) => count + 1).pipe(
+						Effect.as({
+							authoringLimits: {
+								maxCommands: 1024,
+								maxPayloadBytes: 1_048_576,
+								maxTables: 16
+							},
+							authoringObjectPath:
+								"/Script/UEShedAuthoring.Default__UEShedAuthoringLibrary",
+							capabilities: [
+								"authoring.snapshot.v2",
+								"authoring.table-list.v1",
+								"authoring.apply.v1",
+								"authoring.apply-result.v1",
+								"authoring.save.v1"
+							],
+							producerKind: "unreal_editor",
+							schemaVersion: 1
+						})
+					);
+				}
+			})
+		);
+		const liveFailureCatalog: AuthoringCatalogShape = {
+			discover: () =>
+				Effect.succeed({
+					diagnostics: [
+						{
+							authority: "live" as const,
+							code: "table_list_failed",
+							message: "editor restarted",
+							retrySafe: true
+						}
+					],
+					scannedSavedAssets: 0,
+					tables: []
+				})
+		};
+		const layer = WorkbenchAuthoringLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					makeWorkbenchConfigurationLayer({
+						...unconfigured,
+						project: { projectRoot: "C:/FixtureProject", status: "configured" }
+					}),
+					makeAssetReaderTestLayer({
+						...dyingReader,
+						discoverTables: () =>
+							Effect.succeed({
+								diagnostics: [],
+								projectRoot: "C:/FixtureProject",
+								scannedAssets: 0,
+								tables: []
+							})
+					}),
+					makeAuthoringCatalogTestLayer(liveFailureCatalog),
+					dialogLayer({}),
+					remoteControl
+				)
+			)
+		);
+
+		yield* Effect.provide(
+			Effect.gen(function* () {
+				const service = yield* WorkbenchAuthoring;
+				yield* service.configuredCatalog();
+				yield* service.configuredCatalog();
+			}),
+			layer
+		);
+		expect(yield* Ref.get(manifestCalls)).toBe(2);
+	})
+);
+
 it.effect("fails to begin a session without a configured project root", () =>
 	Effect.gen(function* () {
 		const service = yield* WorkbenchAuthoring;
@@ -292,14 +380,16 @@ it.effect("creates a session from a loaded snapshot, edits it, and undoes the ed
 	Effect.gen(function* () {
 		const root = yield* withTempProjectRoot("ue-shed-workbench-authoring-");
 		const objectPath = "/Game/Fixture/DT_Test.DT_Test";
+		const configuration = makeWorkbenchConfigurationLayer({
+			...unconfigured,
+			authoringAsset: { path: "C:/Fixture/DT_Test.uasset", status: "configured" },
+			project: { projectRoot: root, status: "configured" }
+		});
 		const layer = WorkbenchAuthoringLive.pipe(
+			Layer.provide(WorkbenchAuthoringSessionsLive.pipe(Layer.provide(configuration))),
 			Layer.provide(
 				Layer.mergeAll(
-					makeWorkbenchConfigurationLayer({
-						...unconfigured,
-						authoringAsset: { path: "C:/Fixture/DT_Test.uasset", status: "configured" },
-						project: { projectRoot: root, status: "configured" }
-					}),
+					configuration,
 					makeAssetReaderTestLayer({
 						...dyingReader,
 						readTable: () => Effect.succeed(fixtureSnapshot())
@@ -355,14 +445,16 @@ it.effect("fails to apply a session when the live connection is unavailable", ()
 	Effect.gen(function* () {
 		const root = yield* withTempProjectRoot("ue-shed-workbench-authoring-apply-");
 		const objectPath = "/Game/Fixture/DT_Test.DT_Test";
+		const configuration = makeWorkbenchConfigurationLayer({
+			...unconfigured,
+			authoringAsset: { path: "C:/Fixture/DT_Test.uasset", status: "configured" },
+			project: { projectRoot: root, status: "configured" }
+		});
 		const layer = WorkbenchAuthoringLive.pipe(
+			Layer.provide(WorkbenchAuthoringSessionsLive.pipe(Layer.provide(configuration))),
 			Layer.provide(
 				Layer.mergeAll(
-					makeWorkbenchConfigurationLayer({
-						...unconfigured,
-						authoringAsset: { path: "C:/Fixture/DT_Test.uasset", status: "configured" },
-						project: { projectRoot: root, status: "configured" }
-					}),
+					configuration,
 					makeAssetReaderTestLayer({
 						...dyingReader,
 						readTable: () => Effect.succeed(fixtureSnapshot())

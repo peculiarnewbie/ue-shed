@@ -127,3 +127,19 @@ it.effect("fails startup for malformed configured values", () =>
 		expect(Exit.isFailure(exit)).toBe(true);
 	})
 );
+
+it.effect("rejects incomplete endpoints and empty configured paths", () =>
+	Effect.gen(function* () {
+		for (const values of [
+			{ UE_SHED_REMOTE_CONTROL_ENDPOINT: "http://" },
+			{ UE_SHED_PROJECT_ROOT: " " }
+		]) {
+			const exit = yield* Layer.build(
+				WorkbenchConfigurationLive.pipe(
+					Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(values)))
+				)
+			).pipe(Effect.scoped, Effect.exit);
+			expect(Exit.isFailure(exit)).toBe(true);
+		}
+	})
+);

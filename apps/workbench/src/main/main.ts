@@ -1,6 +1,7 @@
 import { app, ipcMain } from "electron/main";
 import { Cause, ManagedRuntime } from "effect";
 import type { ElectronAppHost } from "./adapters/electron-app.js";
+import { installRuntimeDisposal } from "./adapters/electron-bootstrap.js";
 import type { ElectronIpcHost } from "./adapters/electron-ipc.js";
 import { WorkbenchLive } from "./workbench-live.js";
 import { WorkbenchProgram } from "./workbench-program.js";
@@ -48,28 +49,25 @@ function toIpcHost(): ElectronIpcHost {
  * the OS, the user closing every window, or a startup failure.
  */
 function bootstrapWorkbench(): void {
-	const runtime = ManagedRuntime.make(WorkbenchLive({ app: toAppHost(), ipc: toIpcHost() }));
-	let disposing = false;
-
-	function disposeAndQuit(): void {
-		if (disposing) return;
-		disposing = true;
-		void runtime.dispose().finally(() => app.quit());
-	}
+	const runtime = ManagedRuntime.make(
+		WorkbenchLive({ app: toAppHost(), environment: process.env, ipc: toIpcHost() })
+	);
+	const disposal = installRuntimeDisposal(
+		{
+			onBeforeQuit: (listener) => app.on("before-quit", listener),
+			quit: () => app.quit()
+		},
+		() => runtime.dispose()
+	);
 
 	app.on("window-all-closed", () => app.quit());
-	app.on("before-quit", (event) => {
-		if (disposing) return;
-		event.preventDefault();
-		disposeAndQuit();
-	});
 
 	app.whenReady()
 		.then(() => runtime.runPromise(WorkbenchProgram.start))
 		.catch((cause: unknown) => {
 			reportStartupFailure(cause);
 			process.exitCode = 1;
-			disposeAndQuit();
+			disposal.disposeAndQuit();
 		});
 }
 

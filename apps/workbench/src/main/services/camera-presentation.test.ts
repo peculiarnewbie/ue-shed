@@ -226,6 +226,32 @@ it.effect("makes progress across camera indices without starving either", () =>
 	}).pipe(Effect.scoped)
 );
 
+it.effect("round-robins past a continuously replaced lower camera index", () =>
+	Effect.gen(function* () {
+		const feedQueue = yield* Queue.unbounded<CameraFrame>();
+		const recordingWindow = yield* makeGatedRecordingWindow();
+
+		yield* runWithPresentation(feedQueue, recordingWindow, () =>
+			Effect.gen(function* () {
+				yield* Queue.offer(feedQueue, makeFrame({ cameraIndex: 0, sequence: 1n }));
+				yield* Queue.offer(feedQueue, makeFrame({ cameraIndex: 1, sequence: 1n }));
+				yield* recordingWindow.awaitStarted();
+
+				// Camera 0 becomes pending again while its first frame is still being delivered.
+				yield* Queue.offer(feedQueue, makeFrame({ cameraIndex: 0, sequence: 2n }));
+				yield* settle;
+				yield* recordingWindow.releaseNext();
+				yield* recordingWindow.awaitStarted();
+				yield* recordingWindow.releaseNext();
+				yield* settle;
+
+				const sent = yield* recordingWindow.sentFrames();
+				expect(sent.slice(0, 2).map((frame) => frame.cameraIndex)).toEqual([0, 1]);
+			})
+		);
+	}).pipe(Effect.scoped)
+);
+
 it.effect("rejects camera indices outside the supported 0-31 range", () =>
 	Effect.gen(function* () {
 		const feedQueue = yield* Queue.unbounded<CameraFrame>();

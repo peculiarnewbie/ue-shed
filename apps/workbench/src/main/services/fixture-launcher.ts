@@ -34,6 +34,15 @@ const incompatibleReviewCapability: FixtureHealthResult = {
 	recovery: "Close the -game fixture or choose another endpoint, then launch the editor fixture."
 };
 
+function incompatibleProducer(message: string): FixtureHealthResult {
+	return {
+		status: "incompatible",
+		message,
+		recovery:
+			"Close the incompatible Unreal instance or configure another endpoint, then retry."
+	};
+}
+
 export const FixtureHealthLive = Layer.effect(
 	FixtureHealth,
 	Effect.gen(function* () {
@@ -67,7 +76,13 @@ export const FixtureHealthLive = Layer.effect(
 				manifest.producerKind === "unreal_editor" &&
 				(configuration.expectedProject.status !== "configured" ||
 					manifest.projectName === configuration.expectedProject.projectName);
-			if (!matchesProject) return notRunning;
+			if (!matchesProject) {
+				return incompatibleProducer(
+					manifest.producerKind !== "unreal_editor"
+						? "The configured endpoint belongs to a producer that is not an Unreal editor."
+						: `The configured endpoint is running ${manifest.projectName}, not ${configuration.expectedProject.status === "configured" ? configuration.expectedProject.projectName : "the expected project"}.`
+				);
+			}
 			if (capability !== "map-review") return ready;
 
 			// A probe with an empty request exercises the review-capture RPC path without
@@ -130,14 +145,22 @@ export const FixtureLauncherLive = Layer.effect(
 			const outcome = yield* health.check(capability).pipe(
 				Effect.repeat({
 					schedule: Schedule.spaced("1 second"),
-					until: (result) => result.status === "ready"
+					until: (result) => result.status !== "not_running"
 				}),
 				Effect.timeoutOrElse({
 					duration: "3 minutes",
 					orElse: () => Effect.succeed(undefined)
 				})
 			);
-			return outcome?.status === "ready" ? ({ status: "ready" } as const) : readinessTimeout;
+			if (outcome?.status === "ready") return { status: "ready" as const };
+			if (outcome?.status === "incompatible") {
+				return {
+					status: "failed" as const,
+					message: outcome.message,
+					recovery: outcome.recovery
+				};
+			}
+			return readinessTimeout;
 		});
 
 		const spawnAndWait = Effect.fn("Workbench.FixtureLauncher.spawnAndWait")(function* (

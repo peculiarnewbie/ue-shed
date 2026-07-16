@@ -44,7 +44,7 @@ const legacyBaselines = {
 		"packages/unreal-assets/src/index.ts": 1
 	},
 	"process.env": {
-		"apps/workbench/src/main/adapters/fixture-process.ts": 1,
+		"apps/workbench/src/main/main.ts": 1,
 		"packages/unreal-assets/src/index.ts": 1
 	},
 	"fetch(": {}
@@ -52,7 +52,6 @@ const legacyBaselines = {
 
 const workbenchMainBootstrap = "apps/workbench/src/main/main.ts";
 const workbenchMainAdaptersPrefix = "apps/workbench/src/main/adapters/";
-const workbenchFixtureProcessAdapter = "apps/workbench/src/main/adapters/fixture-process.ts";
 
 function isWorkbenchMainSource(path) {
 	return path.startsWith("apps/workbench/src/main/") && path.endsWith(".ts");
@@ -286,10 +285,13 @@ export async function checkWorkbenchBoundaries(root = repositoryRoot) {
 			if (text.includes("fetch(")) {
 				failures.push(`${path}: Workbench main must not call raw fetch`);
 			}
-			if (text.includes("process.env") && path !== workbenchFixtureProcessAdapter) {
+			if (text.includes("process.env") && path !== workbenchMainBootstrap) {
 				failures.push(
-					`${path}: Workbench main must not read process.env outside FixtureProcess`
+					`${path}: Workbench main must receive environment from the Electron bootstrap`
 				);
+			}
+			if (text.includes("Layer.build(")) {
+				failures.push(`${path}: Workbench main must compose services through layers`);
 			}
 			if (text.includes("ipcMain.handle") && !isWorkbenchBootstrapOrAdapter(path)) {
 				failures.push(
