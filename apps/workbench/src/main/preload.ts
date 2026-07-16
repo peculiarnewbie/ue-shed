@@ -1,4 +1,3 @@
-import type { CameraFeedMetrics, CameraFrame } from "@ue-shed/cameras";
 import type { AuthoringSetCellsIntent } from "@ue-shed/authoring-sdk";
 import type {
 	MapReviewApprovalResult,
@@ -9,34 +8,19 @@ import type {
 } from "@ue-shed/extension-camera-review/client";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { contextBridge, ipcRenderer } from "electron";
+import type {
+	FixtureLaunchResult,
+	RendererCameraFrame,
+	ShowcaseContext,
+	WorkbenchCameraMetrics
+} from "./ipc-contracts.js";
 
-export interface RendererCameraFrame extends Omit<CameraFrame, "pixels" | "sequence"> {
-	readonly pixels: Uint8Array;
-	readonly sequence: string;
-}
-
-export interface WorkbenchCameraMetrics extends CameraFeedMetrics {
-	readonly electronPrivateMemoryMb: number;
-	readonly gpuProcessPrivateMemoryMb: number;
-	readonly presentationBudgetMbPerSecond: number;
-	readonly presentationFramesSent: number;
-	readonly presentationReplacements: number;
-}
-
-export interface ShowcaseContext {
-	readonly fixtureConfigured: boolean;
-	readonly projectRoot?: string;
-	readonly reader: "configured" | "path";
-	readonly ruleFile?: string;
-}
-
-export type FixtureLaunchResult =
-	| { readonly status: "ready" }
-	| {
-			readonly status: "failed";
-			readonly message: string;
-			readonly recovery: string;
-	  };
+export type {
+	FixtureLaunchResult,
+	RendererCameraFrame,
+	ShowcaseContext,
+	WorkbenchCameraMetrics
+} from "./ipc-contracts.js";
 
 contextBridge.exposeInMainWorld("ueShed", {
 	showcase: {
