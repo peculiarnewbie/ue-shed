@@ -1,0 +1,513 @@
+import { AuthoringValue } from "@ue-shed/protocol";
+import { Effect, Schema } from "effect";
+
+const Reader = { reader: Schema.optionalKey(Schema.String) };
+const Project = { projectRoot: Schema.String };
+const SessionProject = { projectRoot: Schema.String, sessionId: Schema.String };
+
+export const CliCommand = Schema.TaggedUnion({
+	Help: {},
+	Version: {},
+	AuditTextures: { ...Project, ruleFile: Schema.String, ...Reader },
+	AuthoringTables: { ...Project, ...Reader },
+	AuthoringCatalog: { ...Project, endpoint: Schema.optionalKey(Schema.String), ...Reader },
+	AuthoringParity: { ...Project, endpoint: Schema.String, ...Reader },
+	AuthoringInspect: { assetPath: Schema.String, ...Reader },
+	AuthoringLiveTables: { endpoint: Schema.String },
+	AuthoringLiveInspect: { endpoint: Schema.String, tablePath: Schema.String },
+	SessionsList: { ...Project },
+	SessionsCreate: {
+		...Project,
+		assetPath: Schema.String,
+		id: Schema.optionalKey(Schema.String),
+		...Reader
+	},
+	SessionsShow: { ...SessionProject },
+	SessionsResume: { ...SessionProject },
+	SessionsClose: { ...SessionProject },
+	SessionsDiscard: { ...SessionProject },
+	SessionsUndo: { ...SessionProject },
+	SessionsRedo: { ...SessionProject },
+	SessionsSetCell: {
+		...SessionProject,
+		fieldName: Schema.String,
+		rowName: Schema.String,
+		tablePath: Schema.String,
+		value: AuthoringValue
+	},
+	SessionsApply: { ...SessionProject, endpoint: Schema.String },
+	SessionsReconcile: { ...SessionProject, endpoint: Schema.String },
+	SessionsSave: { ...SessionProject, endpoint: Schema.String },
+	SessionCreate: { assetPath: Schema.String, sessionPath: Schema.String, ...Reader },
+	SessionCreateLive: {
+		endpoint: Schema.String,
+		sessionPath: Schema.String,
+		tablePath: Schema.String
+	},
+	SessionShow: { sessionPath: Schema.String },
+	DraftSetCell: {
+		fieldName: Schema.String,
+		rowName: Schema.String,
+		sessionPath: Schema.String,
+		tablePath: Schema.String,
+		value: AuthoringValue
+	},
+	DraftUndo: { sessionPath: Schema.String },
+	DraftRedo: { sessionPath: Schema.String },
+	AuthoringApply: { endpoint: Schema.String, sessionPath: Schema.String },
+	AuthoringApplyStatus: { endpoint: Schema.String, operationId: Schema.String },
+	AuthoringSave: { endpoint: Schema.String, sessionPath: Schema.String },
+	TextScan: { ...Project, ...Reader },
+	TextSearch: { ...Project, query: Schema.String, ...Reader },
+	ReviewSetValidate: { reviewSetPath: Schema.String },
+	ReviewFramingCandidates: { endpoint: Schema.String },
+	ReviewFramingApprove: {
+		candidateId: Schema.String,
+		endpoint: Schema.String,
+		reviewSetPath: Schema.String,
+		viewId: Schema.String
+	},
+	ReviewCapture: { endpoint: Schema.String, ...Project, reviewSetPath: Schema.String },
+	ReviewHistory: { ...Project },
+	ReviewShow: { runPath: Schema.String }
+});
+
+export type CliCommand = typeof CliCommand.Type;
+
+export class CliUsageError extends Schema.TaggedErrorClass<CliUsageError>()("CliUsageError", {
+	message: Schema.String
+}) {}
+
+export const help = `UE Shed — External tools for Unreal Engine development.
+
+Usage:
+  ue-shed audit textures <project-root> --rules <rule-file> [--reader <path>]
+  ue-shed authoring tables <project-root> [--reader <path>]
+  ue-shed authoring catalog <project-root> [--endpoint <url>] [--reader <path>]
+  ue-shed authoring parity <project-root> <endpoint> [--reader <path>]
+  ue-shed authoring inspect <asset> [--reader <path>]
+  ue-shed authoring live tables <endpoint>
+  ue-shed authoring live inspect <endpoint> <table>
+  ue-shed authoring sessions list --project <project-root>
+  ue-shed authoring sessions create <asset> --project <project-root> [--id <session-id>] [--reader <path>]
+  ue-shed authoring sessions show|resume|close|discard|undo|redo <session-id> --project <project-root>
+  ue-shed authoring sessions set-cell <session-id> <table> <row> <field> <value-json> --project <project-root>
+  ue-shed authoring sessions apply|reconcile|save <session-id> <endpoint> --project <project-root>
+  ue-shed authoring session create <asset> <session-file> [--reader <path>]
+  ue-shed authoring session create-live <endpoint> <table> <session-file>
+  ue-shed authoring session show <session-file>
+  ue-shed authoring draft set-cell <session-file> <table> <row> <field> <value-json>
+  ue-shed authoring draft undo <session-file>
+  ue-shed authoring draft redo <session-file>
+  ue-shed authoring apply <session-file> <endpoint>
+  ue-shed authoring apply-status <endpoint> <operation-id>
+  ue-shed authoring save <session-file> <endpoint>
+  ue-shed text scan <project-root> [--reader <path>]
+  ue-shed text search <project-root> <query> [--reader <path>]
+  ue-shed review sets validate <review-set>
+  ue-shed review framing candidates <endpoint>
+  ue-shed review framing approve <review-set> <endpoint> <view-id> <candidate-id>
+  ue-shed review capture <project-root> <review-set> <endpoint>
+  ue-shed review history <project-root>
+  ue-shed review show <run-json>
+  ue-shed version
+  ue-shed help
+
+The reader defaults to UE_SHED_UASSET_EXECUTABLE or uasset on PATH.`;
+
+interface ParsedOptions {
+	readonly positionals: readonly string[];
+	readonly values: Readonly<Record<string, string>>;
+}
+
+function usage(message: string): Effect.Effect<never, CliUsageError> {
+	return Effect.fail(new CliUsageError({ message }));
+}
+
+function parseOptions(
+	args: readonly string[],
+	allowed: readonly string[]
+): Effect.Effect<ParsedOptions, CliUsageError> {
+	return Effect.gen(function* () {
+		const values: Record<string, string> = {};
+		const positionals: string[] = [];
+		for (let index = 0; index < args.length; index += 1) {
+			const value = args[index];
+			if (value === undefined) continue;
+			if (!value.startsWith("--")) {
+				positionals.push(value);
+				continue;
+			}
+			if (!allowed.includes(value)) return yield* usage(`Unknown option: ${value}`);
+			if (values[value] !== undefined)
+				return yield* usage(`${value} may only be provided once`);
+			const optionValue = args[index + 1];
+			if (optionValue === undefined || optionValue.startsWith("--")) {
+				return yield* usage(`${value} requires a value`);
+			}
+			values[value] = optionValue;
+			index += 1;
+		}
+		return { positionals, values };
+	});
+}
+
+function exact(
+	values: readonly string[],
+	count: number,
+	message: string
+): Effect.Effect<readonly string[], CliUsageError> {
+	return values.length === count ? Effect.succeed(values) : usage(message);
+}
+
+function present(value: string | undefined): string {
+	if (value === undefined) throw new Error("CLI parser arity invariant was violated");
+	return value;
+}
+
+function parseValue(valueJson: string): Effect.Effect<typeof AuthoringValue.Type, CliUsageError> {
+	return Effect.try({
+		try: () => JSON.parse(valueJson) as unknown,
+		catch: (cause) => new CliUsageError({ message: `Invalid value JSON: ${String(cause)}` })
+	}).pipe(
+		Effect.flatMap(Schema.decodeUnknownEffect(AuthoringValue)),
+		Effect.mapError((cause) =>
+			cause instanceof CliUsageError
+				? cause
+				: new CliUsageError({ message: `Invalid authoring value: ${String(cause)}` })
+		)
+	);
+}
+
+function parseSessions(args: readonly string[]): Effect.Effect<CliCommand, CliUsageError> {
+	return Effect.gen(function* () {
+		const [action, ...rest] = args;
+		const parsed = yield* parseOptions(rest, ["--project", "--id", "--reader"]);
+		const projectRoot = parsed.values["--project"];
+		if (!action || !projectRoot) return yield* usage(`sessions ${action} requires --project`);
+		const p = parsed.positionals;
+		if (action === "list") {
+			yield* exact(p, 0, "sessions list has unexpected arguments");
+			return CliCommand.cases.SessionsList.make({ projectRoot });
+		}
+		if (action === "create") {
+			const [assetPath] = yield* exact(
+				p,
+				1,
+				"sessions create requires exactly one saved DataTable asset"
+			);
+			return CliCommand.cases.SessionsCreate.make({
+				assetPath: present(assetPath),
+				projectRoot,
+				...(parsed.values["--id"] ? { id: parsed.values["--id"] } : {}),
+				...(parsed.values["--reader"] ? { reader: parsed.values["--reader"] } : {})
+			});
+		}
+		if (["show", "resume", "close", "discard", "undo", "redo"].includes(action)) {
+			const [sessionId] = yield* exact(
+				p,
+				1,
+				`sessions ${action} requires exactly one session id`
+			);
+			const fields = { projectRoot, sessionId: present(sessionId) };
+			switch (action) {
+				case "show":
+					return CliCommand.cases.SessionsShow.make(fields);
+				case "resume":
+					return CliCommand.cases.SessionsResume.make(fields);
+				case "close":
+					return CliCommand.cases.SessionsClose.make(fields);
+				case "discard":
+					return CliCommand.cases.SessionsDiscard.make(fields);
+				case "undo":
+					return CliCommand.cases.SessionsUndo.make(fields);
+				default:
+					return CliCommand.cases.SessionsRedo.make(fields);
+			}
+		}
+		if (action === "set-cell") {
+			const [sessionId, tablePath, rowName, fieldName, valueJson] = yield* exact(
+				p,
+				5,
+				"sessions set-cell requires session, table, row, field, and value JSON"
+			);
+			return CliCommand.cases.SessionsSetCell.make({
+				fieldName: present(fieldName),
+				projectRoot,
+				rowName: present(rowName),
+				sessionId: present(sessionId),
+				tablePath: present(tablePath),
+				value: yield* parseValue(present(valueJson))
+			});
+		}
+		if (["apply", "reconcile", "save"].includes(action)) {
+			const [sessionId, endpoint] = yield* exact(
+				p,
+				2,
+				`sessions ${action} requires session id and endpoint`
+			);
+			const fields = {
+				endpoint: present(endpoint),
+				projectRoot,
+				sessionId: present(sessionId)
+			};
+			return action === "apply"
+				? CliCommand.cases.SessionsApply.make(fields)
+				: action === "reconcile"
+					? CliCommand.cases.SessionsReconcile.make(fields)
+					: CliCommand.cases.SessionsSave.make(fields);
+		}
+		return yield* usage(`Unknown authoring sessions command: ${action}`);
+	});
+}
+
+function parseAuthoring(args: readonly string[]): Effect.Effect<CliCommand, CliUsageError> {
+	return Effect.gen(function* () {
+		const [area, action, ...rest] = args;
+		if (area === "sessions") return yield* parseSessions([action ?? "", ...rest]);
+		const parsed = yield* parseOptions([action ?? "", ...rest], ["--reader", "--endpoint"]);
+		const p = parsed.positionals.filter((value, index) => index > 0 || value !== "");
+		const nested = p.slice(1);
+		const reader = parsed.values["--reader"];
+		const withReader = reader ? { reader } : {};
+		if (area === "tables") {
+			const [projectRoot] = yield* exact(p, 1, "authoring tables requires a project root");
+			return CliCommand.cases.AuthoringTables.make({
+				projectRoot: present(projectRoot),
+				...withReader
+			});
+		}
+		if (area === "catalog") {
+			const [projectRoot] = yield* exact(p, 1, "authoring catalog requires a project root");
+			return CliCommand.cases.AuthoringCatalog.make({
+				projectRoot: present(projectRoot),
+				...(parsed.values["--endpoint"] ? { endpoint: parsed.values["--endpoint"] } : {}),
+				...withReader
+			});
+		}
+		if (area === "parity") {
+			const [projectRoot, endpoint] = yield* exact(
+				p,
+				2,
+				"authoring parity requires a project root and live endpoint"
+			);
+			return CliCommand.cases.AuthoringParity.make({
+				endpoint: present(endpoint),
+				projectRoot: present(projectRoot),
+				...withReader
+			});
+		}
+		if (area === "inspect") {
+			const [assetPath] = yield* exact(p, 1, "authoring inspect requires an asset path");
+			return CliCommand.cases.AuthoringInspect.make({
+				assetPath: present(assetPath),
+				...withReader
+			});
+		}
+		if (area === "live" && action === "tables") {
+			const [endpoint] = yield* exact(nested, 1, "live tables requires an endpoint");
+			return CliCommand.cases.AuthoringLiveTables.make({ endpoint: present(endpoint) });
+		}
+		if (area === "live" && action === "inspect") {
+			const [endpoint, tablePath] = yield* exact(
+				nested,
+				2,
+				"live inspect requires endpoint and table"
+			);
+			return CliCommand.cases.AuthoringLiveInspect.make({
+				endpoint: present(endpoint),
+				tablePath: present(tablePath)
+			});
+		}
+		if (area === "session" && action === "create") {
+			const [assetPath, sessionPath] = yield* exact(
+				nested,
+				2,
+				"session create requires an asset and session file"
+			);
+			return CliCommand.cases.SessionCreate.make({
+				assetPath: present(assetPath),
+				sessionPath: present(sessionPath),
+				...withReader
+			});
+		}
+		if (area === "session" && action === "create-live") {
+			const [endpoint, tablePath, sessionPath] = yield* exact(
+				nested,
+				3,
+				"session create-live requires endpoint, table, and session file"
+			);
+			return CliCommand.cases.SessionCreateLive.make({
+				endpoint: present(endpoint),
+				sessionPath: present(sessionPath),
+				tablePath: present(tablePath)
+			});
+		}
+		if (area === "session" && action === "show") {
+			const [sessionPath] = yield* exact(nested, 1, "session show requires a session file");
+			return CliCommand.cases.SessionShow.make({ sessionPath: present(sessionPath) });
+		}
+		if (area === "draft" && action === "set-cell") {
+			const [sessionPath, tablePath, rowName, fieldName, valueJson] = yield* exact(
+				nested,
+				5,
+				"draft set-cell requires session, table, row, field, and value JSON"
+			);
+			return CliCommand.cases.DraftSetCell.make({
+				fieldName: present(fieldName),
+				rowName: present(rowName),
+				sessionPath: present(sessionPath),
+				tablePath: present(tablePath),
+				value: yield* parseValue(present(valueJson))
+			});
+		}
+		if (area === "draft" && (action === "undo" || action === "redo")) {
+			const [sessionPath] = yield* exact(
+				nested,
+				1,
+				`draft ${action} requires a session file`
+			);
+			return action === "undo"
+				? CliCommand.cases.DraftUndo.make({ sessionPath: present(sessionPath) })
+				: CliCommand.cases.DraftRedo.make({ sessionPath: present(sessionPath) });
+		}
+		if (area === "apply" || area === "save") {
+			const [sessionPath, endpoint] = yield* exact(
+				p,
+				2,
+				`${area} requires session and endpoint`
+			);
+			return area === "apply"
+				? CliCommand.cases.AuthoringApply.make({
+						endpoint: present(endpoint),
+						sessionPath: present(sessionPath)
+					})
+				: CliCommand.cases.AuthoringSave.make({
+						endpoint: present(endpoint),
+						sessionPath: present(sessionPath)
+					});
+		}
+		if (area === "apply-status") {
+			const [endpoint, operationId] = yield* exact(
+				p,
+				2,
+				"apply-status requires endpoint and operation ID"
+			);
+			return CliCommand.cases.AuthoringApplyStatus.make({
+				endpoint: present(endpoint),
+				operationId: present(operationId)
+			});
+		}
+		return yield* usage(`Unknown authoring command\n\n${help}`);
+	});
+}
+
+export function parseCliCommand(args: readonly string[]): Effect.Effect<CliCommand, CliUsageError> {
+	return Effect.gen(function* () {
+		const [command, ...rest] = args;
+		if (command === undefined || ["help", "--help", "-h"].includes(command))
+			return CliCommand.cases.Help.make({});
+		if (["version", "--version", "-v"].includes(command))
+			return CliCommand.cases.Version.make({});
+		if (command === "authoring") return yield* parseAuthoring(rest);
+		if (command === "audit") {
+			const [kind, projectRoot, ...flags] = rest;
+			if (kind !== "textures" || !projectRoot)
+				return yield* usage(`audit textures requires a project root\n\n${help}`);
+			const parsed = yield* parseOptions(flags, ["--rules", "--reader"]);
+			if (parsed.positionals.length > 0)
+				return yield* usage(`Unknown audit option: ${parsed.positionals[0]}`);
+			const ruleFile = parsed.values["--rules"];
+			if (!ruleFile) return yield* usage("audit textures requires --rules <rule-file>");
+			return CliCommand.cases.AuditTextures.make({
+				projectRoot,
+				ruleFile,
+				...(parsed.values["--reader"] ? { reader: parsed.values["--reader"] } : {})
+			});
+		}
+		if (command === "text") {
+			const parsed = yield* parseOptions(rest, ["--reader"]);
+			const [action, projectRoot, ...query] = parsed.positionals;
+			if ((action !== "scan" && action !== "search") || !projectRoot)
+				return yield* usage(
+					"text requires scan <project-root> or search <project-root> <query>"
+				);
+			const withReader = parsed.values["--reader"]
+				? { reader: parsed.values["--reader"] }
+				: {};
+			if (action === "scan") {
+				yield* exact(query, 0, "text scan has unexpected arguments");
+				return CliCommand.cases.TextScan.make({ projectRoot, ...withReader });
+			}
+			const value = query.join(" ").trim();
+			if (!value) return yield* usage("text search requires a non-empty query");
+			return CliCommand.cases.TextSearch.make({ projectRoot, query: value, ...withReader });
+		}
+		if (command === "review") {
+			const [area, action, ...values] = rest;
+			if (area === "sets" && action === "validate") {
+				const [reviewSetPath] = yield* exact(
+					values,
+					1,
+					"review sets validate requires exactly one Review Set path"
+				);
+				return CliCommand.cases.ReviewSetValidate.make({
+					reviewSetPath: present(reviewSetPath)
+				});
+			}
+			if (area === "framing" && action === "candidates") {
+				const [endpoint] = yield* exact(
+					values,
+					1,
+					"review framing candidates requires exactly one Remote Control endpoint"
+				);
+				return CliCommand.cases.ReviewFramingCandidates.make({
+					endpoint: present(endpoint)
+				});
+			}
+			if (area === "framing" && action === "approve") {
+				const [reviewSetPath, endpoint, viewId, candidateId] = yield* exact(
+					values,
+					4,
+					"review framing approve requires Review Set, endpoint, Review View ID, and candidate ID"
+				);
+				return CliCommand.cases.ReviewFramingApprove.make({
+					candidateId: present(candidateId),
+					endpoint: present(endpoint),
+					reviewSetPath: present(reviewSetPath),
+					viewId: present(viewId)
+				});
+			}
+			if (area === "capture") {
+				const [projectRoot, reviewSetPath, endpoint] = yield* exact(
+					[action ?? "", ...values],
+					3,
+					"review capture requires project root, Review Set path, and Remote Control endpoint"
+				);
+				return CliCommand.cases.ReviewCapture.make({
+					endpoint: present(endpoint),
+					projectRoot: present(projectRoot),
+					reviewSetPath: present(reviewSetPath)
+				});
+			}
+			if (area === "history") {
+				const [projectRoot] = yield* exact(
+					[action ?? "", ...values],
+					1,
+					"review history requires exactly one project root"
+				);
+				return CliCommand.cases.ReviewHistory.make({ projectRoot: present(projectRoot) });
+			}
+			if (area === "show") {
+				const [runPath] = yield* exact(
+					[action ?? "", ...values],
+					1,
+					"review show requires exactly one run.json path"
+				);
+				return CliCommand.cases.ReviewShow.make({ runPath: present(runPath) });
+			}
+			return yield* usage(`Unknown review command\n\n${help}`);
+		}
+		return yield* usage(`Unknown command: ${command}\n\n${help}`);
+	});
+}

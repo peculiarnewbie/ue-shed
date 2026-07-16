@@ -104,6 +104,10 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
+    devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10)
 
   apps/workbench:
     dependencies:

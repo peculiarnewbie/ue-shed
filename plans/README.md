@@ -19,7 +19,7 @@ update the status row when done.
 | [009](009-effect-schema-errors-contracts.md)   | Make schemas and typed errors the only application contracts | P0       | L      | 008        | DONE                       |
 | [010](010-effect-infrastructure-services.md)   | Put every external system behind scoped Effect services      | P0       | XL     | 009        | DONE                       |
 | [011](011-effect-domain-services.md)           | Make domain workflows Effect services                        | P0       | XL     | 010        | DONE                       |
-| [012](012-effect-cli-runtime.md)               | Run the CLI as one Effect program                            | P1       | L      | 011        | TODO                       |
+| [012](012-effect-cli-runtime.md)               | Run the CLI as one Effect program                            | P1       | L      | 011        | DONE                       |
 | [013](013-effect-workbench-runtime-ipc.md)     | Make Workbench main and IPC one scoped Effect runtime        | P0       | XL     | 011        | TODO                       |
 | [014](014-effect-renderer-solid.md)            | Make renderer and extension clients Effect-native            | P1       | XL     | 009, 013   | TODO                       |
 | [015](015-effect-observability-enforcement.md) | Close the Effect migration with telemetry and enforcement    | P1       | L      | 012–014    | TODO                       |

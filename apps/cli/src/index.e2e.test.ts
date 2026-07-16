@@ -154,6 +154,77 @@ describe("ue-shed CLI process", () => {
 		}
 	});
 
+	it("runs the persistent session lifecycle through separate CLI processes", async () => {
+		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-cli-sessions-"));
+		try {
+			const created = parseRecord(
+				runSuccessfulCli([
+					"authoring",
+					"sessions",
+					"create",
+					scalarAsset,
+					"--project",
+					projectRoot,
+					"--id",
+					"fixture-session"
+				])
+			);
+			expect(created.lifecycle).toBe("open");
+
+			const shown = parseRecord(
+				runSuccessfulCli([
+					"authoring",
+					"sessions",
+					"show",
+					"fixture-session",
+					"--project",
+					projectRoot
+				])
+			);
+			expect(shown.lifecycle).toBe("open");
+
+			const closed = parseRecord(
+				runSuccessfulCli([
+					"authoring",
+					"sessions",
+					"close",
+					"fixture-session",
+					"--project",
+					projectRoot
+				])
+			);
+			expect(closed.lifecycle).toBe("closed");
+
+			const listed = parseRecord(
+				runSuccessfulCli(["authoring", "sessions", "list", "--project", projectRoot])
+			);
+			expect(listed.sessions).toHaveLength(1);
+		} finally {
+			await rm(projectRoot, { force: true, recursive: true });
+		}
+	});
+
+	it("reports malformed input and typed Remote Control failures with usage exit status", () => {
+		const malformed = runCli([
+			"authoring",
+			"draft",
+			"set-cell",
+			"draft.json",
+			"/Game/Table",
+			"Row",
+			"Field",
+			"{"
+		]);
+		expect(malformed.status).toBe(2);
+		expect(malformed.stdout).toBe("");
+		expect(malformed.stderr).toContain("ue-shed: Invalid value JSON");
+
+		const remote = runCli(["authoring", "live", "tables", "http://127.0.0.1:1"]);
+		expect(remote.status).toBe(2);
+		expect(remote.stdout).toBe("");
+		expect(remote.stderr).toContain("ue-shed:");
+	});
+
 	it("validates the portable fixture Review Set and lists empty local history", async () => {
 		const validation = parseRecord(
 			runSuccessfulCli(["review", "sets", "validate", fixtureReviewSet])
