@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { workbenchDarkTheme } from "@ue-shed/ui-theme/themes.stylex.js";
 import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
+import { createEffectAction } from "@ue-shed/ui";
 import { AuthoringRoute } from "@ue-shed/extension-data-authoring";
 import { GameTextRoute } from "@ue-shed/extension-game-text";
 import { TextureAuditRoute } from "@ue-shed/extension-asset-audits";
@@ -12,6 +13,7 @@ import { authoringClient } from "./authoring-client.js";
 import { gameTextClient } from "./game-text-client.js";
 import { mapReviewClient } from "./map-review-client.js";
 import { CameraLab } from "./camera-lab.js";
+import { workbenchRendererClient } from "./workbench-client.js";
 
 const routes = [
 	{ href: "#/", label: "Showcase", route: "#/" },
@@ -123,14 +125,18 @@ export function AppShell() {
 }
 
 function ShowcaseHome() {
+	const contextAction = createEffectAction();
+	const statusAction = createEffectAction();
 	const [context, setContext] = createSignal<ShowcaseContext>();
 	const [cameraConnected, setCameraConnected] = createSignal(false);
 	onMount(() => {
-		void window.ueShed.showcase.context().then(setContext);
-		void window.ueShed
-			.getStatus()
-			.then(() => setCameraConnected(true))
-			.catch(() => setCameraConnected(false));
+		contextAction.run(workbenchRendererClient.showcaseContext(), {
+			onSuccess: setContext
+		});
+		statusAction.run(workbenchRendererClient.getStatus(), {
+			onFailure: () => setCameraConnected(false),
+			onSuccess: () => setCameraConnected(true)
+		});
 	});
 	return (
 		<main {...stylex.props(styles.home)}>

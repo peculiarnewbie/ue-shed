@@ -7,6 +7,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P1
 - **Effort**: XL
 - **Risk**: MED — visible loading/error/cleanup behavior changes across four extensions
@@ -100,12 +101,12 @@ with `docs/engineering/testing.md`.
 
 ## Done criteria
 
-- [ ] Extension client APIs are Effect-native and browser-safe.
-- [ ] Promise exists only inside IPC transport adapters.
-- [ ] One renderer runtime and one Effect-to-Solid lifetime adapter exist.
-- [ ] Component fibers are interrupted on cleanup and stale results cannot win.
-- [ ] Component and Workbench E2E tests pass.
-- [ ] `pnpm check` exits 0.
+- [x] Extension client APIs are Effect-native and browser-safe.
+- [x] Promise exists only inside IPC transport adapters.
+- [x] One renderer runtime and one Effect-to-Solid lifetime adapter exist.
+- [x] Component fibers are interrupted on cleanup and stale results cannot win.
+- [x] Component and Workbench E2E tests pass.
+- [x] `pnpm check` exits 0.
 
 ## STOP conditions
 

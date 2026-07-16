@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { Button, PageHeader } from "@ue-shed/ui";
+import { Button, PageHeader, createEffectAction } from "@ue-shed/ui";
 import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import {
 	filterTextureReport,
@@ -9,17 +9,9 @@ import {
 	type TexturePreviewResult,
 	type TextureRecord
 } from "@ue-shed/asset-audits/browser";
+import { Cause } from "effect";
 import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
-
-export interface TextureAuditClient {
-	readonly loadConfiguredProject: () => Promise<TextureAuditRunResult>;
-	readonly chooseProjectAndScan: () => Promise<TextureAuditRunResult>;
-	readonly loadPreview: (objectPath: string) => Promise<TexturePreviewResult>;
-	readonly launchUnreal: () => Promise<
-		| { readonly status: "ready" }
-		| { readonly status: "failed"; readonly message: string; readonly recovery: string }
-	>;
-}
+import type { TextureAuditClientShape } from "./texture-audit-client.js";
 
 type ViewState =
 	| { readonly status: "loading" }
@@ -126,7 +118,10 @@ function Distribution(props: {
 	);
 }
 
-export function TextureAuditRoute(props: { readonly client: TextureAuditClient }) {
+export function TextureAuditRoute(props: { readonly client: TextureAuditClientShape }) {
+	const scanAction = createEffectAction();
+	const previewAction = createEffectAction();
+	const launchAction = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [selection, setSelection] = createSignal<DistributionSelection>();
 	const [selectedPath, setSelectedPath] = createSignal<string>();
@@ -135,37 +130,46 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 	const [preview, setPreview] = createSignal<PreviewState>({ status: "idle" });
 	const [launching, setLaunching] = createSignal(false);
 	const [launchFailure, setLaunchFailure] = createSignal<string>();
-	let previewRequest = 0;
-
-	const loadPreview = async (objectPath: string) => {
-		const request = ++previewRequest;
+	const loadPreview = (objectPath: string) => {
 		setPreview({ status: "loading" });
-		const result = await props.client.loadPreview(objectPath);
-		if (request !== previewRequest) return;
-		setPreview(
-			result.status === "available"
-				? { status: "available", preview: result }
-				: { status: "unavailable", preview: result }
-		);
+		previewAction.run(props.client.loadPreview(objectPath), {
+			onFailure: (cause) => {
+				setPreview({ status: "idle" });
+				setLaunchFailure(Cause.pretty(cause));
+			},
+			onSuccess: (result) =>
+				setPreview(
+					result.status === "available"
+						? { status: "available", preview: result }
+						: { status: "unavailable", preview: result }
+				)
+		});
 	};
 
 	const selectRecord = (record: TextureRecord) => {
 		setSelectedPath(record.objectPath);
 		setLaunchFailure();
-		void loadPreview(record.objectPath);
+		loadPreview(record.objectPath);
 	};
 
-	const launchUnreal = async () => {
+	const launchUnreal = () => {
 		setLaunching(true);
 		setLaunchFailure();
-		const result = await props.client.launchUnreal();
-		setLaunching(false);
-		if (result.status === "failed") {
-			setLaunchFailure(`${result.message} ${result.recovery}`);
-			return;
-		}
-		const objectPath = selectedPath();
-		if (objectPath) await loadPreview(objectPath);
+		launchAction.run(props.client.launchUnreal(), {
+			onFailure: (cause) => {
+				setLaunching(false);
+				setLaunchFailure(Cause.pretty(cause));
+			},
+			onSuccess: (result) => {
+				setLaunching(false);
+				if (result.status === "failed") {
+					setLaunchFailure(`${result.message} ${result.recovery}`);
+					return;
+				}
+				const objectPath = selectedPath();
+				if (objectPath) loadPreview(objectPath);
+			}
+		});
 	};
 
 	const applyResult = (result: TextureAuditRunResult) => {
@@ -176,16 +180,28 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClient }
 		} else if (result.status === "failed") setState({ status: "failed", result });
 		else setState({ status: result.status });
 	};
-	const run = async (choose: boolean) => {
+	const run = (choose: boolean) => {
 		setState({ status: "loading" });
 		setPreview({ status: "idle" });
-		applyResult(
-			await (choose
-				? props.client.chooseProjectAndScan()
-				: props.client.loadConfiguredProject())
+		scanAction.run(
+			choose ? props.client.chooseProjectAndScan() : props.client.loadConfiguredProject(),
+			{
+				onFailure: (cause) =>
+					applyResult({
+						error: {
+							code: "contract_failure",
+							message: Cause.pretty(cause),
+							recovery:
+								"Restart Workbench. If the problem persists, verify package versions.",
+							retrySafe: true
+						},
+						status: "failed"
+					}),
+				onSuccess: applyResult
+			}
 		);
 	};
-	onMount(() => void run(false));
+	onMount(() => run(false));
 
 	return (
 		<main {...stylex.props(styles.page)}>

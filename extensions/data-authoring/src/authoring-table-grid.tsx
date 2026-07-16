@@ -20,7 +20,7 @@ export interface AuthoringTableGridProps {
 	readonly rows: readonly AuthoringRow[];
 	readonly columns: readonly AuthoringColumn[];
 	readonly disabled?: boolean;
-	readonly onEditGesture?: (edits: readonly AuthoringGridEdit[]) => void | Promise<void>;
+	readonly onEditGesture?: (edits: readonly AuthoringGridEdit[]) => void;
 	readonly onEditFailure?: (message: string) => void;
 	readonly onSelectionChange?: (selection: AuthoringGridSelection | undefined) => void;
 }
@@ -38,7 +38,7 @@ export function AuthoringTableGrid(props: AuthoringTableGridProps) {
 		);
 	};
 
-	const handleOperation = async (operation: SheetOperation) => {
+	const handleOperation = (operation: SheetOperation) => {
 		const mutations =
 			operation.type === "cell-edit"
 				? [operation.mutation]
@@ -54,7 +54,7 @@ export function AuthoringTableGrid(props: AuthoringTableGridProps) {
 			props.onEditFailure?.(failure.message);
 			return;
 		}
-		await props.onEditGesture?.(
+		props.onEditGesture?.(
 			decoded.flatMap((result) => (result.status === "ready" ? [result.edit] : []))
 		);
 	};

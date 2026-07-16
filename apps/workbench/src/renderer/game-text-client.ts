@@ -1,26 +1,35 @@
 import { decodeTextCorpusRunResult, type TextCorpusRunResult } from "@ue-shed/game-text/browser";
-import type { GameTextClient } from "@ue-shed/extension-game-text";
+import {
+	GameTextClient,
+	GameTextClientError,
+	type GameTextClientShape
+} from "@ue-shed/extension-game-text";
 import { Effect } from "effect";
 
-async function decodeResult(value: unknown): Promise<TextCorpusRunResult> {
-	try {
-		return await Effect.runPromise(decodeTextCorpusRunResult(value));
-	} catch (cause) {
-		return {
-			status: "failed",
-			error: {
-				code: "contract_failure",
-				message: `Workbench received an invalid game text result: ${String(cause)}`,
-				recovery: "Restart Workbench. If the problem persists, verify package versions.",
-				retrySafe: true
-			}
-		};
-	}
+const recovery = "Restart Workbench. If the problem persists, verify package versions.";
+
+function request(
+	operation: string,
+	invoke: () => Promise<unknown>
+): Effect.Effect<TextCorpusRunResult, GameTextClientError> {
+	return Effect.tryPromise({
+		try: invoke,
+		catch: (cause) => new GameTextClientError({ cause, operation, recovery })
+	}).pipe(
+		Effect.flatMap(decodeTextCorpusRunResult),
+		Effect.mapError((cause) => new GameTextClientError({ cause, operation, recovery }))
+	);
 }
 
-export const gameTextClient: GameTextClient = {
-	loadConfiguredProject: async () =>
-		decodeResult(await window.ueShed.gameText.loadConfiguredProject()),
-	chooseProjectAndScan: async () =>
-		decodeResult(await window.ueShed.gameText.chooseProjectAndScan())
-};
+export const gameTextClient: GameTextClientShape = GameTextClient.of({
+	loadConfiguredProject: Effect.fn("GameTextClient.loadConfiguredProject")(() =>
+		request("gameText.loadConfiguredProject", () =>
+			window.ueShed.gameText.loadConfiguredProject()
+		)
+	),
+	chooseProjectAndScan: Effect.fn("GameTextClient.chooseProjectAndScan")(() =>
+		request("gameText.chooseProjectAndScan", () =>
+			window.ueShed.gameText.chooseProjectAndScan()
+		)
+	)
+});

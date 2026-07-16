@@ -1,0 +1,43 @@
+import type { TextureAuditRunResult, TexturePreviewResult } from "@ue-shed/asset-audits/browser";
+import { Context, type Effect, Schema } from "effect";
+
+export const TextureAuditLaunchResult = Schema.Union([
+	Schema.Struct({ status: Schema.Literal("ready") }),
+	Schema.Struct({
+		message: Schema.String,
+		recovery: Schema.String,
+		status: Schema.Literal("failed")
+	})
+]);
+export type TextureAuditLaunchResult = Schema.Schema.Type<typeof TextureAuditLaunchResult>;
+
+export class TextureAuditClientError extends Schema.TaggedErrorClass<TextureAuditClientError>()(
+	"TextureAuditClientError",
+	{
+		cause: Schema.Defect(),
+		operation: Schema.String,
+		recovery: Schema.String
+	}
+) {}
+
+export interface TextureAuditClientShape {
+	readonly loadConfiguredProject: () => Effect.Effect<
+		TextureAuditRunResult,
+		TextureAuditClientError
+	>;
+	readonly chooseProjectAndScan: () => Effect.Effect<
+		TextureAuditRunResult,
+		TextureAuditClientError
+	>;
+	readonly loadPreview: (
+		objectPath: string
+	) => Effect.Effect<TexturePreviewResult, TextureAuditClientError>;
+	readonly launchUnreal: () => Effect.Effect<TextureAuditLaunchResult, TextureAuditClientError>;
+}
+
+export class TextureAuditClient extends Context.Service<
+	TextureAuditClient,
+	TextureAuditClientShape
+>()("@ue-shed/extension-asset-audits/TextureAuditClient") {}
+
+export const decodeTextureAuditLaunchResult = Schema.decodeUnknownEffect(TextureAuditLaunchResult);

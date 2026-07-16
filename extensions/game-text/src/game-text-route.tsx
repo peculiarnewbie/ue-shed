@@ -5,7 +5,10 @@ import type {
 	TextOccurrence,
 	TextUnit
 } from "@ue-shed/game-text/browser";
+import { createEffectAction } from "@ue-shed/ui";
+import { Cause } from "effect";
 import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
+import type { GameTextClientShape } from "./game-text-client.js";
 import {
 	filterTextUnits,
 	identityLabel,
@@ -13,11 +16,6 @@ import {
 	sourceText,
 	type CapabilityFilter
 } from "./game-text-view.js";
-
-export interface GameTextClient {
-	readonly loadConfiguredProject: () => Promise<TextCorpusRunResult>;
-	readonly chooseProjectAndScan: () => Promise<TextCorpusRunResult>;
-}
 
 type ViewState =
 	| { readonly status: "loading" }
@@ -68,7 +66,8 @@ function OccurrenceCard(props: { readonly occurrence: TextOccurrence }) {
 	);
 }
 
-export function GameTextRoute(props: { readonly client: GameTextClient }) {
+export function GameTextRoute(props: { readonly client: GameTextClientShape }) {
+	const scanAction = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [query, setQuery] = createSignal("");
 	const [capability, setCapability] = createSignal<CapabilityFilter>("all");
@@ -94,15 +93,27 @@ export function GameTextRoute(props: { readonly client: GameTextClient }) {
 			setState({ status: "failed", error: result.error });
 		} else setState({ status: result.status });
 	};
-	const run = async (choose: boolean) => {
+	const run = (choose: boolean) => {
 		setState({ status: "loading" });
-		applyResult(
-			await (choose
-				? props.client.chooseProjectAndScan()
-				: props.client.loadConfiguredProject())
+		scanAction.run(
+			choose ? props.client.chooseProjectAndScan() : props.client.loadConfiguredProject(),
+			{
+				onFailure: (cause) =>
+					setState({
+						error: {
+							code: "contract_failure",
+							message: Cause.pretty(cause),
+							recovery:
+								"Restart Workbench. If the problem persists, verify package versions.",
+							retrySafe: true
+						},
+						status: "failed"
+					}),
+				onSuccess: applyResult
+			}
 		);
 	};
-	onMount(() => void run(false));
+	onMount(() => run(false));
 
 	return (
 		<main {...stylex.props(styles.page)}>
@@ -118,14 +129,14 @@ export function GameTextRoute(props: { readonly client: GameTextClient }) {
 				<div {...stylex.props(styles.headerActions)}>
 					<button
 						type="button"
-						onClick={() => void run(true)}
+						onClick={() => run(true)}
 						{...stylex.props(styles.primaryButton)}
 					>
 						Choose project
 					</button>
 					<button
 						type="button"
-						onClick={() => void run(false)}
+						onClick={() => run(false)}
 						{...stylex.props(styles.secondaryButton)}
 					>
 						Rescan
@@ -145,7 +156,7 @@ export function GameTextRoute(props: { readonly client: GameTextClient }) {
 						<span>Choose an Unreal project to scan without launching the editor.</span>
 						<button
 							type="button"
-							onClick={() => void run(true)}
+							onClick={() => run(true)}
 							{...stylex.props(styles.primaryButton)}
 						>
 							Choose project

@@ -1,9 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
+import { createEffectAction } from "@ue-shed/ui";
+import { Cause, Effect } from "effect";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type {
 	MapReviewAuthoringCandidate,
 	MapReviewAuthoringResult,
-	MapReviewClient,
+	MapReviewClientShape,
 	MapReviewPose
 } from "./map-review-client.js";
 
@@ -80,20 +82,17 @@ function poseFieldValue(
 }
 
 export function MapReviewAuthoring(props: {
-	readonly client: MapReviewClient;
-	readonly onApproved: () => Promise<void>;
+	readonly client: MapReviewClientShape;
+	readonly onApproved: () => void;
 }) {
+	const generateAction = createEffectAction();
+	const previewAction = createEffectAction();
+	const approveAction = createEffectAction();
 	const [state, setState] = createSignal<AuthoringState>({ status: "idle" });
 	const [selectedId, setSelectedId] = createSignal<string>();
 	const [discarded, setDiscarded] = createSignal<ReadonlySet<string>>(new Set<string>());
 	const [draftPose, setDraftPose] = createSignal<MapReviewPose>();
 	const [manualReason, setManualReason] = createSignal("");
-	let disposed = false;
-	let generation = 0;
-	onCleanup(() => {
-		disposed = true;
-		generation += 1;
-	});
 	const session = createMemo(() => {
 		const current = state();
 		return current.status === "ready" ||
@@ -114,59 +113,77 @@ export function MapReviewAuthoring(props: {
 		setDraftPose(structuredClone(candidate.pose));
 		setManualReason("");
 	};
-	const hydratePreviews = async (initial: ReadyAuthoring, activeGeneration: number) => {
-		for (const candidate of initial.candidates) {
-			const result = await props.client.previewCandidate(candidate.id);
-			if (disposed || activeGeneration !== generation) return;
-			setState((current) => {
-				if (
-					current.status !== "ready" &&
-					current.status !== "saving" &&
-					current.status !== "approved"
-				) {
-					return current;
-				}
-				return {
-					...current,
-					session: {
-						...current.session,
-						candidates: current.session.candidates.map((currentCandidate) =>
-							currentCandidate.id === candidate.id
-								? {
-										...currentCandidate,
-										preview:
-											result.status === "ready"
-												? result
-												: {
-														message: result.error.message,
-														status: "failed" as const
-													}
-									}
-								: currentCandidate
-						)
+	const hydratePreviews = (initial: ReadyAuthoring) => {
+		previewAction.run(
+			Effect.forEach(initial.candidates, (candidate) =>
+				props.client
+					.previewCandidate(candidate.id)
+					.pipe(Effect.map((result) => ({ candidateId: candidate.id, result })))
+			),
+			{
+				onFailure: () => undefined,
+				onSuccess: (previews) => {
+					for (const { candidateId, result } of previews) {
+						setState((current) => {
+							if (
+								current.status !== "ready" &&
+								current.status !== "saving" &&
+								current.status !== "approved"
+							) {
+								return current;
+							}
+							return {
+								...current,
+								session: {
+									...current.session,
+									candidates: current.session.candidates.map((currentCandidate) =>
+										currentCandidate.id === candidateId
+											? {
+													...currentCandidate,
+													preview:
+														result.status === "ready"
+															? result
+															: {
+																	message: result.error.message,
+																	status: "failed" as const
+																}
+												}
+											: currentCandidate
+									)
+								}
+							};
+						});
 					}
-				};
-			});
-		}
+				}
+			}
+		);
 	};
-	const generate = async () => {
-		const activeGeneration = ++generation;
+	const generate = () => {
 		setState({ status: "loading" });
-		const result = await props.client.authorFromSelection();
-		if (disposed || activeGeneration !== generation) return;
-		if (result.status === "failed") {
-			setState({
-				message: result.error.message,
-				recovery: result.error.recovery,
-				status: "failed"
-			});
-			return;
-		}
-		setDiscarded(new Set<string>());
-		setState({ session: result, status: "ready" });
-		const first = result.candidates[0];
-		if (first) select(first);
-		void hydratePreviews(result, activeGeneration);
+		generateAction.run(props.client.authorFromSelection(), {
+			onFailure: (cause) =>
+				setState({
+					message: Cause.pretty(cause),
+					recovery:
+						"Restart Workbench. If the problem persists, verify package versions.",
+					status: "failed"
+				}),
+			onSuccess: (result) => {
+				if (result.status === "failed") {
+					setState({
+						message: result.error.message,
+						recovery: result.error.recovery,
+						status: "failed"
+					});
+					return;
+				}
+				setDiscarded(new Set<string>());
+				setState({ session: result, status: "ready" });
+				const first = result.candidates[0];
+				if (first) select(first);
+				hydratePreviews(result);
+			}
+		});
 	};
 	const discard = (candidateId: string) => {
 		setDiscarded((current) => new Set([...current, candidateId]));
@@ -188,33 +205,50 @@ export function MapReviewAuthoring(props: {
 			return { ...current, [section]: { ...current[section], [field]: parsed } };
 		});
 	};
-	const approve = async () => {
+	const approve = () => {
 		const activeSession = session();
 		const candidate = selected();
 		const pose = draftPose();
 		if (!activeSession || !candidate || !pose) return;
 		setState({ session: activeSession, status: "saving" });
 		const adjusted = !samePose(candidate.pose, pose);
-		const result = await props.client.approveCandidate({
-			candidateId: candidate.id,
-			candidatePose: candidate.pose,
-			...(adjusted ? { manualPose: pose } : {}),
-			...(adjusted
-				? { manualReason: manualReason().trim() || "Adjusted in Map Review authoring" }
-				: {}),
-			sourceActorPath: activeSession.selection.actorPath,
-			viewId: activeSession.viewId
-		});
-		if (result.status === "failed") {
-			setState({
-				message: result.error.message,
-				recovery: result.error.recovery,
-				status: "failed"
-			});
-			return;
-		}
-		setState({ candidateId: result.candidateId, session: activeSession, status: "approved" });
-		await props.onApproved();
+		approveAction.run(
+			props.client.approveCandidate({
+				candidateId: candidate.id,
+				candidatePose: candidate.pose,
+				...(adjusted ? { manualPose: pose } : {}),
+				...(adjusted
+					? { manualReason: manualReason().trim() || "Adjusted in Map Review authoring" }
+					: {}),
+				sourceActorPath: activeSession.selection.actorPath,
+				viewId: activeSession.viewId
+			}),
+			{
+				onFailure: (cause) =>
+					setState({
+						message: Cause.pretty(cause),
+						recovery:
+							"Restart Workbench. If the problem persists, verify package versions.",
+						status: "failed"
+					}),
+				onSuccess: (result) => {
+					if (result.status === "failed") {
+						setState({
+							message: result.error.message,
+							recovery: result.error.recovery,
+							status: "failed"
+						});
+						return;
+					}
+					setState({
+						candidateId: result.candidateId,
+						session: activeSession,
+						status: "approved"
+					});
+					props.onApproved();
+				}
+			}
+		);
 	};
 
 	return (

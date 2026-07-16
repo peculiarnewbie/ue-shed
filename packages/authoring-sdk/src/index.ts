@@ -1,5 +1,5 @@
 import { AuthoringTableSnapshot, AuthoringValue } from "@ue-shed/protocol";
-import { Schema } from "effect";
+import { Context, type Effect, Schema } from "effect";
 
 export const AuthoringSessionView = Schema.Struct({
 	canRedo: Schema.Boolean,
@@ -104,3 +104,49 @@ export const decodeAuthoringSessionResult = Schema.decodeUnknownEffect(Authoring
 export const decodeAuthoringSetCellsIntent = Schema.decodeUnknownEffect(AuthoringSetCellsIntent);
 export const decodeAuthoringLoadResult = Schema.decodeUnknownEffect(AuthoringLoadResult);
 export const decodeAuthoringCatalogResult = Schema.decodeUnknownEffect(AuthoringCatalogResult);
+
+export class AuthoringClientError extends Schema.TaggedErrorClass<AuthoringClientError>()(
+	"AuthoringClientError",
+	{
+		cause: Schema.Defect(),
+		operation: Schema.String,
+		recovery: Schema.String
+	}
+) {}
+
+export interface AuthoringClientShape {
+	readonly loadConfiguredCatalog: () => Effect.Effect<
+		AuthoringCatalogResult,
+		AuthoringClientError
+	>;
+	readonly loadConfiguredTable: () => Effect.Effect<AuthoringLoadResult, AuthoringClientError>;
+	readonly openCatalogTable: (
+		objectPath: string
+	) => Effect.Effect<AuthoringLoadResult, AuthoringClientError>;
+	readonly chooseTable: () => Effect.Effect<AuthoringLoadResult, AuthoringClientError>;
+	readonly beginSession: (
+		objectPath: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly editSession: (
+		intent: AuthoringSetCellsIntent
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly undoSession: (
+		sessionId: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly redoSession: (
+		sessionId: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly applySession: (
+		sessionId: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly reconcileSession: (
+		sessionId: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+	readonly saveSession: (
+		sessionId: string
+	) => Effect.Effect<AuthoringSessionResult, AuthoringClientError>;
+}
+
+export class AuthoringClient extends Context.Service<AuthoringClient, AuthoringClientShape>()(
+	"@ue-shed/authoring-sdk/AuthoringClient"
+) {}

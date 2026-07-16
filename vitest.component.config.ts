@@ -7,9 +7,10 @@ const stylex = stylexModule as unknown as (options: PluginOptions) => Plugin;
 
 export default defineProject({
 	plugins: [solid({ hot: false }), stylex({ fileName: "stylex.css" })],
+	ssr: { noExternal: ["peculiar-sheets"] },
 	test: {
 		environment: "jsdom",
-		include: ["extensions/**/*.component.test.tsx"],
+		include: ["extensions/**/*.component.test.tsx", "packages/ui/**/*.component.test.tsx"],
 		name: "component"
 	}
 });

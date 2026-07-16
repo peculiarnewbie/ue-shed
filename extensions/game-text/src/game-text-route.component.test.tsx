@@ -8,8 +8,11 @@ import {
 	type TextCorpus,
 	type TextCorpusRunResult
 } from "@ue-shed/game-text/browser";
-import { afterEach, describe, expect, it } from "vitest";
-import { GameTextRoute, type GameTextClient } from "./game-text-route.js";
+import { EffectRuntimeProvider } from "@ue-shed/ui";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { type GameTextClientShape } from "./game-text-client.js";
+import { GameTextRoute } from "./game-text-route.js";
 
 const corpus: TextCorpus = {
 	coverage: {
@@ -72,18 +75,28 @@ const corpus: TextCorpus = {
 const completed = { corpus, status: "completed" } satisfies TextCorpusRunResult;
 
 afterEach(cleanup);
+const runtime = ManagedRuntime.make(Layer.empty);
+afterAll(() => runtime.dispose());
 
-function makeClient(): GameTextClient {
+function makeClient(): GameTextClientShape {
 	return {
-		chooseProjectAndScan: async () => completed,
-		loadConfiguredProject: async () => completed
+		chooseProjectAndScan: () => Effect.succeed(completed),
+		loadConfiguredProject: () => Effect.succeed(completed)
 	};
+}
+
+function renderRoute() {
+	return render(() => (
+		<EffectRuntimeProvider runtime={runtime}>
+			<GameTextRoute client={makeClient()} />
+		</EffectRuntimeProvider>
+	));
 }
 
 describe("GameTextRoute interactions", () => {
 	it("searches results and moves focus through user-visible controls", async () => {
 		const user = userEvent.setup();
-		render(() => <GameTextRoute client={makeClient()} />);
+		renderRoute();
 		const results = await screen.findByRole("region", { name: "Text units" });
 		const focus = screen.getByRole("complementary", { name: "Text focus" });
 
@@ -99,7 +112,7 @@ describe("GameTextRoute interactions", () => {
 
 	it("switches between editable and read-only authority filters", async () => {
 		const user = userEvent.setup();
-		render(() => <GameTextRoute client={makeClient()} />);
+		renderRoute();
 		const results = await screen.findByRole("region", { name: "Text units" });
 		const readOnly = screen.getByRole("button", { name: "Read only" });
 

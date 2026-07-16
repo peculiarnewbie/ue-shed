@@ -1,87 +1,118 @@
-import type {
-	AuthoringClient,
-	AuthoringCatalogResult,
-	AuthoringLoadResult
-} from "@ue-shed/extension-data-authoring";
 import {
-	decodeAuthoringCatalogResult as decodeCatalogResult,
-	decodeAuthoringLoadResult as decodeLoadResult,
-	decodeAuthoringSessionResult
+	AuthoringClient,
+	AuthoringClientError,
+	decodeAuthoringCatalogResult,
+	decodeAuthoringLoadResult,
+	decodeAuthoringSessionResult,
+	type AuthoringCatalogResult,
+	type AuthoringClientShape,
+	type AuthoringLoadResult,
+	type AuthoringSessionResult
 } from "@ue-shed/authoring-sdk";
 import { Effect } from "effect";
 
-function contractFailure(cause: unknown): AuthoringLoadResult {
-	return {
-		status: "failed",
-		error: {
-			code: "contract_failure",
-			message: `Workbench received an invalid authoring result: ${String(cause)}`,
-			recovery: "Restart Workbench. If the problem persists, verify package versions.",
-			retrySafe: true
-		}
-	};
+const recovery = "Restart Workbench. If the problem persists, verify package versions.";
+
+function request<A>(args: {
+	readonly decode: (value: unknown) => Effect.Effect<A, unknown>;
+	readonly invoke: () => Promise<unknown>;
+	readonly operation: string;
+}): Effect.Effect<A, AuthoringClientError> {
+	return Effect.tryPromise({
+		try: args.invoke,
+		catch: (cause) => new AuthoringClientError({ cause, operation: args.operation, recovery })
+	}).pipe(
+		Effect.flatMap(args.decode),
+		Effect.mapError(
+			(cause) => new AuthoringClientError({ cause, operation: args.operation, recovery })
+		)
+	);
 }
 
-export async function decodeAuthoringLoadResult(value: unknown): Promise<AuthoringLoadResult> {
-	try {
-		return await Effect.runPromise(decodeLoadResult(value));
-	} catch (cause) {
-		return contractFailure(cause);
-	}
-}
-
-export async function decodeAuthoringCatalogResult(
+export const decodeAuthoringLoadResultFromHost = (
 	value: unknown
-): Promise<AuthoringCatalogResult> {
-	try {
-		return await Effect.runPromise(decodeCatalogResult(value));
-	} catch (cause) {
-		return {
-			error: {
-				code: "contract_failure",
-				message: `Workbench received an invalid authoring catalog: ${String(cause)}`,
-				recovery: "Restart Workbench. If the problem persists, verify package versions.",
-				retrySafe: true
-			},
-			status: "failed"
-		};
-	}
-}
+): Effect.Effect<AuthoringLoadResult, AuthoringClientError> =>
+	decodeAuthoringLoadResult(value).pipe(
+		Effect.mapError(
+			(cause) =>
+				new AuthoringClientError({ cause, operation: "authoring.decodeLoad", recovery })
+		)
+	);
 
-export const authoringClient: AuthoringClient = {
-	beginSession: async (objectPath) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.beginSession(objectPath))
-		),
-	applySession: async (sessionId) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.applySession(sessionId))
-		),
-	editSession: async (intent) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.editSession(intent))
-		),
-	loadConfiguredCatalog: async () =>
-		decodeAuthoringCatalogResult(await window.ueShed.authoring.loadConfiguredCatalog()),
-	loadConfiguredTable: async () =>
-		decodeAuthoringLoadResult(await window.ueShed.authoring.loadConfiguredTable()),
-	openCatalogTable: async (objectPath) =>
-		decodeAuthoringLoadResult(await window.ueShed.authoring.openCatalogTable(objectPath)),
-	redoSession: async (sessionId) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.redoSession(sessionId))
-		),
-	reconcileSession: async (sessionId) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.reconcileSession(sessionId))
-		),
-	saveSession: async (sessionId) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.saveSession(sessionId))
-		),
-	undoSession: async (sessionId) =>
-		Effect.runPromise(
-			decodeAuthoringSessionResult(await window.ueShed.authoring.undoSession(sessionId))
-		),
-	chooseTable: async () => decodeAuthoringLoadResult(await window.ueShed.authoring.chooseTable())
-};
+export const decodeAuthoringCatalogResultFromHost = (
+	value: unknown
+): Effect.Effect<AuthoringCatalogResult, AuthoringClientError> =>
+	decodeAuthoringCatalogResult(value).pipe(
+		Effect.mapError(
+			(cause) =>
+				new AuthoringClientError({ cause, operation: "authoring.decodeCatalog", recovery })
+		)
+	);
+
+const loadRequest = (
+	operation: string,
+	invoke: () => Promise<unknown>
+): Effect.Effect<AuthoringLoadResult, AuthoringClientError> =>
+	request({ decode: decodeAuthoringLoadResult, invoke, operation });
+
+const sessionRequest = (
+	operation: string,
+	invoke: () => Promise<unknown>
+): Effect.Effect<AuthoringSessionResult, AuthoringClientError> =>
+	request({ decode: decodeAuthoringSessionResult, invoke, operation });
+
+export const authoringClient: AuthoringClientShape = AuthoringClient.of({
+	beginSession: Effect.fn("AuthoringClient.beginSession")((objectPath) =>
+		sessionRequest("authoring.beginSession", () =>
+			window.ueShed.authoring.beginSession(objectPath)
+		)
+	),
+	applySession: Effect.fn("AuthoringClient.applySession")((sessionId) =>
+		sessionRequest("authoring.applySession", () =>
+			window.ueShed.authoring.applySession(sessionId)
+		)
+	),
+	editSession: Effect.fn("AuthoringClient.editSession")((intent) =>
+		sessionRequest("authoring.editSession", () => window.ueShed.authoring.editSession(intent))
+	),
+	loadConfiguredCatalog: Effect.fn("AuthoringClient.loadConfiguredCatalog")(() =>
+		request({
+			decode: decodeAuthoringCatalogResult,
+			invoke: () => window.ueShed.authoring.loadConfiguredCatalog(),
+			operation: "authoring.loadConfiguredCatalog"
+		})
+	),
+	loadConfiguredTable: Effect.fn("AuthoringClient.loadConfiguredTable")(() =>
+		loadRequest("authoring.loadConfiguredTable", () =>
+			window.ueShed.authoring.loadConfiguredTable()
+		)
+	),
+	openCatalogTable: Effect.fn("AuthoringClient.openCatalogTable")((objectPath) =>
+		loadRequest("authoring.openCatalogTable", () =>
+			window.ueShed.authoring.openCatalogTable(objectPath)
+		)
+	),
+	redoSession: Effect.fn("AuthoringClient.redoSession")((sessionId) =>
+		sessionRequest("authoring.redoSession", () =>
+			window.ueShed.authoring.redoSession(sessionId)
+		)
+	),
+	reconcileSession: Effect.fn("AuthoringClient.reconcileSession")((sessionId) =>
+		sessionRequest("authoring.reconcileSession", () =>
+			window.ueShed.authoring.reconcileSession(sessionId)
+		)
+	),
+	saveSession: Effect.fn("AuthoringClient.saveSession")((sessionId) =>
+		sessionRequest("authoring.saveSession", () =>
+			window.ueShed.authoring.saveSession(sessionId)
+		)
+	),
+	undoSession: Effect.fn("AuthoringClient.undoSession")((sessionId) =>
+		sessionRequest("authoring.undoSession", () =>
+			window.ueShed.authoring.undoSession(sessionId)
+		)
+	),
+	chooseTable: Effect.fn("AuthoringClient.chooseTable")(() =>
+		loadRequest("authoring.chooseTable", () => window.ueShed.authoring.chooseTable())
+	)
+});

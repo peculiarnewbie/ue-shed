@@ -17,6 +17,7 @@
 		"@ue-shed/asset-audits": "workspace:*",
 		"@ue-shed/ui": "workspace:*",
 		"@ue-shed/ui-theme": "workspace:*",
+		"effect": "catalog:",
 		"solid-js": "catalog:"
 	}
 }

@@ -1,25 +1,28 @@
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { decodeAuthoringCatalogResult } from "./authoring-client.js";
+import { decodeAuthoringCatalogResultFromHost } from "./authoring-client.js";
 
 describe("Workbench authoring catalog boundary", () => {
 	it("accepts a catalog without exposing saved asset paths", async () => {
 		expect(
-			await decodeAuthoringCatalogResult({
-				diagnostics: [],
-				status: "ready",
-				tables: [
-					{
-						authorities: ["saved", "live"],
-						completeness: "complete",
-						divergence: [],
-						kind: "data_table",
-						objectPath: "/Game/Data/Items.Items",
-						parentTables: [],
-						rowStruct: "/Script/Fixture.ItemRow"
-					}
-				]
-			})
+			await Effect.runPromise(
+				decodeAuthoringCatalogResultFromHost({
+					diagnostics: [],
+					status: "ready",
+					tables: [
+						{
+							authorities: ["saved", "live"],
+							completeness: "complete",
+							divergence: [],
+							kind: "data_table",
+							objectPath: "/Game/Data/Items.Items",
+							parentTables: [],
+							rowStruct: "/Script/Fixture.ItemRow"
+						}
+					]
+				})
+			)
 		).toEqual({
 			diagnostics: [],
 			status: "ready",
@@ -38,13 +41,13 @@ describe("Workbench authoring catalog boundary", () => {
 	});
 
 	it("turns malformed host results into a typed contract failure", async () => {
-		const result = await decodeAuthoringCatalogResult({
-			status: "ready",
-			tables: "not-an-array"
-		});
+		const result = await Effect.runPromiseExit(
+			decodeAuthoringCatalogResultFromHost({
+				status: "ready",
+				tables: "not-an-array"
+			})
+		);
 
-		expect(result.status).toBe("failed");
-		if (result.status !== "failed") throw new Error("Expected a failed catalog result");
-		expect(result.error.code).toBe("contract_failure");
+		expect(Exit.isFailure(result)).toBe(true);
 	});
 });

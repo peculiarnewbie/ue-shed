@@ -18,6 +18,7 @@
 		"@ue-shed/protocol": "workspace:*",
 		"@ue-shed/ui": "workspace:*",
 		"@ue-shed/ui-theme": "workspace:*",
+		"effect": "catalog:",
 		"peculiar-sheets": "0.10.1",
 		"solid-js": "catalog:"
 	}

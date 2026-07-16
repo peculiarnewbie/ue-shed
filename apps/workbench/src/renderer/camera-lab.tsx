@@ -1,8 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffectAction, createEffectSubscription } from "@ue-shed/ui";
+import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
+import { Cause, Effect, Exit } from "effect";
+import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import type { RendererCameraFrame, WorkbenchCameraMetrics } from "../main/preload.js";
+import { workbenchRendererClient } from "./workbench-client.js";
 
 interface TileTelemetry {
 	readonly fps: number;
@@ -135,6 +138,12 @@ function CameraTile(props: {
 }
 
 export function CameraLab() {
+	const configureAction = createEffectAction();
+	const launchAction = createEffectAction();
+	const budgetAction = createEffectAction();
+	const frameSubscription = createEffectSubscription();
+	const metricsSubscription = createEffectSubscription();
+	const statusSubscription = createEffectSubscription();
 	const [config, setConfig] = createSignal(defaultConfig);
 	const [frames, setFrames] = createSignal<ReadonlyMap<number, RendererCameraFrame>>(new Map());
 	const [telemetry, setTelemetry] = createSignal<ReadonlyMap<number, TileTelemetry>>(new Map());
@@ -203,83 +212,83 @@ export function CameraLab() {
 		return elapsedMs > 0 && count !== undefined ? (count * 1_000) / elapsedMs : 0;
 	};
 
-	const applyConfig = async (next: CameraScheduleConfig) => {
+	const applyConfig = (next: CameraScheduleConfig) => {
 		if (next.pipelineMode !== "full_pipeline") {
 			setFrames(new Map());
 			setTelemetry(new Map());
 		}
 		setConfig(next);
 		setControlState("updating");
-		try {
-			const nextStatus = await window.ueShed.configure(next);
-			setStatus(nextStatus);
-			setConfig(nextStatus.config);
-			setControlState("connected");
-		} catch {
-			setControlState("unavailable");
-		}
+		configureAction.run(workbenchRendererClient.configure(next), {
+			onFailure: () => setControlState("unavailable"),
+			onSuccess: (nextStatus) => {
+				setStatus(nextStatus);
+				setConfig(nextStatus.config);
+				setControlState("connected");
+			}
+		});
 	};
 
-	const launchFixture = async () => {
+	const launchFixture = () => {
 		setFixtureLaunch({ status: "launching" });
-		const result = await window.ueShed.fixture.launch();
-		if (result.status === "failed") {
-			setFixtureLaunch({
-				status: "failed",
-				message: `${result.message} ${result.recovery}`
-			});
-			return;
-		}
-		try {
-			const nextStatus = await window.ueShed.getStatus();
-			setStatus(nextStatus);
-			setConfig(nextStatus.config);
-			setControlState("connected");
-			setFixtureLaunch({ status: "idle" });
-		} catch (cause) {
-			setFixtureLaunch({
-				status: "failed",
-				message: `Unreal launched, but Camera Load Lab could not connect: ${String(cause)}`
-			});
-		}
+		launchAction.run(
+			Effect.gen(function* () {
+				const launch = yield* workbenchRendererClient.launchFixture();
+				if (launch.status === "failed") return { launch, status: "launch_failed" as const };
+				const camera = yield* workbenchRendererClient.getStatus();
+				return { camera, status: "ready" as const };
+			}),
+			{
+				onFailure: (cause) =>
+					setFixtureLaunch({
+						message: `Unreal launched, but Camera Load Lab could not connect: ${Cause.pretty(cause)}`,
+						status: "failed"
+					}),
+				onSuccess: (result) => {
+					if (result.status === "launch_failed") {
+						setFixtureLaunch({
+							message: `${result.launch.message} ${result.launch.recovery}`,
+							status: "failed"
+						});
+						return;
+					}
+					setStatus(result.camera);
+					setConfig(result.camera.config);
+					setControlState("connected");
+					setFixtureLaunch({ status: "idle" });
+				}
+			}
+		);
 	};
 
 	onMount(() => {
-		const unsubscribe = window.ueShed.onFrame((frame) => {
-			setFrames((current) => {
-				const next = new Map(current);
-				next.set(frame.cameraIndex, frame);
-				return next;
-			});
-		});
-		const timer = window.setInterval(
-			() => void window.ueShed.getMetrics().then(setMetrics),
-			750
-		);
-		const statusTimer = window.setInterval(() => {
-			if (controlState() === "updating") return;
-			void window.ueShed
-				.getStatus()
-				.then((value) => {
-					setStatus(value);
-					setConfig(value.config);
-					setControlState("connected");
+		frameSubscription.subscribe(workbenchRendererClient.frames, {
+			onValue: (frame) =>
+				setFrames((current) => {
+					const next = new Map(current);
+					next.set(frame.cameraIndex, frame);
+					return next;
 				})
-				.catch(() => setControlState("unavailable"));
-		}, 1_000);
-		void window.ueShed
-			.getStatus()
-			.then((value) => {
-				setStatus(value);
-				setConfig(value.config);
+		});
+		metricsSubscription.subscribe(workbenchRendererClient.metrics, {
+			onValue: (exit) => {
+				if (Exit.isSuccess(exit)) setMetrics(exit.value);
+			}
+		});
+		statusSubscription.subscribe(workbenchRendererClient.statuses, {
+			onValue: (exit) => {
+				if (controlState() === "updating") return;
+				if (Exit.isFailure(exit)) {
+					setControlState("unavailable");
+					return;
+				}
+				setStatus(exit.value);
+				setConfig(exit.value.config);
 				setControlState("connected");
-			})
-			.catch(() => setControlState("unavailable"));
-		void window.ueShed.setPresentationBudget(presentationBudget());
-		onCleanup(() => {
-			unsubscribe();
-			window.clearInterval(timer);
-			window.clearInterval(statusTimer);
+			}
+		});
+		budgetAction.run(workbenchRendererClient.setPresentationBudget(presentationBudget()), {
+			onSuccess: () => undefined
 		});
 	});
 
@@ -509,7 +518,9 @@ export function CameraLab() {
 						suffix="MB/s"
 						onInput={(value) => {
 							setPresentationBudget(value);
-							void window.ueShed.setPresentationBudget(value);
+							budgetAction.run(workbenchRendererClient.setPresentationBudget(value), {
+								onSuccess: () => undefined
+							});
 						}}
 					/>
 					<div {...stylex.props(styles.resolution)}>

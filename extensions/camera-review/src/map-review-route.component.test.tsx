@@ -2,8 +2,11 @@
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { userEvent } from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
-import { MapReviewRoute, type MapReviewClient, type MapReviewResult } from "./map-review-route.js";
+import { EffectRuntimeProvider } from "@ue-shed/ui";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import type { MapReviewClientShape, MapReviewResult } from "./map-review-client.js";
+import { MapReviewRoute } from "./map-review-route.js";
 
 const empty = {
 	reviewSet: {
@@ -16,6 +19,16 @@ const empty = {
 } satisfies MapReviewResult;
 
 afterEach(cleanup);
+const runtime = ManagedRuntime.make(Layer.empty);
+afterAll(() => runtime.dispose());
+
+function renderRoute(client: MapReviewClientShape) {
+	return render(() => (
+		<EffectRuntimeProvider runtime={runtime}>
+			<MapReviewRoute client={client} />
+		</EffectRuntimeProvider>
+	));
+}
 
 describe("MapReviewRoute", () => {
 	it("establishes the first durable capture and exposes it in history", async () => {
@@ -32,30 +45,33 @@ describe("MapReviewRoute", () => {
 			]
 		};
 		let captures = 0;
-		const client: MapReviewClient = {
-			approveCandidate: async () => ({ candidateId: "context", status: "approved" }),
-			authorFromSelection: async () => ({
-				candidates: [],
-				selection: {
-					actorPath: "/Game/Fixture.Subject",
-					displayName: "Subject",
-					mapPath: "/Game/Fixture/Cameras/L_CameraLoad"
-				},
-				status: "ready",
-				viewId: "structure-context"
-			}),
-			capture: async () => {
-				captures += 1;
-				return captured;
-			},
-			load: async () => empty,
-			previewCandidate: async () => ({
-				error: { message: "not used", recovery: "not used" },
-				status: "failed"
-			})
+		const client: MapReviewClientShape = {
+			approveCandidate: () => Effect.succeed({ candidateId: "context", status: "approved" }),
+			authorFromSelection: () =>
+				Effect.succeed({
+					candidates: [],
+					selection: {
+						actorPath: "/Game/Fixture.Subject",
+						displayName: "Subject",
+						mapPath: "/Game/Fixture/Cameras/L_CameraLoad"
+					},
+					status: "ready",
+					viewId: "structure-context"
+				}),
+			capture: () =>
+				Effect.sync(() => {
+					captures += 1;
+					return captured;
+				}),
+			load: () => Effect.succeed(empty),
+			previewCandidate: () =>
+				Effect.succeed({
+					error: { message: "not used", recovery: "not used" },
+					status: "failed"
+				})
 		};
 		const user = userEvent.setup();
-		render(() => <MapReviewRoute client={client} />);
+		renderRoute(client);
 		expect(await screen.findByText("No visual history yet.")).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "CAPTURE SET" }));
 		expect(await screen.findByText("PURE / ORDINARY WORLD")).toBeDefined();
@@ -73,46 +89,52 @@ describe("MapReviewRoute", () => {
 			projection: "perspective" as const,
 			rotation: { pitch: -15, roll: 0, yaw: 135 }
 		};
-		let approved: Parameters<MapReviewClient["approveCandidate"]>[0] | undefined;
-		const client: MapReviewClient = {
-			approveCandidate: async (intent) => {
-				approved = intent;
-				return { candidateId: intent.candidateId, status: "approved" };
-			},
-			authorFromSelection: async () => ({
-				candidates: [
-					{
-						diagnostics: [
-							{
-								code: "bounds_snapshot",
-								message: "Generated from bounds",
-								severity: "info"
+		let approved: Parameters<MapReviewClientShape["approveCandidate"]>[0] | undefined;
+		const client: MapReviewClientShape = {
+			approveCandidate: (intent) =>
+				Effect.sync(() => {
+					approved = intent;
+					return { candidateId: intent.candidateId, status: "approved" };
+				}),
+			authorFromSelection: () =>
+				Effect.succeed({
+					candidates: [
+						{
+							diagnostics: [
+								{
+									code: "bounds_snapshot",
+									message: "Generated from bounds",
+									severity: "info"
+								}
+							],
+							displayName: "Context three-quarter",
+							id: "context-three-quarter",
+							pose,
+							preset: "context_three_quarter",
+							preview: {
+								message: "Preview omitted in component test",
+								status: "failed"
 							}
-						],
-						displayName: "Context three-quarter",
-						id: "context-three-quarter",
-						pose,
-						preset: "context_three_quarter",
-						preview: { message: "Preview omitted in component test", status: "failed" }
-					}
-				],
-				selection: {
-					actorPath: "/Game/Fixture.Subject",
-					displayName: "Review Subject",
-					mapPath: "/Game/Fixture/Cameras/L_CameraLoad"
-				},
-				status: "ready",
-				viewId: "structure-context"
-			}),
-			capture: async () => empty,
-			load: async () => empty,
-			previewCandidate: async () => ({
-				error: { message: "Preview omitted", recovery: "Not required" },
-				status: "failed"
-			})
+						}
+					],
+					selection: {
+						actorPath: "/Game/Fixture.Subject",
+						displayName: "Review Subject",
+						mapPath: "/Game/Fixture/Cameras/L_CameraLoad"
+					},
+					status: "ready",
+					viewId: "structure-context"
+				}),
+			capture: () => Effect.succeed(empty),
+			load: () => Effect.succeed(empty),
+			previewCandidate: () =>
+				Effect.succeed({
+					error: { message: "Preview omitted", recovery: "Not required" },
+					status: "failed"
+				})
 		};
 		const user = userEvent.setup();
-		render(() => <MapReviewRoute client={client} />);
+		renderRoute(client);
 		await screen.findByText("No visual history yet.");
 		await user.click(screen.getByRole("button", { name: "REFRAME SELECTED ACTOR" }));
 		expect(await screen.findByText("Review Subject")).toBeDefined();

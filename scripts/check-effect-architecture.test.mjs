@@ -152,3 +152,16 @@ test("rejects packages importing apps/workbench", async () => {
 		}
 	);
 });
+
+test("rejects renderer IPC access outside transport adapters", async () => {
+	await withWorkbenchFixture(
+		"apps/workbench/src/renderer/bad-component.tsx",
+		"export const Bad = () => window.ueShed.getStatus();\n",
+		async (fixtureRoot) => {
+			const failures = await checkWorkbenchBoundaries(fixtureRoot);
+			assert.deepEqual(failures, [
+				"apps/workbench/src/renderer/bad-component.tsx: renderer IPC is only allowed in transport adapters"
+			]);
+		}
+	);
+});

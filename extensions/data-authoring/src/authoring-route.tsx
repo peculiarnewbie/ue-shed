@@ -1,15 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import type {
 	AuthoringCatalogResult,
+	AuthoringClientShape,
 	AuthoringLoadFailure,
 	AuthoringLoadResult,
 	AuthoringSessionResult,
-	AuthoringSessionView,
-	AuthoringSetCellsIntent
+	AuthoringSessionView
 } from "@ue-shed/authoring-sdk";
 import type { AuthoringFieldValue, AuthoringRow, AuthoringTableSnapshot } from "@ue-shed/protocol";
-import { Button, PageHeader } from "@ue-shed/ui";
+import { Button, PageHeader, createEffectAction } from "@ue-shed/ui";
 import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
+import { Cause, type Effect } from "effect";
 import { For, Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
 import {
 	fieldInRow,
@@ -26,20 +27,6 @@ export type {
 	AuthoringLoadResult,
 	AuthoringTableCatalogEntry
 } from "@ue-shed/authoring-sdk";
-
-export interface AuthoringClient {
-	readonly loadConfiguredCatalog: () => Promise<AuthoringCatalogResult>;
-	readonly loadConfiguredTable: () => Promise<AuthoringLoadResult>;
-	readonly openCatalogTable: (objectPath: string) => Promise<AuthoringLoadResult>;
-	readonly chooseTable: () => Promise<AuthoringLoadResult>;
-	readonly beginSession: (objectPath: string) => Promise<AuthoringSessionResult>;
-	readonly editSession: (intent: AuthoringSetCellsIntent) => Promise<AuthoringSessionResult>;
-	readonly undoSession: (sessionId: string) => Promise<AuthoringSessionResult>;
-	readonly redoSession: (sessionId: string) => Promise<AuthoringSessionResult>;
-	readonly applySession: (sessionId: string) => Promise<AuthoringSessionResult>;
-	readonly reconcileSession: (sessionId: string) => Promise<AuthoringSessionResult>;
-	readonly saveSession: (sessionId: string) => Promise<AuthoringSessionResult>;
-}
 
 type ViewState =
 	| { readonly status: "loading" }
@@ -206,7 +193,11 @@ function CatalogPanel(props: {
 	);
 }
 
-export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
+export function AuthoringRoute(props: { readonly client: AuthoringClientShape }) {
+	const loadAction = createEffectAction();
+	const catalogAction = createEffectAction();
+	const beginAction = createEffectAction();
+	const sessionAction = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [catalogState, setCatalogState] = createSignal<CatalogState>({ status: "loading" });
 	const [catalogQuery, setCatalogQuery] = createSignal("");
@@ -228,10 +219,13 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 		setSessionNotice(undefined);
 	};
 
-	const beginSession = async (objectPath: string) => {
+	const beginSession = (objectPath: string) => {
 		setSession(undefined);
 		setSessionNotice(undefined);
-		acceptSessionResult(await props.client.beginSession(objectPath));
+		beginAction.run(props.client.beginSession(objectPath), {
+			onFailure: (cause) => setSessionNotice(Cause.pretty(cause)),
+			onSuccess: acceptSessionResult
+		});
 	};
 
 	const applyResult = (result: AuthoringLoadResult, preserveCurrent: boolean) => {
@@ -245,7 +239,7 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 					? { fieldName: firstField.name, rowId: firstRow.id }
 					: undefined
 			);
-			void beginSession(result.snapshot.table.objectPath);
+			beginSession(result.snapshot.table.objectPath);
 			return;
 		}
 		if (preserveCurrent) {
@@ -257,40 +251,87 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 		setState(result);
 	};
 
-	const load = async (choose: boolean) => {
+	const load = (choose: boolean) => {
+		beginAction.cancel();
 		const preserveCurrent = state().status === "ready";
 		if (preserveCurrent) setIsReplacing(true);
 		else setState({ status: "loading" });
-		try {
-			applyResult(
-				await (choose ? props.client.chooseTable() : props.client.loadConfiguredTable()),
-				preserveCurrent
-			);
-		} finally {
-			setIsReplacing(false);
-		}
+		loadAction.run(choose ? props.client.chooseTable() : props.client.loadConfiguredTable(), {
+			onFailure: (cause) => {
+				applyResult(
+					{
+						error: {
+							code: "contract_failure",
+							message: Cause.pretty(cause),
+							recovery:
+								"Restart Workbench. If the problem persists, verify package versions.",
+							retrySafe: true
+						},
+						status: "failed"
+					},
+					preserveCurrent
+				);
+				setIsReplacing(false);
+			},
+			onSuccess: (result) => {
+				applyResult(result, preserveCurrent);
+				setIsReplacing(false);
+			}
+		});
 	};
 
-	const loadCatalog = async () => {
+	const loadCatalog = () => {
 		setCatalogState({ status: "loading" });
-		setCatalogState(await props.client.loadConfiguredCatalog());
+		catalogAction.run(props.client.loadConfiguredCatalog(), {
+			onFailure: (cause) =>
+				setCatalogState({
+					error: {
+						code: "contract_failure",
+						message: Cause.pretty(cause),
+						recovery:
+							"Restart Workbench. If the problem persists, verify package versions.",
+						retrySafe: true
+					},
+					status: "failed"
+				}),
+			onSuccess: setCatalogState
+		});
 	};
 
-	const openCatalogTable = async (objectPath: string) => {
+	const openCatalogTable = (objectPath: string) => {
+		beginAction.cancel();
 		setIsReplacing(true);
-		try {
-			applyResult(
-				await props.client.openCatalogTable(objectPath),
-				state().status === "ready"
-			);
-		} finally {
-			setIsReplacing(false);
-		}
+		const preserveCurrent = state().status === "ready";
+		loadAction.run(props.client.openCatalogTable(objectPath), {
+			onFailure: (cause) => {
+				setReplacementNotice(Cause.pretty(cause));
+				setIsReplacing(false);
+			},
+			onSuccess: (result) => {
+				applyResult(result, preserveCurrent);
+				setIsReplacing(false);
+			}
+		});
+	};
+
+	const runSessionOperation = (effect: Effect.Effect<AuthoringSessionResult, unknown>): void => {
+		if (isPersisting()) return;
+		setIsPersisting(true);
+		sessionAction.run(effect, {
+			onFailure: (cause) => {
+				setSessionNotice(Cause.pretty(cause));
+				setIsPersisting(false);
+			},
+			onSuccess: (result) => {
+				acceptSessionResult(result);
+				setIsPersisting(false);
+			}
+		});
 	};
 
 	onMount(() => {
-		void load(false);
-		void loadCatalog();
+		load(false);
+		loadCatalog();
 	});
 
 	return (
@@ -330,9 +371,9 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 					<div {...stylex.props(styles.coldStart)}>
 						<CatalogPanel
 							disabled={isReplacing()}
-							onOpen={(objectPath) => void openCatalogTable(objectPath)}
+							onOpen={openCatalogTable}
 							onQueryChange={setCatalogQuery}
-							onRefresh={() => void loadCatalog()}
+							onRefresh={loadCatalog}
 							query={catalogQuery()}
 							state={catalogState()}
 						/>
@@ -504,19 +545,13 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 																!currentSession().canUndo ||
 																isPersisting()
 															}
-															onClick={async () => {
-																setIsPersisting(true);
-																try {
-																	acceptSessionResult(
-																		await props.client.undoSession(
-																			currentSession()
-																				.sessionId
-																		)
-																	);
-																} finally {
-																	setIsPersisting(false);
-																}
-															}}
+															onClick={() =>
+																runSessionOperation(
+																	props.client.undoSession(
+																		currentSession().sessionId
+																	)
+																)
+															}
 															{...stylex.props(styles.sheetAction)}
 														>
 															Undo
@@ -527,19 +562,13 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 																!currentSession().canRedo ||
 																isPersisting()
 															}
-															onClick={async () => {
-																setIsPersisting(true);
-																try {
-																	acceptSessionResult(
-																		await props.client.redoSession(
-																			currentSession()
-																				.sessionId
-																		)
-																	);
-																} finally {
-																	setIsPersisting(false);
-																}
-															}}
+															onClick={() =>
+																runSessionOperation(
+																	props.client.redoSession(
+																		currentSession().sessionId
+																	)
+																)
+															}
 															{...stylex.props(styles.sheetAction)}
 														>
 															Redo
@@ -556,24 +585,19 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 														>
 															<Button
 																disabled={isPersisting()}
-																onClick={async () => {
+																onClick={() => {
 																	if (
 																		!window.confirm(
 																			`Apply ${currentSession().commandCount} staged command(s) to the live editor? This does not save packages.`
 																		)
 																	)
 																		return;
-																	setIsPersisting(true);
-																	try {
-																		acceptSessionResult(
-																			await props.client.applySession(
-																				currentSession()
-																					.sessionId
-																			)
-																		);
-																	} finally {
-																		setIsPersisting(false);
-																	}
+																	runSessionOperation(
+																		props.client.applySession(
+																			currentSession()
+																				.sessionId
+																		)
+																	);
 																}}
 															>
 																Apply
@@ -592,19 +616,14 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 														>
 															<Button
 																disabled={isPersisting()}
-																onClick={async () => {
-																	setIsPersisting(true);
-																	try {
-																		acceptSessionResult(
-																			await props.client.reconcileSession(
-																				currentSession()
-																					.sessionId
-																			)
-																		);
-																	} finally {
-																		setIsPersisting(false);
-																	}
-																}}
+																onClick={() =>
+																	runSessionOperation(
+																		props.client.reconcileSession(
+																			currentSession()
+																				.sessionId
+																		)
+																	)
+																}
 															>
 																Reconcile Apply
 															</Button>
@@ -624,19 +643,14 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 														>
 															<Button
 																disabled={isPersisting()}
-																onClick={async () => {
-																	setIsPersisting(true);
-																	try {
-																		acceptSessionResult(
-																			await props.client.saveSession(
-																				currentSession()
-																					.sessionId
-																			)
-																		);
-																	} finally {
-																		setIsPersisting(false);
-																	}
-																}}
+																onClick={() =>
+																	runSessionOperation(
+																		props.client.saveSession(
+																			currentSession()
+																				.sessionId
+																		)
+																	)
+																}
 															>
 																Save packages
 															</Button>
@@ -649,23 +663,17 @@ export function AuthoringRoute(props: { readonly client: AuthoringClient }) {
 											columns={columns}
 											disabled={!session() || isPersisting()}
 											onEditFailure={setSessionNotice}
-											onEditGesture={async (edits) => {
+											onEditGesture={(edits) => {
 												const currentSession = session();
 												if (!currentSession) return;
-												setIsPersisting(true);
-												try {
-													acceptSessionResult(
-														await props.client.editSession({
-															edits,
-															kind: "set_cells",
-															sessionId: currentSession.sessionId,
-															tableObjectPath:
-																snapshot.table.objectPath
-														})
-													);
-												} finally {
-													setIsPersisting(false);
-												}
+												runSessionOperation(
+													props.client.editSession({
+														edits,
+														kind: "set_cells",
+														sessionId: currentSession.sessionId,
+														tableObjectPath: snapshot.table.objectPath
+													})
+												);
 											}}
 											onSelectionChange={setSelection}
 											rows={visibleRows()}

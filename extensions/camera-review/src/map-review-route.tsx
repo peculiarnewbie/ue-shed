@@ -1,5 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
+import { createEffectAction } from "@ue-shed/ui";
 import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
+import { Cause } from "effect";
 import {
 	For,
 	Match,
@@ -11,10 +13,12 @@ import {
 	onCleanup,
 	onMount
 } from "solid-js";
-import type { MapReviewClient, MapReviewResult, MapReviewRunView } from "./map-review-client.js";
+import type {
+	MapReviewClientShape,
+	MapReviewResult,
+	MapReviewRunView
+} from "./map-review-client.js";
 import { MapReviewAuthoring } from "./map-review-authoring.js";
-
-export type { MapReviewClient, MapReviewResult, MapReviewRunView } from "./map-review-client.js";
 
 type ViewState =
 	| { readonly status: "loading" }
@@ -58,7 +62,8 @@ function PreviewImage(props: { readonly run: MapReviewRunView }) {
 	);
 }
 
-export function MapReviewRoute(props: { readonly client: MapReviewClient }) {
+export function MapReviewRoute(props: { readonly client: MapReviewClientShape }) {
+	const action = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [selectedRunId, setSelectedRunId] = createSignal<string>();
 	const ready = createMemo(() => {
@@ -75,13 +80,27 @@ export function MapReviewRoute(props: { readonly client: MapReviewClient }) {
 		setState(result);
 		if (result.status === "ready") setSelectedRunId(result.runs[0]?.id);
 	};
-	const load = async () => apply(await props.client.load());
-	const capture = async () => {
+	const clientFailure = (cause: Cause.Cause<unknown>): MapReviewResult => ({
+		error: {
+			message: Cause.pretty(cause),
+			recovery: "Restart Workbench. If the problem persists, verify package versions."
+		},
+		status: "failed"
+	});
+	const load = () =>
+		action.run(props.client.load(), {
+			onFailure: (cause) => apply(clientFailure(cause)),
+			onSuccess: apply
+		});
+	const capture = () => {
 		const previous = ready();
 		setState(previous ? { status: "capturing", previous } : { status: "capturing" });
-		apply(await props.client.capture());
+		action.run(props.client.capture(), {
+			onFailure: (cause) => apply(clientFailure(cause)),
+			onSuccess: apply
+		});
 	};
-	onMount(() => void load());
+	onMount(load);
 
 	return (
 		<main {...stylex.props(styles.page)}>
@@ -97,7 +116,7 @@ export function MapReviewRoute(props: { readonly client: MapReviewClient }) {
 				<button
 					type="button"
 					disabled={state().status === "capturing"}
-					onClick={() => void capture()}
+					onClick={capture}
 					{...stylex.props(styles.captureButton)}
 				>
 					{state().status === "capturing" ? "CAPTURING…" : "CAPTURE SET"}

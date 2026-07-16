@@ -15,11 +15,7 @@ const catalogOwned = new Set([
 
 const legacyBaselines = {
 	"Effect.runPromise": {
-		"apps/cli/src/index.ts": 23,
-		"apps/workbench/src/renderer/asset-audits-client.ts": 2,
-		"apps/workbench/src/renderer/authoring-client.ts": 9,
-		"apps/workbench/src/renderer/game-text-client.ts": 1,
-		"apps/workbench/src/renderer/map-review-client.ts": 5
+		"apps/cli/src/index.ts": 23
 	},
 	"Effect.runSync": {
 		"apps/cli/src/index.ts": 1
@@ -30,15 +26,11 @@ const legacyBaselines = {
 		"apps/workbench/src/main/adapters/electron-ipc.ts": 4,
 		"apps/workbench/src/main/preload.ts": 28,
 		"apps/workbench/src/renderer/global.d.ts": 28,
-		"apps/workbench/src/renderer/asset-audits-client.ts": 2,
-		"apps/workbench/src/renderer/authoring-client.ts": 2,
+		"apps/workbench/src/renderer/asset-audits-client.ts": 1,
+		"apps/workbench/src/renderer/authoring-client.ts": 3,
 		"apps/workbench/src/renderer/game-text-client.ts": 1,
-		"extensions/asset-audits/src/texture-audit-route.tsx": 4,
-		"extensions/camera-review/src/map-review-authoring.tsx": 1,
-		"extensions/camera-review/src/map-review-client.ts": 5,
-		"extensions/data-authoring/src/authoring-route.tsx": 11,
-		"extensions/data-authoring/src/authoring-table-grid.tsx": 1,
-		"extensions/game-text/src/game-text-route.tsx": 2,
+		"apps/workbench/src/renderer/map-review-client.ts": 1,
+		"apps/workbench/src/renderer/workbench-client.ts": 1,
 		"packages/cameras/src/index.ts": 1,
 		"packages/cameras/src/review-repository.ts": 1,
 		"packages/unreal-assets/src/index.ts": 1
@@ -52,6 +44,15 @@ const legacyBaselines = {
 
 const workbenchMainBootstrap = "apps/workbench/src/main/main.ts";
 const workbenchMainAdaptersPrefix = "apps/workbench/src/main/adapters/";
+const workbenchRendererPrefix = "apps/workbench/src/renderer/";
+const rendererTransportFiles = new Set([
+	"apps/workbench/src/renderer/asset-audits-client.ts",
+	"apps/workbench/src/renderer/authoring-client.ts",
+	"apps/workbench/src/renderer/game-text-client.ts",
+	"apps/workbench/src/renderer/global.d.ts",
+	"apps/workbench/src/renderer/map-review-client.ts",
+	"apps/workbench/src/renderer/workbench-client.ts"
+]);
 
 function isWorkbenchMainSource(path) {
 	return path.startsWith("apps/workbench/src/main/") && path.endsWith(".ts");
@@ -305,6 +306,16 @@ export async function checkWorkbenchBoundaries(root = repositoryRoot) {
 			) {
 				failures.push(
 					`${path}: electron/main imports are only allowed in the Electron bootstrap or adapters`
+				);
+			}
+		}
+		if (path.startsWith(workbenchRendererPrefix)) {
+			if (text.includes("window.ueShed") && !rendererTransportFiles.has(path)) {
+				failures.push(`${path}: renderer IPC is only allowed in transport adapters`);
+			}
+			if (text.includes("Effect.runPromise") || text.includes("Effect.runSync")) {
+				failures.push(
+					`${path}: renderer components and transports must use the shared runtime`
 				);
 			}
 		}
