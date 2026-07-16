@@ -22,7 +22,7 @@ update the status row when done.
 | [012](012-effect-cli-runtime.md)               | Run the CLI as one Effect program                            | P1       | L      | 011        | DONE                       |
 | [013](013-effect-workbench-runtime-ipc.md)     | Make Workbench main and IPC one scoped Effect runtime        | P0       | XL     | 011        | DONE                       |
 | [014](014-effect-renderer-solid.md)            | Make renderer and extension clients Effect-native            | P1       | XL     | 009, 013   | DONE                       |
-| [015](015-effect-observability-enforcement.md) | Close the Effect migration with telemetry and enforcement    | P1       | L      | 012–014    | TODO                       |
+| [015](015-effect-observability-enforcement.md) | Close the Effect migration with telemetry and enforcement    | P1       | L      | 012–014    | DONE                       |
 | [007](007-conflicts-rich-types-and-views.md)   | Complete conflicts, rich Unreal types, composites, and views | P1       | XL     | 006, 015   | TODO — rebase after 015    |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED` with a one-line reason, or `REJECTED` with a

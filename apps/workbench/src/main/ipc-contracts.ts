@@ -13,6 +13,7 @@ import {
 	MapReviewResult
 } from "@ue-shed/cameras/review-contracts";
 import { TextCorpusRunResult } from "@ue-shed/game-text";
+import { RuntimeHealth } from "@ue-shed/observability";
 import { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { Schema, SchemaGetter } from "effect";
 
@@ -48,6 +49,7 @@ export type PresentationBudgetMbPerSecond = Schema.Schema.Type<
 
 export const ShowcaseContext = Schema.Struct({
 	fixtureConfigured: Schema.Boolean,
+	health: RuntimeHealth,
 	projectRoot: Schema.optionalKey(Schema.String),
 	reader: Schema.Literals(["configured", "path"]),
 	ruleFile: Schema.optionalKey(Schema.String)

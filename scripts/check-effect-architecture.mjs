@@ -5,7 +5,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const sourceRoots = ["apps", "packages", "extensions"];
 const catalogOwned = new Set([
+	"@effect/opentelemetry",
 	"@effect/vitest",
+	"@opentelemetry/api",
+	"@opentelemetry/api-logs",
+	"@opentelemetry/resources",
+	"@opentelemetry/sdk-logs",
+	"@opentelemetry/sdk-metrics",
+	"@opentelemetry/sdk-trace-base",
+	"@opentelemetry/sdk-trace-node",
+	"@opentelemetry/sdk-trace-web",
+	"@opentelemetry/semantic-conventions",
 	"@stylexjs/rollup-plugin",
 	"@stylexjs/stylex",
 	"effect",
@@ -13,34 +23,73 @@ const catalogOwned = new Set([
 	"vite-plugin-solid"
 ]);
 
-const legacyBaselines = {
-	"Effect.runPromise": {
-		"apps/cli/src/index.ts": 23
-	},
-	"Effect.runSync": {
-		"apps/cli/src/index.ts": 1
-	},
-	"Promise<": {
-		"apps/cli/src/index.ts": 5,
-		"apps/workbench/src/main/adapters/electron-app.ts": 1,
-		"apps/workbench/src/main/adapters/electron-ipc.ts": 4,
-		"apps/workbench/src/main/preload.ts": 28,
-		"apps/workbench/src/renderer/global.d.ts": 28,
-		"apps/workbench/src/renderer/asset-audits-client.ts": 1,
-		"apps/workbench/src/renderer/authoring-client.ts": 3,
-		"apps/workbench/src/renderer/game-text-client.ts": 1,
-		"apps/workbench/src/renderer/map-review-client.ts": 1,
-		"apps/workbench/src/renderer/workbench-client.ts": 1,
-		"packages/cameras/src/index.ts": 1,
-		"packages/cameras/src/review-repository.ts": 1,
-		"packages/unreal-assets/src/index.ts": 1
-	},
-	"process.env": {
-		"apps/workbench/src/main/main.ts": 1,
-		"packages/unreal-assets/src/index.ts": 1
-	},
-	"fetch(": {}
-};
+const approvedRuntimeExits = new Set([
+	"apps/cli/src/index.ts",
+	// Node's socket callback is a foreign runtime boundary. The fork is attached to the layer's
+	// scope with Effect.forkIn; camera decoding itself remains the measured synchronous hot path.
+	"packages/cameras/src/index.ts"
+]);
+const approvedPromiseAdapters = new Set([
+	"apps/workbench/src/main/adapters/electron-app.ts",
+	"apps/workbench/src/main/adapters/electron-ipc.ts",
+	"apps/workbench/src/main/preload.ts",
+	"apps/workbench/src/renderer/asset-audits-client.ts",
+	"apps/workbench/src/renderer/authoring-client.ts",
+	"apps/workbench/src/renderer/game-text-client.ts",
+	"apps/workbench/src/renderer/global.d.ts",
+	"apps/workbench/src/renderer/map-review-client.ts",
+	"apps/workbench/src/renderer/workbench-client.ts",
+	"packages/cameras/src/index.ts",
+	"packages/cameras/src/review-repository.ts",
+	"packages/unreal-assets/src/index.ts"
+]);
+const approvedEnvironmentAdapters = new Set([
+	"apps/cli/src/index.ts",
+	"apps/workbench/src/main/main.ts"
+]);
+const approvedRawFetchAdapters = new Set([
+	"packages/unreal-connection/src/remote-control-client.ts"
+]);
+const approvedResourceAdapters = new Set([
+	"apps/workbench/src/main/adapters/electron-app.ts",
+	"apps/workbench/src/main/adapters/fixture-process.ts",
+	"apps/workbench/src/main/main.ts",
+	"apps/workbench/src/main/preload.ts",
+	"apps/workbench/src/renderer/app-shell.tsx",
+	"apps/workbench/src/renderer/index.tsx",
+	"packages/cameras/src/index.ts"
+]);
+const operationlessServices = new Set(["apps/workbench/src/main/workbench-config.ts"]);
+const externalServiceEvidence = new Map([
+	[
+		"packages/authoring-sdk/src/index.ts",
+		[
+			"apps/workbench/src/renderer/index.tsx",
+			"extensions/data-authoring/src/authoring-route.component.test.tsx"
+		]
+	],
+	[
+		"extensions/asset-audits/src/texture-audit-client.ts",
+		[
+			"apps/workbench/src/renderer/index.tsx",
+			"extensions/asset-audits/src/texture-audit-route.component.test.tsx"
+		]
+	],
+	[
+		"extensions/camera-review/src/map-review-client.ts",
+		[
+			"apps/workbench/src/renderer/index.tsx",
+			"extensions/camera-review/src/map-review-route.component.test.tsx"
+		]
+	],
+	[
+		"extensions/game-text/src/game-text-client.ts",
+		[
+			"apps/workbench/src/renderer/index.tsx",
+			"extensions/game-text/src/game-text-route.component.test.tsx"
+		]
+	]
+]);
 
 const workbenchMainBootstrap = "apps/workbench/src/main/main.ts";
 const workbenchMainAdaptersPrefix = "apps/workbench/src/main/adapters/";
@@ -83,17 +132,19 @@ async function filesUnder(root, directory) {
 	return files;
 }
 
-function count(text, needle) {
-	let total = 0;
-	let offset = 0;
-	while ((offset = text.indexOf(needle, offset)) !== -1) {
-		total += 1;
-		offset += needle.length;
-	}
-	return total;
+function lineOf(text, offset) {
+	return text.slice(0, offset).split("\n").length;
 }
 
-export async function checkSourceBaselines(root, baselines = legacyBaselines) {
+function reportOccurrences(failures, path, text, needle, message) {
+	let offset = 0;
+	while ((offset = text.indexOf(needle, offset)) !== -1) {
+		failures.push(`${path}:${lineOf(text, offset)}: ${message}`);
+		offset += needle.length;
+	}
+}
+
+export async function checkSourcePolicy(root) {
 	const failures = [];
 	const sourceFiles = (
 		await Promise.all(sourceRoots.map((directory) => filesUnder(root, directory)))
@@ -102,12 +153,57 @@ export async function checkSourceBaselines(root, baselines = legacyBaselines) {
 		if (!/\.tsx?$/.test(absolute) || /\.(?:integration\.)?test\.tsx?$/.test(absolute)) continue;
 		const path = relative(root, absolute).replaceAll("\\", "/");
 		const text = await readFile(absolute, "utf8");
-		for (const [needle, allowedByPath] of Object.entries(baselines)) {
-			const actual = count(text, needle);
-			const allowed = allowedByPath[path] ?? 0;
-			if (actual > allowed) {
-				failures.push(
-					`${path}: ${needle} count ${actual} exceeds migration baseline ${allowed}`
+		if (!approvedRuntimeExits.has(path)) {
+			reportOccurrences(
+				failures,
+				path,
+				text,
+				"Effect.run",
+				"Effect runtime exit is not approved"
+			);
+		}
+		if (!approvedPromiseAdapters.has(path)) {
+			reportOccurrences(
+				failures,
+				path,
+				text,
+				"Promise<",
+				"Promise type is only allowed in an approved foreign adapter"
+			);
+		}
+		if (!approvedEnvironmentAdapters.has(path)) {
+			reportOccurrences(
+				failures,
+				path,
+				text,
+				"process.env",
+				"application configuration must use Effect Config"
+			);
+		}
+		if (!approvedRawFetchAdapters.has(path)) {
+			reportOccurrences(
+				failures,
+				path,
+				text,
+				"fetch(",
+				"raw fetch is not an approved transport"
+			);
+		}
+		if (!approvedResourceAdapters.has(path)) {
+			for (const needle of [
+				"setInterval(",
+				"setTimeout(",
+				"addEventListener(",
+				".on(",
+				"createServer(",
+				"spawn("
+			]) {
+				reportOccurrences(
+					failures,
+					path,
+					text,
+					needle,
+					"long-lived resource must be owned by an approved scoped adapter"
 				);
 			}
 		}
@@ -149,6 +245,46 @@ export async function checkCatalogUsage(root) {
 					);
 				}
 			}
+		}
+	}
+	const lockfile = await readFile(join(root, "pnpm-lock.yaml"), "utf8");
+	const effectVersions = new Set(
+		[...lockfile.matchAll(/(?:^|\s)effect@([^\s(]+)/gm)].map((match) => match[1])
+	);
+	if (effectVersions.size > 1) {
+		failures.push(
+			`pnpm-lock.yaml: mixed Effect versions are not allowed (${[...effectVersions].join(", ")})`
+		);
+	}
+	return failures;
+}
+
+export async function checkServiceStrategies(root = repositoryRoot) {
+	const failures = [];
+	const sourceFiles = (
+		await Promise.all(sourceRoots.map((directory) => filesUnder(root, directory)))
+	).flat();
+	for (const absolute of sourceFiles) {
+		if (!/\.tsx?$/.test(absolute) || /(?:integration\.)?test\.tsx?$/.test(absolute)) continue;
+		const path = relative(root, absolute).replaceAll("\\", "/");
+		const text = await readFile(absolute, "utf8");
+		if (!text.includes("Context.Service")) continue;
+		const externalEvidence = externalServiceEvidence.get(path);
+		if (externalEvidence !== undefined) {
+			for (const evidencePath of externalEvidence) {
+				try {
+					await readFile(join(root, evidencePath), "utf8");
+				} catch {
+					failures.push(`${path}: missing service strategy evidence ${evidencePath}`);
+				}
+			}
+			continue;
+		}
+		if (!text.includes("Layer.")) {
+			failures.push(`${path}: service declaration has no live or test layer strategy`);
+		}
+		if (!operationlessServices.has(path) && !text.includes("Effect.fn(")) {
+			failures.push(`${path}: service operations must use Effect.fn`);
 		}
 	}
 	return failures;
@@ -334,7 +470,8 @@ export async function checkWorkbenchBoundaries(root = repositoryRoot) {
 export async function checkArchitecture(root = repositoryRoot) {
 	return [
 		...(await checkCatalogUsage(root)),
-		...(await checkSourceBaselines(root)),
+		...(await checkSourcePolicy(root)),
+		...(await checkServiceStrategies(root)),
 		...(await checkDomainServices(root)),
 		...(await checkWorkbenchBoundaries(root))
 	];

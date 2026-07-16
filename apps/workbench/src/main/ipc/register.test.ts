@@ -1,4 +1,5 @@
 import { it } from "@effect/vitest";
+import { aggregateHealth, defaultHealthInput } from "@ue-shed/observability";
 import type { TextureAuditRunResult, TexturePreviewResult } from "@ue-shed/asset-audits";
 import type { MapReviewApprovalResult } from "@ue-shed/cameras/review-contracts";
 import type { TextCorpusRunResult } from "@ue-shed/game-text";
@@ -83,6 +84,7 @@ function buildRegistrationLayer(recorder: Recorder) {
 			recorder.record("showcase.context").pipe(
 				Effect.as({
 					fixtureConfigured: false,
+					health: aggregateHealth(defaultHealthInput),
 					reader: "configured" as const
 				})
 			)

@@ -1,4 +1,5 @@
 import { it } from "@effect/vitest";
+import { aggregateHealth, defaultHealthInput } from "@ue-shed/observability";
 import { Deferred, Effect, Exit, Layer } from "effect";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -112,7 +113,11 @@ it.effect("ElectronIpc removes handlers when the scope closes", () =>
 				const ipc = yield* ElectronIpc;
 				const test = yield* ElectronIpcTest;
 				yield* ipc.register(invokeContracts["showcase:context"], () =>
-					Effect.succeed({ fixtureConfigured: false, reader: "path" as const })
+					Effect.succeed({
+						fixtureConfigured: false,
+						health: aggregateHealth(defaultHealthInput),
+						reader: "path" as const
+					})
 				);
 				return test;
 			}).pipe(Effect.provide(makeElectronIpcTestLayer()))

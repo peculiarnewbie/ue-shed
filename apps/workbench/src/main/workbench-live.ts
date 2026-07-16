@@ -9,6 +9,7 @@ import {
 } from "@ue-shed/cameras";
 import { AuthoringCatalogLive } from "@ue-shed/authoring-catalog";
 import { TextCorpusServiceLive } from "@ue-shed/game-text";
+import { runtimeObservabilityLayer } from "@ue-shed/observability";
 import { AssetReaderLive } from "@ue-shed/unreal-assets";
 import { RemoteControlClientLive } from "@ue-shed/unreal-connection";
 import { Effect, Layer } from "effect";
@@ -52,6 +53,10 @@ const windowOptions: WorkbenchWindowOptions = {
  */
 function baseLayer(hosts: WorkbenchHosts) {
 	return Layer.mergeAll(
+		runtimeObservabilityLayer({
+			serviceName: "ue-shed-workbench",
+			serviceVersion: "0.0.0"
+		}),
 		electronAppLayer(hosts.app),
 		electronIpcLayer(hosts.ipc),
 		workbenchWindowLayer(windowOptions),

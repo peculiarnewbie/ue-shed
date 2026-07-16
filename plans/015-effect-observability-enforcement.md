@@ -7,6 +7,7 @@
 
 ## Status
 
+- **Status**: DONE
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: MED — telemetry wiring and enforcement touch every runtime but should not change domains
@@ -122,13 +123,14 @@ all migration wording and stale Effect-shell examples.
 
 ## Done criteria
 
-- [ ] CLI and Workbench each provide one telemetry layer at the runtime root.
-- [ ] Health is schema-owned and shared by headless and Workbench clients.
-- [ ] Architecture checker has no legacy allowlist.
-- [ ] `Effect.run*`, Promise-domain APIs, direct env reads, duplicate fetch clients, and unmanaged
+- [x] CLI and Workbench each provide one telemetry layer at the runtime root.
+- [x] Health is schema-owned and shared by headless and Workbench clients.
+- [x] Architecture checker has no legacy allowlist.
+- [x] `Effect.run*`, Promise-domain APIs, direct env reads, duplicate fetch clients, and unmanaged
       resources are absent outside narrow approved adapters.
-- [ ] Any hot-path exemption has benchmark evidence and scoped ownership.
-- [ ] `pnpm check` and `pnpm test:e2e` pass.
+- [x] Any hot-path exemption has benchmark evidence and scoped ownership. No new hot-path exemption
+      was required; the existing camera callback exit is scope-owned foreign-adapter glue.
+- [x] `pnpm check` and `pnpm test:e2e` pass.
 
 ## STOP conditions
 

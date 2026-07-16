@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
 	checkCatalogUsage,
-	checkSourceBaselines,
+	checkSourcePolicy,
+	checkServiceStrategies,
 	checkWorkbenchBoundaries
 } from "./check-effect-architecture.mjs";
 
@@ -22,26 +23,44 @@ after(async () => {
 	await rm(root, { force: true, recursive: true });
 });
 
-test("rejects a new runtime exit outside the migration baseline", async () => {
+test("rejects a runtime exit outside an approved adapter with a line diagnostic", async () => {
 	await writeFile(join(root, "apps/example/src/index.ts"), "Effect.runPromise(program);\n");
-	const failures = await checkSourceBaselines(root, { "Effect.runPromise": {} });
+	const failures = await checkSourcePolicy(root);
 	assert.deepEqual(failures, [
-		"apps/example/src/index.ts: Effect.runPromise count 1 exceeds migration baseline 0"
+		"apps/example/src/index.ts:1: Effect runtime exit is not approved"
 	]);
 });
 
-test("accepts an existing site at or below its migration baseline", async () => {
-	const failures = await checkSourceBaselines(root, {
-		"Effect.runPromise": { "apps/example/src/index.ts": 1 }
-	});
-	assert.deepEqual(failures, []);
+test("rejects Promise services, environment reads, raw fetch, and unmanaged resources", async () => {
+	await writeFile(
+		join(root, "apps/example/src/index.ts"),
+		"interface Bad { run(): Promise<void> }\nprocess.env.BAD\nfetch('x')\nsetInterval(work, 1)\n"
+	);
+	assert.deepEqual(await checkSourcePolicy(root), [
+		"apps/example/src/index.ts:1: Promise type is only allowed in an approved foreign adapter",
+		"apps/example/src/index.ts:2: application configuration must use Effect Config",
+		"apps/example/src/index.ts:3: raw fetch is not an approved transport",
+		"apps/example/src/index.ts:4: long-lived resource must be owned by an approved scoped adapter"
+	]);
+});
+
+test("requires every Context service to name operations and provide a layer strategy", async () => {
+	await writeFile(
+		join(root, "apps/example/src/index.ts"),
+		"export class Bad extends Context.Service<Bad, {}>()('Bad') {}\n"
+	);
+	assert.deepEqual(await checkServiceStrategies(root), [
+		"apps/example/src/index.ts: service declaration has no live or test layer strategy",
+		"apps/example/src/index.ts: service operations must use Effect.fn"
+	]);
 });
 
 test("requires catalog-owned dependencies to use catalog protocol", async () => {
 	await writeFile(
 		join(root, "pnpm-workspace.yaml"),
-		`catalog:\n  "@effect/vitest": "4.0.0-beta.98"\n  "@stylexjs/rollup-plugin": "^0.19.0"\n  "@stylexjs/stylex": "^0.19.0"\n  effect: "4.0.0-beta.98"\n  solid-js: "^1.9.14"\n  vite-plugin-solid: "^2.11.12"\n`
+		`catalog:\n  "@effect/opentelemetry": "4.0.0-beta.98"\n  "@effect/vitest": "4.0.0-beta.98"\n  "@opentelemetry/api": "^1.9.0"\n  "@opentelemetry/api-logs": "^0.205.0"\n  "@opentelemetry/resources": "^2.2.0"\n  "@opentelemetry/sdk-logs": "^0.205.0"\n  "@opentelemetry/sdk-metrics": "^2.2.0"\n  "@opentelemetry/sdk-trace-base": "^2.2.0"\n  "@opentelemetry/sdk-trace-node": "^2.2.0"\n  "@opentelemetry/sdk-trace-web": "^2.2.0"\n  "@opentelemetry/semantic-conventions": "^1.38.0"\n  "@stylexjs/rollup-plugin": "^0.19.0"\n  "@stylexjs/stylex": "^0.19.0"\n  effect: "4.0.0-beta.98"\n  solid-js: "^1.9.14"\n  vite-plugin-solid: "^2.11.12"\n`
 	);
+	await writeFile(join(root, "pnpm-lock.yaml"), "effect@4.0.0-beta.98:\n");
 	await writeFile(
 		join(root, "package.json"),
 		JSON.stringify({ dependencies: { effect: "^3.22.0" } })

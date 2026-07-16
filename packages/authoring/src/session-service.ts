@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { Clock, Context, Effect, Exit, Layer, Option, Schema, Semaphore } from "effect";
+import { recordAuthoringTransition } from "@ue-shed/observability";
 import {
 	DraftSessionSchema,
 	appendCommandGroup,
@@ -900,6 +901,11 @@ function makeAuthoringSessionServiceEffect(): Effect.Effect<
 												)
 											)
 								).pipe(Effect.uninterruptible, Effect.asVoid)
+					),
+					Effect.onExit((exit) =>
+						recordAuthoringTransition(
+							Exit.isSuccess(exit) ? "apply.success" : "apply.indeterminate"
+						)
 					)
 				);
 			}),
@@ -960,6 +966,11 @@ function makeAuthoringSessionServiceEffect(): Effect.Effect<
 												)
 											)
 								).pipe(Effect.uninterruptible, Effect.asVoid)
+					),
+					Effect.onExit((exit) =>
+						recordAuthoringTransition(
+							Exit.isSuccess(exit) ? "save.success" : "save.indeterminate"
+						)
 					)
 				);
 			}),

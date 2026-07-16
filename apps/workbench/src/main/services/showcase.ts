@@ -1,4 +1,5 @@
 import { AssetReader } from "@ue-shed/unreal-assets";
+import { RuntimeHealthService } from "@ue-shed/observability";
 import { Context, Effect, Layer } from "effect";
 import { LocalFiles } from "../adapters/local-files.js";
 import type { ShowcaseContext } from "../ipc-contracts.js";
@@ -18,8 +19,10 @@ export const ShowcaseLive = Layer.effect(
 		const configuration = yield* WorkbenchConfiguration;
 		const assetReader = yield* AssetReader;
 		const localFiles = yield* LocalFiles;
+		const health = yield* RuntimeHealthService;
 
 		const context = Effect.fn("Workbench.Showcase.context")(function* () {
+			const runtimeHealth = yield* health.snapshot();
 			const reader = yield* assetReader.source();
 			const projectRoot =
 				configuration.project.status === "configured"
@@ -35,6 +38,7 @@ export const ShowcaseLive = Layer.effect(
 				fixtureConfigured: Boolean(
 					projectRoot && ruleFile && projectExists && ruleFileExists
 				),
+				health: runtimeHealth,
 				...(projectRoot ? { projectRoot } : {}),
 				reader,
 				...(ruleFile ? { ruleFile } : {})

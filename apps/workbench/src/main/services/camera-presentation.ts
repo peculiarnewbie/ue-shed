@@ -1,3 +1,4 @@
+import { recordCameraReplacements, recordStreamState } from "@ue-shed/observability";
 import {
 	CameraFeed,
 	configureCameras,
@@ -173,6 +174,18 @@ export const CameraPresentationLive = Layer.effect(
 
 		const metrics = Effect.fn("Workbench.CameraPresentation.metrics")(function* () {
 			const feedMetrics = yield* feed.metrics;
+			const presentationReplacements = yield* Ref.get(replacements);
+			const currentPresentationState = yield* Ref.get(presentationState);
+			yield* recordCameraReplacements(
+				feedMetrics.deliveryReplacements +
+					feedMetrics.receiverReplacements +
+					presentationReplacements
+			);
+			yield* recordStreamState({
+				drops: feedMetrics.deliveryReplacements,
+				gaps: feedMetrics.malformedFrames,
+				queueDepth: HashMap.size(currentPresentationState.pending)
+			});
 			const processMetrics = yield* electronApp.getAppMetrics();
 			const electronPrivateMemoryMb =
 				processMetrics.reduce(
@@ -190,7 +203,7 @@ export const CameraPresentationLive = Layer.effect(
 				gpuProcessPrivateMemoryMb,
 				presentationBudgetMbPerSecond: yield* Ref.get(budget),
 				presentationFramesSent: yield* Ref.get(framesSent),
-				presentationReplacements: yield* Ref.get(replacements)
+				presentationReplacements
 			} satisfies WorkbenchCameraMetrics;
 		});
 

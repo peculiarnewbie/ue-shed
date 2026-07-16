@@ -8,6 +8,7 @@ const SessionProject = { projectRoot: Schema.String, sessionId: Schema.String };
 export const CliCommand = Schema.TaggedUnion({
 	Help: {},
 	Version: {},
+	Doctor: {},
 	AuditTextures: { ...Project, ruleFile: Schema.String, ...Reader },
 	AuthoringTables: { ...Project, ...Reader },
 	AuthoringCatalog: { ...Project, endpoint: Schema.optionalKey(Schema.String), ...Reader },
@@ -111,6 +112,7 @@ Usage:
   ue-shed review history <project-root>
   ue-shed review show <run-json>
   ue-shed version
+  ue-shed doctor
   ue-shed help
 
 The reader defaults to UE_SHED_UASSET_EXECUTABLE or uasset on PATH.`;
@@ -409,6 +411,7 @@ export function parseCliCommand(args: readonly string[]): Effect.Effect<CliComma
 			return CliCommand.cases.Help.make({});
 		if (["version", "--version", "-v"].includes(command))
 			return CliCommand.cases.Version.make({});
+		if (command === "doctor") return CliCommand.cases.Doctor.make({});
 		if (command === "authoring") return yield* parseAuthoring(rest);
 		if (command === "audit") {
 			const [kind, projectRoot, ...flags] = rest;

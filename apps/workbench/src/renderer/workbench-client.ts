@@ -1,4 +1,5 @@
 import { CameraStatus, decodeCameraStatus, type CameraScheduleConfig } from "@ue-shed/protocol";
+import { RuntimeHealth } from "@ue-shed/observability/health";
 import { Effect, Exit, Queue, Schedule, Schema, Stream } from "effect";
 import type {
 	FixtureLaunchResult,
@@ -18,6 +19,7 @@ export class WorkbenchRendererError extends Schema.TaggedErrorClass<WorkbenchRen
 
 const ShowcaseContextSchema = Schema.Struct({
 	fixtureConfigured: Schema.Boolean,
+	health: RuntimeHealth,
 	projectRoot: Schema.optionalKey(Schema.String),
 	reader: Schema.Literals(["configured", "path"]),
 	ruleFile: Schema.optionalKey(Schema.String)

@@ -38,6 +38,12 @@ import {
 } from "@ue-shed/cameras";
 import { searchTextCorpus, TextCorpusService, TextCorpusServiceLive } from "@ue-shed/game-text";
 import { CURRENT_PROTOCOL_VERSION } from "@ue-shed/protocol";
+import {
+	aggregateHealth,
+	defaultHealthInput,
+	observeOperation,
+	RuntimeHealthService
+} from "@ue-shed/observability";
 import { assetReaderLayer, AssetReader, AssetReaderLive } from "@ue-shed/unreal-assets";
 import { connectUnrealAuthoring, RemoteControlClientLive } from "@ue-shed/unreal-connection";
 import { Clock, Context, Effect, Layer, Schema } from "effect";
@@ -215,6 +221,14 @@ export function executeCommand(
 	const program = Effect.gen(function* () {
 		const runtime = yield* CliRuntime;
 		switch (command._tag) {
+			case "Doctor": {
+				const health = yield* Effect.serviceOption(RuntimeHealthService);
+				return yield* printJson(
+					health._tag === "Some"
+						? yield* health.value.snapshot()
+						: aggregateHealth(defaultHealthInput)
+				);
+			}
 			case "Help":
 				return yield* runtime.print(`${help}\n`);
 			case "Version":
@@ -557,7 +571,7 @@ export function executeCommand(
 		reviewCaptureRemotePortLayer(captureEndpoint).pipe(Layer.provide(RemoteControlClientLive))
 	);
 	const capture = ReviewCaptureLive.pipe(Layer.provide(captureDependencies));
-	return program.pipe(
+	return observeOperation(`Cli.${command._tag}`, program).pipe(
 		Effect.provide(readerLayer(reader)),
 		Effect.provide(RemoteControlClientLive),
 		Effect.provide(DraftSessionRepositoryLive),

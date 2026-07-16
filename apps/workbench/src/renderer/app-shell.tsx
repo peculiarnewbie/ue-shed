@@ -162,6 +162,11 @@ function ShowcaseHome() {
 
 			<section aria-label="Showcase readiness" {...stylex.props(styles.readiness)}>
 				<Readiness
+					label="Runtime health"
+					ready={context()?.health.status === "healthy"}
+					value={context()?.health.status ?? "loading"}
+				/>
+				<Readiness
 					label="Fixture preset"
 					ready={context()?.fixtureConfigured === true}
 					value={context()?.fixtureConfigured ? "committed corpus" : "not configured"}

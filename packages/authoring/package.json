@@ -14,6 +14,7 @@
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.0.1",
+		"@ue-shed/observability": "workspace:*",
 		"@ue-shed/protocol": "workspace:*",
 		"effect": "catalog:"
 	}

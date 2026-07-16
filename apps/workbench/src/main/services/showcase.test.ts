@@ -1,5 +1,6 @@
 import { it } from "@effect/vitest";
 import { makeAssetReaderTestLayer, type AssetReaderShape } from "@ue-shed/unreal-assets";
+import { aggregateHealth, defaultHealthInput, runtimeHealthLayer } from "@ue-shed/observability";
 import { Effect, Layer } from "effect";
 import { expect } from "vitest";
 import { makeLocalFilesTestLayer } from "../adapters/local-files.js";
@@ -21,6 +22,7 @@ it.effect("reports fixture configured when project and rules exist", () =>
 		const context = yield* showcase.context();
 		expect(context).toEqual({
 			fixtureConfigured: true,
+			health: aggregateHealth(defaultHealthInput),
 			projectRoot: "C:/FixtureProject",
 			reader: "configured",
 			ruleFile: "C:/rules.json"
@@ -40,6 +42,7 @@ it.effect("reports fixture configured when project and rules exist", () =>
 							textureAuditRules: { status: "configured", path: "C:/rules.json" }
 						}),
 						makeAssetReaderTestLayer(stubReader("configured")),
+						runtimeHealthLayer(),
 						makeLocalFilesTestLayer(
 							new Map([
 								["C:/FixtureProject", new Uint8Array()],
@@ -57,7 +60,11 @@ it.effect("reports fixture not configured when nothing is set", () =>
 	Effect.gen(function* () {
 		const showcase = yield* Showcase;
 		const context = yield* showcase.context();
-		expect(context).toEqual({ fixtureConfigured: false, reader: "path" });
+		expect(context).toEqual({
+			fixtureConfigured: false,
+			health: aggregateHealth(defaultHealthInput),
+			reader: "path"
+		});
 	}).pipe(
 		Effect.provide(
 			ShowcaseLive.pipe(
@@ -73,6 +80,7 @@ it.effect("reports fixture not configured when nothing is set", () =>
 							textureAuditRules: { status: "not_configured" }
 						}),
 						makeAssetReaderTestLayer(stubReader("path")),
+						runtimeHealthLayer(),
 						makeLocalFilesTestLayer()
 					)
 				)
@@ -101,6 +109,7 @@ it.effect("reports fixture not configured when configured paths are missing on d
 							textureAuditRules: { status: "configured", path: "C:/rules.json" }
 						}),
 						makeAssetReaderTestLayer(stubReader("configured")),
+						runtimeHealthLayer(),
 						makeLocalFilesTestLayer()
 					)
 				)

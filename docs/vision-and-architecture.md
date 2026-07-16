@@ -94,6 +94,7 @@ crates/
   uasset-parser/               # Native read-only UAsset library and `uasset` CLI
 packages/
   protocol/                    # Wire primitives, runtime schemas, compatibility
+  observability/               # Shared telemetry policy, metrics, and public health
   host/                        # Lifecycle and static extension composition
   unreal-connection/           # Remote Control and companion transports
   engine-discovery/            # Installed engines, projects, processes, sessions
@@ -139,6 +140,19 @@ known. A boundary becomes code when a vertical slice exercises it.
   on a desktop client.
 - Studio distributions can compose public extensions with private ones without changing public
   packages.
+
+## Runtime service graph
+
+Headless domain services depend on protocol, saved-asset, and Unreal connection services. The CLI
+provides those layers plus its console boundary and the shared observability layer at one root.
+Workbench main provides the same domain layers through Electron adapters and exposes only validated
+IPC contracts. The renderer owns a separate browser runtime whose Effect-native clients adapt the
+Promise-shaped preload boundary once. Solid components receive public client services and use the
+shared owner-scoped lifetime adapter; they do not own transport or persistence.
+
+Both process roots install `@ue-shed/observability`. Its health service is the authority used by
+headless `doctor` output and Workbench readiness. OpenTelemetry export is optional for local use;
+configuration and degradation remain visible without making a remote backend a startup dependency.
 
 Static composition is the default. A checked-in registry or build-time imports are observable,
 type-safe, and easy to package. Runtime loading of arbitrary third-party JavaScript would introduce

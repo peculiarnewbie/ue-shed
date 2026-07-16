@@ -33,9 +33,23 @@ Keep pure calculations as plain functions. Effect is not part of the wire protoc
 Pure transformations remain plain immutable functions and compose inside workflows. An exemption
 for a measured hot path requires a benchmark and a documented adapter boundary.
 
-`pnpm effect:architecture` prevents new runtime exits, public Promise surfaces, direct environment
-reads, and raw fetch calls outside the reviewed migration baseline. Change that baseline only for a
-documented foreign-framework adapter or benchmarked exception.
+`pnpm effect:architecture` enforces a zero-debt policy for runtime exits, public Promise surfaces,
+direct environment reads, raw fetch calls, and unmanaged long-lived resources. Approved sites are
+named files at foreign-framework boundaries, never count baselines or directory-wide exceptions.
+Every `Context.Service` must have live/test layer evidence and named operations. A measured hot-path
+exception also requires a repeatable benchmark, explicit cleanup ownership, and a written rationale.
+
+## Composition roots and exits
+
+- The CLI builds `CliLive` once and exits through the single `Effect.runPromiseExit` in
+  `apps/cli/src/index.ts`.
+- Workbench main builds `WorkbenchLive` once as a `ManagedRuntime`; Electron lifecycle adaptation and
+  disposal stay in `apps/workbench/src/main/main.ts`.
+- The renderer builds one `ManagedRuntime` from browser-safe client services. Promise-shaped preload
+  calls are adapted once in renderer transport files; Solid owners launch and interrupt work through
+  `@ue-shed/ui`'s Effect adapter.
+- Node sockets, Electron callbacks, preload IPC, and browser lifecycle callbacks are foreign adapters.
+  Their files own registration and cleanup and are named explicitly by the architecture checker.
 
 ## Tests
 

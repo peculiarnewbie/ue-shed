@@ -1,4 +1,5 @@
 import { it } from "@effect/vitest";
+import { aggregateHealth, defaultHealthInput } from "@ue-shed/observability";
 import { Effect, Exit, Result, Schema } from "effect";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -146,7 +147,11 @@ const validResultByChannel: Record<InvokeChannel, unknown> = {
 		message: "unavailable",
 		recovery: "start the fixture"
 	},
-	"showcase:context": { fixtureConfigured: false, reader: "path" },
+	"showcase:context": {
+		fixtureConfigured: false,
+		health: aggregateHealth(defaultHealthInput),
+		reader: "path"
+	},
 	"asset-audits:textures:configured-scan": { status: "not_configured" },
 	"asset-audits:textures:choose-and-scan": { status: "cancelled" },
 	"asset-audits:textures:preview": {
