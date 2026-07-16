@@ -16,21 +16,18 @@ const catalogOwned = new Set([
 const legacyBaselines = {
 	"Effect.runPromise": {
 		"apps/cli/src/index.ts": 23,
-		"apps/workbench/src/main/main.ts": 21,
 		"apps/workbench/src/renderer/asset-audits-client.ts": 2,
 		"apps/workbench/src/renderer/authoring-client.ts": 9,
 		"apps/workbench/src/renderer/game-text-client.ts": 1,
 		"apps/workbench/src/renderer/map-review-client.ts": 5
 	},
 	"Effect.runSync": {
-		"apps/cli/src/index.ts": 1,
-		"apps/workbench/src/main/main.ts": 1
+		"apps/cli/src/index.ts": 1
 	},
 	"Promise<": {
 		"apps/cli/src/index.ts": 5,
 		"apps/workbench/src/main/adapters/electron-app.ts": 1,
 		"apps/workbench/src/main/adapters/electron-ipc.ts": 4,
-		"apps/workbench/src/main/main.ts": 32,
 		"apps/workbench/src/main/preload.ts": 28,
 		"apps/workbench/src/renderer/global.d.ts": 28,
 		"apps/workbench/src/renderer/asset-audits-client.ts": 2,
@@ -48,17 +45,34 @@ const legacyBaselines = {
 	},
 	"process.env": {
 		"apps/workbench/src/main/adapters/fixture-process.ts": 1,
-		"apps/workbench/src/main/main.ts": 16,
 		"packages/unreal-assets/src/index.ts": 1
 	},
-	"fetch(": {
-		"apps/workbench/src/main/main.ts": 2
-	}
+	"fetch(": {}
 };
+
+const workbenchMainBootstrap = "apps/workbench/src/main/main.ts";
+const workbenchMainAdaptersPrefix = "apps/workbench/src/main/adapters/";
+const workbenchFixtureProcessAdapter = "apps/workbench/src/main/adapters/fixture-process.ts";
+
+function isWorkbenchMainSource(path) {
+	return path.startsWith("apps/workbench/src/main/") && path.endsWith(".ts");
+}
+
+function isWorkbenchBootstrapOrAdapter(path) {
+	return path === workbenchMainBootstrap || path.startsWith(workbenchMainAdaptersPrefix);
+}
 
 async function filesUnder(root, directory) {
 	const absolute = join(root, directory);
-	const entries = await readdir(absolute, { withFileTypes: true });
+	let entries;
+	try {
+		entries = await readdir(absolute, { withFileTypes: true });
+	} catch (error) {
+		if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+			return [];
+		}
+		throw error;
+	}
 	const files = [];
 	for (const entry of entries) {
 		if (entry.name === "node_modules" || entry.name === "e2e") continue;
@@ -252,11 +266,64 @@ export async function checkDomainServices(root = repositoryRoot) {
 	return failures;
 }
 
+export async function checkWorkbenchBoundaries(root = repositoryRoot) {
+	const failures = [];
+	const sourceFiles = (
+		await Promise.all(sourceRoots.map((directory) => filesUnder(root, directory)))
+	).flat();
+
+	for (const absolute of sourceFiles) {
+		if (!/\.tsx?$/.test(absolute) || /\.(?:integration\.)?test\.tsx?$/.test(absolute)) continue;
+		const path = relative(root, absolute).replaceAll("\\", "/");
+		const text = await readFile(absolute, "utf8");
+
+		if (isWorkbenchMainSource(path)) {
+			if (text.includes("Effect.runPromise") || text.includes("Effect.runSync")) {
+				failures.push(
+					`${path}: Workbench main must not call Effect.runPromise or Effect.runSync`
+				);
+			}
+			if (text.includes("fetch(")) {
+				failures.push(`${path}: Workbench main must not call raw fetch`);
+			}
+			if (text.includes("process.env") && path !== workbenchFixtureProcessAdapter) {
+				failures.push(
+					`${path}: Workbench main must not read process.env outside FixtureProcess`
+				);
+			}
+			if (text.includes("ipcMain.handle") && !isWorkbenchBootstrapOrAdapter(path)) {
+				failures.push(
+					`${path}: ipcMain.handle is only allowed in the Electron bootstrap or adapters`
+				);
+			}
+			if (
+				(/from ["']electron\/main["']/.test(text) ||
+					/import\(["']electron\/main["']\)/.test(text)) &&
+				!isWorkbenchBootstrapOrAdapter(path)
+			) {
+				failures.push(
+					`${path}: electron/main imports are only allowed in the Electron bootstrap or adapters`
+				);
+			}
+		}
+
+		if (path.startsWith("packages/") && /from ["'][^"']*apps\/workbench/.test(text)) {
+			failures.push(`${path}: packages must not import apps/workbench`);
+		}
+		if (path.startsWith("packages/") && text.includes("@ue-shed/workbench")) {
+			failures.push(`${path}: packages must not depend on @ue-shed/workbench`);
+		}
+	}
+
+	return failures;
+}
+
 export async function checkArchitecture(root = repositoryRoot) {
 	return [
 		...(await checkCatalogUsage(root)),
 		...(await checkSourceBaselines(root)),
-		...(await checkDomainServices(root))
+		...(await checkDomainServices(root)),
+		...(await checkWorkbenchBoundaries(root))
 	];
 }
 
