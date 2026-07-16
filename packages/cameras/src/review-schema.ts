@@ -2,6 +2,9 @@ import { Schema } from "effect";
 
 const NonEmptyString = Schema.String.check(Schema.isMinLength(1));
 const SafeIdentifier = NonEmptyString.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/));
+const SafeRelativePath = NonEmptyString.check(
+	Schema.isPattern(/^(?![A-Za-z]:)(?![\\/])(?!\.\.(?:[\\/]|$))(?!.*[\\/]\.\.(?:[\\/]|$)).+$/)
+);
 
 export const ReviewSetId = SafeIdentifier.pipe(Schema.brand("ReviewSetId"));
 export type ReviewSetId = Schema.Schema.Type<typeof ReviewSetId>;
@@ -258,7 +261,7 @@ export const CaptureArtifact = Schema.Struct({
 	height: Schema.Int.check(Schema.isGreaterThan(0)),
 	id: ArtifactId,
 	mediaType: Schema.Literal("image/png"),
-	relativePath: NonEmptyString,
+	relativePath: SafeRelativePath,
 	variant: Schema.Literal("pure"),
 	width: Schema.Int.check(Schema.isGreaterThan(0))
 });

@@ -29,6 +29,7 @@
 		"solid-js": "catalog:"
 	},
 	"devDependencies": {
+		"@effect/vitest": "catalog:",
 		"@playwright/test": "^1.61.1",
 		"@stylexjs/rollup-plugin": "catalog:",
 		"electron": "^43.1.0",
