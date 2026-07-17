@@ -2,6 +2,12 @@
 	"schemaVersion": 2,
 	"slice": "data-authoring",
 	"description": "Maintained Solid and StyleX DataTable authoring workflow",
+	"kit": {
+		"entrypoints": [
+			"extensions/data-authoring/ADOPTING.md",
+			"extensions/data-authoring/adoption.manifest.json"
+		]
+	},
 	"provenance": {
 		"repository": "ue-shed",
 		"recordSourceCommitAtAdoption": true,

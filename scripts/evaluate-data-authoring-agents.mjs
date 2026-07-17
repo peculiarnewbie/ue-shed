@@ -1,18 +1,101 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = join(repositoryRoot, "extensions", "data-authoring", "adoption.manifest.json");
-const evaluationRoot = join(repositoryRoot, "test-results", "data-authoring-agent-eval");
-const sourceKitRoot = join(evaluationRoot, "source-kit");
+const evidenceRoot = join(repositoryRoot, "test-results", "data-authoring-agent-eval");
 const cursorLauncher = join(process.env.LOCALAPPDATA ?? "", "cursor-agent", "cursor-agent.ps1");
+const defaultModels = {
+	claude: "sonnet",
+	cursor: "cursor-grok-4.5-high",
+	opencode: "opencode-go/glm-5.2"
+};
+
+function fail(message) {
+	throw new Error(`Data Authoring agent evaluation failed: ${message}`);
+}
+
+function readFlag(args, index) {
+	const [name, inline] = args[index].split("=", 2);
+	if (inline !== undefined) return { consumed: 1, name, value: inline };
+	const value = args[index + 1];
+	if (!value || value.startsWith("--")) fail(`${name} requires a value`);
+	return { consumed: 2, name, value };
+}
+
+function parseOptions() {
+	const args = process.argv.slice(2);
+	const positional = [];
+	const flags = {};
+	let verifyOnly = false;
+	for (let index = 0; index < args.length; ) {
+		const argument = args[index];
+		if (argument === "--verify-only") {
+			verifyOnly = true;
+			index += 1;
+			continue;
+		}
+		if (!argument.startsWith("--")) {
+			positional.push(argument);
+			index += 1;
+			continue;
+		}
+		const flag = readFlag(args, index);
+		if (
+			!["--label", "--model", "--timeout-seconds", "--variant", "--workspace-root"].includes(
+				flag.name
+			)
+		) {
+			fail(`unknown option '${flag.name}'`);
+		}
+		flags[flag.name.slice(2)] = flag.value;
+		index += flag.consumed;
+	}
+
+	const knownAgents = Object.keys(defaultModels);
+	const selectedAgents =
+		positional.length === 0 || positional.includes("all") ? knownAgents : positional;
+	for (const name of selectedAgents) {
+		if (!(name in defaultModels)) fail(`unknown agent '${name}'`);
+	}
+	const uniqueAgents = [...new Set(selectedAgents)];
+	if ((flags.model || flags.variant || flags.label) && uniqueAgents.length !== 1) {
+		fail("--model, --variant, and --label require exactly one selected agent");
+	}
+	const timeoutSeconds = Number(flags["timeout-seconds"] ?? 900);
+	if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+		fail("--timeout-seconds must be a positive number");
+	}
+	const label = flags.label ?? uniqueAgents[0];
+	if (label && !/^[a-z0-9][a-z0-9._-]*$/i.test(label)) {
+		fail("--label may contain only letters, numbers, dots, underscores, and hyphens");
+	}
+	return {
+		label,
+		model: flags.model,
+		selectedAgents: uniqueAgents,
+		timeoutMs: timeoutSeconds * 1000,
+		variant: flags.variant,
+		verifyOnly,
+		workspaceRoot: resolve(
+			flags["workspace-root"] ?? join(tmpdir(), "ue-shed-data-authoring-agent-eval")
+		)
+	};
+}
+
+const options = parseOptions();
+const workspaceRoot = options.workspaceRoot;
+const sourceKitRoot = join(workspaceRoot, "source-kit");
+const emptyNpmConfig = join(evidenceRoot, "empty-npmrc");
+
 const agents = {
 	cursor: {
 		command: "powershell.exe",
-		args: (target, prompt) => [
+		args: ({ model, prompt, target }) => [
 			"-NoProfile",
 			"-ExecutionPolicy",
 			"Bypass",
@@ -24,7 +107,7 @@ const agents = {
 			"--add-dir",
 			sourceKitRoot,
 			"--model",
-			"cursor-grok-4.5-high",
+			model,
 			"--output-format",
 			"json",
 			"--sandbox",
@@ -46,26 +129,27 @@ const agents = {
 				}
 			})
 		},
-		args: (target, prompt) => [
+		args: ({ label, model, prompt, target, variant }) => [
 			"run",
 			"--pure",
 			"--model",
-			"opencode-go/glm-5.2",
+			model,
+			...(variant ? ["--variant", variant] : []),
 			"--format",
 			"json",
 			"--dir",
 			target,
 			"--title",
-			"UE Shed Data Authoring adoption evaluation",
+			`UE Shed Data Authoring adoption evaluation - ${label}`,
 			prompt
 		]
 	},
 	claude: {
 		command: "claude.exe",
-		args: (target, prompt) => [
+		args: ({ model, prompt }) => [
 			"--print",
 			"--model",
-			"sonnet",
+			model,
 			"--safe-mode",
 			"--no-session-persistence",
 			"--output-format",
@@ -88,45 +172,66 @@ const agents = {
 	}
 };
 
-function fail(message) {
-	throw new Error(`Data Authoring agent evaluation failed: ${message}`);
+function credentialHostileEnvironment(extra = {}) {
+	return {
+		...process.env,
+		AWS_ACCESS_KEY_ID: "",
+		AWS_SECRET_ACCESS_KEY: "",
+		AWS_SESSION_TOKEN: "",
+		CI: "1",
+		CLOUDFLARE_API_TOKEN: "",
+		GH_TOKEN: "",
+		GITHUB_TOKEN: "",
+		NODE_AUTH_TOKEN: "",
+		NO_COLOR: "1",
+		NPM_CONFIG_USERCONFIG: emptyNpmConfig,
+		NPM_TOKEN: "",
+		...extra
+	};
 }
 
-function parseOptions() {
-	const args = process.argv.slice(2);
-	const verifyOnly = args[0] === "--verify-only";
-	const selected = verifyOnly ? args.slice(1) : args;
-	if (selected.length === 0 || selected.includes("all")) {
-		return { selectedAgents: Object.keys(agents), verifyOnly };
-	}
-	for (const name of selected) {
-		if (!(name in agents)) fail(`unknown agent '${name}'`);
-	}
-	return { selectedAgents: [...new Set(selected)], verifyOnly };
-}
-
-function run(command, args, options = {}) {
+function run(command, args, runOptions = {}) {
 	const result = spawnSync(command, args, {
-		cwd: options.cwd ?? repositoryRoot,
+		cwd: runOptions.cwd ?? repositoryRoot,
 		encoding: "utf8",
-		env: { ...process.env, CI: "1", NO_COLOR: "1", ...options.env },
+		env: credentialHostileEnvironment(runOptions.env),
 		maxBuffer: 32 * 1024 * 1024,
 		shell: false,
-		timeout: options.timeout ?? 15 * 60 * 1000,
+		timeout: runOptions.timeout ?? 15 * 60 * 1000,
 		windowsHide: true
 	});
 	return {
 		error: result.error?.message,
 		status: result.status,
 		stderr: result.stderr ?? "",
-		stdout: result.stdout ?? ""
+		stdout: result.stdout ?? "",
+		timedOut: result.error?.code === "ETIMEDOUT"
 	};
+}
+
+function terminateProcessTree(pid) {
+	if (!pid) return;
+	if (process.platform === "win32") {
+		spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+			stdio: "ignore",
+			windowsHide: true
+		});
+		return;
+	}
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		try {
+			process.kill(pid, "SIGTERM");
+		} catch {}
+	}
 }
 
 function redactSecrets(value) {
 	return value
 		.replace(/(_authToken\s*=\s*)[^\\\r\n"]+/gi, "$1[REDACTED]")
-		.replace(/\bnpm_[A-Za-z0-9]+\b/g, "[REDACTED_NPM_TOKEN]");
+		.replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "[REDACTED_NPM_TOKEN]")
+		.replace(/\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b/gi, "[REDACTED_GITHUB_TOKEN]");
 }
 
 function secretFindings(value) {
@@ -139,30 +244,97 @@ function secretFindings(value) {
 	return findings;
 }
 
-async function redactEvaluationLogs() {
-	let entries;
+async function runAgent({ agent, args, label, target, timeoutMs }) {
+	const latestStdout = join(evidenceRoot, `${label}-stdout.log`);
+	const latestStderr = join(evidenceRoot, `${label}-stderr.log`);
+	const launchRoot = join(workspaceRoot, "launches");
+	await mkdir(launchRoot, { recursive: true });
+	const rawStdout = join(launchRoot, `${label}-stdout.raw.log`);
+	const rawStderr = join(launchRoot, `${label}-stderr.raw.log`);
+	const configPath = join(launchRoot, `${label}.json`);
+	await writeFile(
+		configPath,
+		`${JSON.stringify(
+			{
+				arguments: [...args],
+				command: agent.command,
+				cwd: target,
+				stderrPath: rawStderr,
+				stdoutPath: rawStdout
+			},
+			null,
+			2
+		)}\n`
+	);
+	let spawnError;
+	let timedOut = false;
+	const child = spawn(
+		process.platform === "win32" ? "pwsh.exe" : "pwsh",
+		[
+			"-NoProfile",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-File",
+			join(repositoryRoot, "scripts", "run-agent-process.ps1"),
+			"-ConfigPath",
+			configPath
+		],
+		{
+			cwd: repositoryRoot,
+			detached: process.platform !== "win32",
+			env: credentialHostileEnvironment(agent.env),
+			shell: false,
+			stdio: "ignore",
+			windowsHide: true
+		}
+	);
+	child.on("error", (error) => {
+		spawnError = error;
+	});
+	const timer = setTimeout(() => {
+		timedOut = true;
+		terminateProcessTree(child.pid);
+	}, timeoutMs);
+	const status = await new Promise((resolveStatus) => {
+		child.on("close", (code) => resolveStatus(code));
+	});
+	clearTimeout(timer);
+	let stdout = "";
+	let stderr = "";
 	try {
-		entries = await readdir(evaluationRoot, { withFileTypes: true });
-	} catch {
-		return;
-	}
-	for (const entry of entries) {
-		if (!entry.isFile() || !/-(?:stdout|stderr)\.log$/.test(entry.name)) continue;
-		const path = join(evaluationRoot, entry.name);
-		const original = await readFile(path, "utf8");
-		const redacted = redactSecrets(original);
-		if (redacted !== original) await writeFile(path, redacted);
-	}
+		stdout = await readFile(rawStdout, "utf8");
+	} catch {}
+	try {
+		stderr = await readFile(rawStderr, "utf8");
+	} catch {}
+	await writeFile(latestStdout, redactSecrets(stdout));
+	await writeFile(latestStderr, redactSecrets(stderr));
+	const attempt = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
+	await copyFile(latestStdout, join(evidenceRoot, `${label}-${attempt}-stdout.log`));
+	await copyFile(latestStderr, join(evidenceRoot, `${label}-${attempt}-stderr.log`));
+	await Promise.all([
+		rm(configPath, { force: true }),
+		rm(rawStdout, { force: true }),
+		rm(rawStderr, { force: true })
+	]);
+	return {
+		error: timedOut ? `timed out after ${timeoutMs / 1000} seconds` : spawnError?.message,
+		secretFindings: [...new Set([...secretFindings(stdout), ...secretFindings(stderr)])],
+		status,
+		stderr,
+		stdout,
+		timedOut
+	};
 }
 
-function runPnpm(args, options = {}) {
-	return run(process.platform === "win32" ? "pnpm.exe" : "pnpm", args, options);
+function runPnpm(args, runOptions = {}) {
+	return run(process.platform === "win32" ? "pnpm.exe" : "pnpm", args, runOptions);
 }
 
 async function copyEntry(entry) {
 	const source = resolve(repositoryRoot, entry);
-	const relativeSource = relative(repositoryRoot, source);
-	if (relativeSource.startsWith("..")) fail(`copy entry escapes the repository: ${entry}`);
+	if (relative(repositoryRoot, source).startsWith(".."))
+		fail(`copy entry escapes repository: ${entry}`);
 	const destination = join(sourceKitRoot, entry);
 	await mkdir(dirname(destination), { recursive: true });
 	await cp(source, destination, { recursive: (await stat(source)).isDirectory() });
@@ -192,8 +364,7 @@ async function treeDigest(root) {
 async function prepareSourceKit(manifest, sourceCommit) {
 	await rm(sourceKitRoot, { force: true, recursive: true });
 	await mkdir(sourceKitRoot, { recursive: true });
-	await copyEntry("extensions/data-authoring/ADOPTING.md");
-	await copyEntry("extensions/data-authoring/adoption.manifest.json");
+	for (const entry of manifest.kit.entrypoints) await copyEntry(entry);
 	await copyEntry(manifest.materialize.script);
 	await copyEntry(manifest.provenance.schema);
 	await copyEntry(manifest.provenance.template);
@@ -220,27 +391,123 @@ Start by reading only these adoption entrypoints:
 Treat the manifest as the source of truth. Do not inspect or modify the original UE Shed repository,
 any Workbench code, another agent's target, or a pre-generated adoption result.
 
-Complete the adoption in the empty target:
-1. Use the declared materializer to create the standalone consumer. Do not hand-copy unless it
-   reports a concrete blocker.
-2. Preserve the kernel-versus-owned boundary.
-3. Pass source commit ${sourceCommit} to the materializer and preserve its generated provenance.
-4. Render AuthoringRoute through EffectRuntimeProvider with the deterministic in-memory client.
-5. Configure StyleX runtime injection for development and production stylex.css extraction.
-6. Demonstrate adopter ownership by changing only the applied theme's colorAccent to #ff6b6b.
-7. Install dependencies offline and run the target's exact portable verification command.
-8. Write ADOPTION-REPORT.md with commands run, verification results, ambiguities, workarounds, and
-   every file you needed that was not declared by the manifest.
+Follow the guide's first-pass fast path. Run the materializer, change only the applied theme's
+colorAccent to #ff6b6b, install offline, and run the exact target verifier. Do not enumerate the
+template, inspect generated implementation files other than the theme, guess alternate paths, or run
+Git commands unless a command fails and names a file to inspect.
+
+Preserve the kernel-versus-owned boundary and source commit ${sourceCommit}. Keep the generated
+ADOPTION-REPORT.md under 500 words with exact commands, results, ambiguities, workarounds, and every
+undeclared input used.
 
 Do not add Electron, Workbench, window.ueShed, Node types, filesystem authority, process authority,
 or raw Unreal authority to browser code. Do not inspect environment variables, package-manager
-configuration, credentials, or agent configuration. Work autonomously until the build passes or
-you have documented a concrete blocker in ADOPTION-REPORT.md.`;
+configuration, credentials, agent configuration, or any parent Git worktree. Work autonomously until
+verification passes or the report documents a concrete blocker.`;
 }
 
-async function verifyTarget(name, target, sourceCommit) {
+function parseAgentMetrics(stdout) {
+	const metrics = { toolCalls: 0, tools: {} };
+	let rows = [];
+	try {
+		rows = stdout
+			.split(/\r?\n/)
+			.filter(Boolean)
+			.map((line) => JSON.parse(line));
+	} catch {
+		try {
+			rows = [JSON.parse(stdout)];
+		} catch {
+			return metrics;
+		}
+	}
+	for (const row of rows) {
+		if (row.type === "tool_use") {
+			metrics.toolCalls += 1;
+			const tool = row.part?.tool ?? "unknown";
+			metrics.tools[tool] = (metrics.tools[tool] ?? 0) + 1;
+		}
+		if (row.type === "step_finish") {
+			metrics.inputTokens = (metrics.inputTokens ?? 0) + (row.part?.tokens?.input ?? 0);
+			metrics.outputTokens = (metrics.outputTokens ?? 0) + (row.part?.tokens?.output ?? 0);
+			metrics.reasoningTokens =
+				(metrics.reasoningTokens ?? 0) + (row.part?.tokens?.reasoning ?? 0);
+			metrics.reportedCostUsd = (metrics.reportedCostUsd ?? 0) + (row.part?.cost ?? 0);
+			metrics.steps = (metrics.steps ?? 0) + 1;
+		}
+		if (row.num_turns !== undefined) metrics.turns = row.num_turns;
+		if (row.total_cost_usd !== undefined) metrics.reportedCostUsd = row.total_cost_usd;
+		if (row.usage?.output_tokens !== undefined) metrics.outputTokens = row.usage.output_tokens;
+		if (row.usage?.input_tokens !== undefined) metrics.inputTokens = row.usage.input_tokens;
+	}
+	if (metrics.reportedCostUsd !== undefined) {
+		metrics.reportedCostUsd = Math.round(metrics.reportedCostUsd * 10_000) / 10_000;
+	}
+	return metrics;
+}
+
+async function materializeBaseline(sourceCommit) {
+	const baseline = join(workspaceRoot, "baseline");
+	await rm(baseline, { force: true, recursive: true });
+	const result = run(
+		process.execPath,
+		[
+			join(sourceKitRoot, "extensions", "data-authoring", "adoption", "materialize.mjs"),
+			"--target",
+			baseline,
+			"--source-commit",
+			sourceCommit
+		],
+		{ cwd: workspaceRoot }
+	);
+	if (result.status !== 0) fail(`could not materialize comparison baseline: ${result.stderr}`);
+	return baseline;
+}
+
+async function fileDigestMap(root) {
+	const map = new Map();
+	for (const path of await filesUnder(root)) {
+		map.set(
+			relative(root, path).replaceAll("\\", "/"),
+			createHash("sha256")
+				.update(await readFile(path))
+				.digest("hex")
+		);
+	}
+	return map;
+}
+
+async function compareWithBaseline(target, baseline) {
+	const expectedChanged = new Set([
+		"ADOPTION-REPORT.md",
+		"packages/ui-theme/src/themes.stylex.ts"
+	]);
+	const expectedExtra = new Set(["pnpm-lock.yaml"]);
+	const [baselineFiles, targetFiles] = await Promise.all([
+		fileDigestMap(baseline),
+		fileDigestMap(target)
+	]);
+	const names = [...new Set([...baselineFiles.keys(), ...targetFiles.keys()])].sort();
+	const changed = names.filter(
+		(name) =>
+			baselineFiles.has(name) &&
+			targetFiles.has(name) &&
+			baselineFiles.get(name) !== targetFiles.get(name)
+	);
+	const extra = names.filter((name) => !baselineFiles.has(name) && targetFiles.has(name));
+	const missing = names.filter((name) => baselineFiles.has(name) && !targetFiles.has(name));
+	return {
+		changed,
+		extra,
+		missing,
+		unexpectedChanged: changed.filter((name) => !expectedChanged.has(name)),
+		unexpectedExtra: extra.filter((name) => !expectedExtra.has(name))
+	};
+}
+
+async function verifyTarget(label, target, sourceCommit, baseline) {
 	const failures = [];
-	const required = [
+	for (const entry of [
 		"ADOPTION-REPORT.md",
 		".ue-shed/data-authoring/adoption.manifest.json",
 		"app/package.json",
@@ -248,8 +515,7 @@ async function verifyTarget(name, target, sourceCommit) {
 		"app/vite.config.ts",
 		"scripts/verify-adoption.mjs",
 		"ue-shed-provenance.json"
-	];
-	for (const entry of required) {
+	]) {
 		try {
 			await stat(join(target, entry));
 		} catch {
@@ -257,8 +523,7 @@ async function verifyTarget(name, target, sourceCommit) {
 		}
 	}
 
-	const sourceFiles = await filesUnder(target);
-	for (const path of sourceFiles) {
+	for (const path of await filesUnder(target)) {
 		if (!/\.(?:json|ts|tsx|js|mjs|css|html|yaml)$/i.test(path)) continue;
 		const content = await readFile(path, "utf8");
 		if (/apps[\\/]workbench|window\.ueShed|from ["']electron/.test(content)) {
@@ -266,27 +531,37 @@ async function verifyTarget(name, target, sourceCommit) {
 		}
 	}
 
-	const provenancePath = join(target, "ue-shed-provenance.json");
 	try {
-		if (!(await readFile(provenancePath, "utf8")).includes(sourceCommit)) {
+		if (
+			!(await readFile(join(target, "ue-shed-provenance.json"), "utf8")).includes(
+				sourceCommit
+			)
+		) {
 			failures.push("provenance does not contain the source commit");
 		}
 	} catch {}
 
-	const reportPath = join(target, "ADOPTION-REPORT.md");
+	let reportWordCount;
 	try {
-		const report = await readFile(reportPath, "utf8");
+		const report = await readFile(join(target, "ADOPTION-REPORT.md"), "utf8");
+		reportWordCount = report.trim().split(/\s+/).length;
 		if (!report.includes("pnpm verify -- --expected-accent=#ff6b6b")) {
-			failures.push("adoption report omits the exact portable verification command");
+			failures.push("adoption report omits exact portable verification command");
 		}
 		if (/Replace this line|Record the exact materialize command/.test(report)) {
 			failures.push("adoption report still contains template instructions");
 		}
 	} catch {}
 
-	const themePath = join(target, "packages", "ui-theme", "src", "themes.stylex.ts");
 	try {
-		if (!(await readFile(themePath, "utf8")).includes("#ff6b6b")) {
+		if (
+			!(
+				await readFile(
+					join(target, "packages", "ui-theme", "src", "themes.stylex.ts"),
+					"utf8"
+				)
+			).includes("#ff6b6b")
+		) {
 			failures.push("owned accent token did not diverge to #ff6b6b");
 		}
 	} catch {
@@ -295,131 +570,147 @@ async function verifyTarget(name, target, sourceCommit) {
 
 	const install = runPnpm(
 		["install", "--offline", "--ignore-scripts", "--frozen-lockfile=false"],
-		{ cwd: target, timeout: 5 * 60 * 1000 }
+		{
+			cwd: target,
+			timeout: 5 * 60 * 1000
+		}
 	);
 	await writeFile(
-		join(evaluationRoot, `${name}-verify-install.log`),
+		join(evidenceRoot, `${label}-verify-install.log`),
 		install.stdout + install.stderr
 	);
 	if (install.status !== 0) failures.push(`independent offline install exited ${install.status}`);
 
-	const build = runPnpm(["verify", "--", "--expected-accent=#ff6b6b"], {
+	const verifier = runPnpm(["verify", "--", "--expected-accent=#ff6b6b"], {
 		cwd: target,
 		timeout: 5 * 60 * 1000
 	});
-	await writeFile(join(evaluationRoot, `${name}-verify-build.log`), build.stdout + build.stderr);
-	if (build.status !== 0) failures.push(`portable verifier exited ${build.status}`);
+	await writeFile(
+		join(evidenceRoot, `${label}-verify-build.log`),
+		verifier.stdout + verifier.stderr
+	);
+	if (verifier.status !== 0) failures.push(`portable verifier exited ${verifier.status}`);
 
-	const cssPath = join(target, "app", "dist", "stylex.css");
 	try {
-		const css = await readFile(cssPath, "utf8");
+		const css = await readFile(join(target, "app", "dist", "stylex.css"), "utf8");
 		if (css.length === 0) failures.push("production stylex.css is empty");
 		if (!css.includes("#ff6b6b")) failures.push("production CSS does not contain #ff6b6b");
 	} catch {
 		failures.push("missing production stylex.css");
 	}
 
-	return { failures, passed: failures.length === 0 };
+	const artifactDiff = await compareWithBaseline(target, baseline);
+	if (artifactDiff.missing.length)
+		failures.push(`baseline files missing: ${artifactDiff.missing.join(", ")}`);
+	if (artifactDiff.unexpectedChanged.length) {
+		failures.push(`unexpected changed files: ${artifactDiff.unexpectedChanged.join(", ")}`);
+	}
+	if (artifactDiff.unexpectedExtra.length) {
+		failures.push(`unexpected extra files: ${artifactDiff.unexpectedExtra.join(", ")}`);
+	}
+	return { artifactDiff, failures, passed: failures.length === 0, reportWordCount };
 }
 
-const { selectedAgents, verifyOnly } = parseOptions();
+await mkdir(evidenceRoot, { recursive: true });
+await mkdir(workspaceRoot, { recursive: true });
+await writeFile(emptyNpmConfig, "");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+if (!Array.isArray(manifest.kit?.entrypoints) || manifest.kit.entrypoints.length !== 2) {
+	fail("manifest must declare exactly two kit entrypoints");
+}
 const commitResult = run("git.exe", ["rev-parse", "HEAD"]);
-if (commitResult.status !== 0) fail("could not resolve the source commit");
-const sourceCommit = verifyOnly
+if (commitResult.status !== 0) fail("could not resolve source commit");
+const sourceCommit = options.verifyOnly
 	? (await readFile(join(sourceKitRoot, "SOURCE_COMMIT"), "utf8")).trim()
 	: commitResult.stdout.trim();
 const initialStatus = run("git.exe", ["status", "--porcelain=v1", "--untracked-files=all"]);
 if (initialStatus.status !== 0) fail("could not inspect repository status");
 
-await redactEvaluationLogs();
-if (!verifyOnly) await prepareSourceKit(manifest, sourceCommit);
-await writeFile(join(evaluationRoot, "empty-npmrc"), "");
+if (!options.verifyOnly) await prepareSourceKit(manifest, sourceCommit);
 const pristineKitDigest = await treeDigest(sourceKitRoot);
+const baseline = await materializeBaseline(sourceCommit);
 const results = [];
 
-for (const name of selectedAgents) {
-	const target = join(evaluationRoot, "targets", name);
+for (const agentName of options.selectedAgents) {
+	const label = options.selectedAgents.length === 1 ? options.label : agentName;
+	const model =
+		options.selectedAgents.length === 1 && options.model
+			? options.model
+			: defaultModels[agentName];
+	const target = join(workspaceRoot, "targets", label);
 	const startedAt = Date.now();
+	let execution = {
+		error: undefined,
+		secretFindings: [],
+		status: undefined,
+		stderr: "",
+		stdout: "",
+		timedOut: false
+	};
 	let agentDurationSeconds = 0;
-	let execution = { error: undefined, status: undefined, stderr: "", stdout: "" };
-	if (!verifyOnly) {
+	if (!options.verifyOnly) {
 		await rm(target, { force: true, recursive: true });
 		await mkdir(target, { recursive: true });
 		const prompt = adoptionPrompt(target, sourceCommit);
-		await writeFile(join(evaluationRoot, `${name}-prompt.md`), prompt);
-		execution = run(agents[name].command, agents[name].args(target, prompt), {
-			cwd: target,
-			env: {
-				NPM_CONFIG_USERCONFIG: join(evaluationRoot, "empty-npmrc"),
-				NODE_AUTH_TOKEN: "",
-				NPM_TOKEN: "",
-				GH_TOKEN: "",
-				GITHUB_TOKEN: "",
-				AWS_ACCESS_KEY_ID: "",
-				AWS_SECRET_ACCESS_KEY: "",
-				AWS_SESSION_TOKEN: "",
-				CLOUDFLARE_API_TOKEN: "",
-				...agents[name].env
-			}
+		await writeFile(join(evidenceRoot, `${label}-prompt.md`), prompt);
+		const agent = agents[agentName];
+		const args = agent.args({ label, model, prompt, target, variant: options.variant });
+		execution = await runAgent({
+			agent,
+			args,
+			label,
+			target,
+			timeoutMs: options.timeoutMs
 		});
 		agentDurationSeconds = Math.round((Date.now() - startedAt) / 100) / 10;
-		const attempt = new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-");
-		const findings = [...secretFindings(execution.stdout), ...secretFindings(execution.stderr)];
-		await writeFile(
-			join(evaluationRoot, `${name}-stdout.log`),
-			redactSecrets(execution.stdout)
-		);
-		await writeFile(
-			join(evaluationRoot, `${name}-stderr.log`),
-			redactSecrets(execution.stderr)
-		);
-		await writeFile(
-			join(evaluationRoot, `${name}-${attempt}-stdout.log`),
-			redactSecrets(execution.stdout)
-		);
-		await writeFile(
-			join(evaluationRoot, `${name}-${attempt}-stderr.log`),
-			redactSecrets(execution.stderr)
-		);
-		execution.secretFindings = [...new Set(findings)];
 	}
+
 	const verificationStartedAt = Date.now();
-	const verification = await verifyTarget(name, target, sourceCommit);
-	if (execution.secretFindings?.length) {
+	const verification = await verifyTarget(label, target, sourceCommit, baseline);
+	if (execution.secretFindings.length) {
 		verification.failures.push(
 			`agent output contained secrets: ${execution.secretFindings.join(", ")}`
 		);
 	}
 	const kitUnchanged = (await treeDigest(sourceKitRoot)) === pristineKitDigest;
-	if (!kitUnchanged) verification.failures.push("agent modified the restricted source kit");
+	if (!kitUnchanged) verification.failures.push("agent modified restricted source kit");
 	verification.passed = verification.failures.length === 0;
-	results.push({
-		agent: name,
+	const result = {
+		agent: agentName,
 		agentDurationSeconds,
 		durationSeconds: Math.round((Date.now() - startedAt) / 100) / 10,
 		executionError: execution.error,
 		executionStatus: execution.status,
 		kitUnchanged,
+		label,
+		metrics: parseAgentMetrics(execution.stdout),
+		model,
+		timedOut: execution.timedOut,
+		variant: options.variant,
 		verificationDurationSeconds: Math.round((Date.now() - verificationStartedAt) / 100) / 10,
 		...verification
-	});
+	};
+	results.push(result);
 	await writeFile(
-		join(evaluationRoot, `${name}-evaluation.json`),
-		`${JSON.stringify(results.at(-1), null, 2)}\n`
+		join(evidenceRoot, `${label}-evaluation.json`),
+		`${JSON.stringify(result, null, 2)}\n`
 	);
 }
 
 const finalStatus = run("git.exe", ["status", "--porcelain=v1", "--untracked-files=all"]);
 const repositoryUnchanged = finalStatus.stdout === initialStatus.stdout;
-const report = { repositoryUnchanged, sourceCommit, results };
+const report = { repositoryUnchanged, sourceCommit, workspaceRoot, results };
 await writeFile(
-	join(evaluationRoot, "evaluation-report.json"),
+	join(evidenceRoot, "evaluation-report.json"),
 	`${JSON.stringify(report, null, 2)}\n`
 );
 console.log(JSON.stringify(report, null, 2));
 
-if (!repositoryUnchanged) fail("an agent changed the UE Shed repository");
-if (results.some((result) => (!verifyOnly && result.executionStatus !== 0) || !result.passed)) {
+if (!repositoryUnchanged) fail("an agent changed UE Shed repository");
+if (
+	results.some(
+		(result) => (!options.verifyOnly && result.executionStatus !== 0) || !result.passed
+	)
+) {
 	process.exitCode = 1;
 }

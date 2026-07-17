@@ -4,6 +4,21 @@ Use [`adoption.manifest.json`](adoption.manifest.json) as the executable source 
 is addressed to the coding agent performing the adoption. It is deliberately complete: do not
 inspect Workbench or infer missing copy behavior from the source repository.
 
+## First-pass fast path
+
+After reading this guide and the manifest, take this path before inspecting generated implementation
+files:
+
+1. Run the declared materializer.
+2. Change the applied theme's single `colorAccent` value.
+3. Install offline.
+4. Run the exact target verifier.
+5. Complete the generated adoption report.
+
+Trust the materializer and verifier on the first pass. Do not enumerate the template, read the full
+route, guess alternate host paths, or run Git commands unless one of those commands fails with a
+specific diagnostic. If troubleshooting is required, inspect only the file named by that diagnostic.
+
 ## Materialize the standalone host
 
 Start with an empty target directory. Run the kit's materializer, passing the exact 40-character UE
@@ -66,9 +81,10 @@ forbidden host authority, scans copied production inputs for credential-like con
 application, requires non-empty extracted StyleX CSS, and proves the chosen accent reached that CSS.
 The source repository retains `pnpm test:adoption:data-authoring` to test materialization itself.
 
-Write `ADOPTION-REPORT.md` with the exact materialize, install, and verify commands; their results;
-any ambiguity or workaround; and every undeclared input used. Do not inspect environment variables,
-package-manager configuration, credentials, or agent configuration while troubleshooting.
+Keep `ADOPTION-REPORT.md` under 500 words. Include the exact materialize, install, and verify
+commands; their results; any ambiguity or workaround; and every undeclared input used. Do not
+inspect environment variables, package-manager configuration, credentials, agent configuration, or
+the parent Git worktree while troubleshooting.
 
 Licensing remains a deliberate external-distribution gate. This manifest proves local/private
 adoption mechanics; it does not publish packages or grant rights.
