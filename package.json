@@ -9,6 +9,7 @@
 		"check:unreal": "pnpm run test:uasset-conformance && pnpm run test:unreal-authoring",
 		"authoring:parity": "node scripts/ue-shed.mjs authoring parity",
 		"effect:architecture": "node scripts/check-effect-architecture.mjs",
+		"eval:adoption:data-authoring": "node scripts/evaluate-data-authoring-agents.mjs",
 		"fixture:build": "node scripts/unreal-fixture.mjs build",
 		"fixture:evidence": "node scripts/unreal-fixture.mjs evidence",
 		"fixture:apply": "node scripts/unreal-fixture.mjs apply",
