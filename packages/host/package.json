@@ -1,0 +1,27 @@
+{
+	"name": "@ue-shed/host",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@ue-shed/authoring": "workspace:*",
+		"@ue-shed/authoring-catalog": "workspace:*",
+		"@ue-shed/authoring-sdk": "workspace:*",
+		"@ue-shed/protocol": "workspace:*",
+		"@ue-shed/unreal-assets": "workspace:*",
+		"@ue-shed/unreal-connection": "workspace:*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:"
+	}
+}

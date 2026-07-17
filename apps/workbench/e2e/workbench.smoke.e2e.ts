@@ -40,6 +40,9 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	).toBeVisible();
 
 	await workbench.openRoute("Data Authoring");
-	await workbench.page.getByRole("button", { name: /^DT_LargeScalars\b/ }).click();
+	await workbench.page
+		.getByRole("navigation", { name: "Project DataTables" })
+		.getByRole("button", { name: /^DT_LargeScalars DATA TABLE/ })
+		.click();
 	await expect(workbench.page.getByText("10000 / 10000 VISIBLE", { exact: true })).toBeVisible();
 });

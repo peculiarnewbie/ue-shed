@@ -57,6 +57,8 @@ const approvedResourceAdapters = new Set([
 	"apps/workbench/src/main/preload.ts",
 	"apps/workbench/src/renderer/app-shell.tsx",
 	"apps/workbench/src/renderer/index.tsx",
+	// The copied adoption host owns its browser runtime lifecycle at the foreign framework boundary.
+	"extensions/data-authoring/adoption/consumer/app/src/index.tsx",
 	"packages/cameras/src/index.ts"
 ]);
 const operationlessServices = new Set(["apps/workbench/src/main/workbench-config.ts"]);

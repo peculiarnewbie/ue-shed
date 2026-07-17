@@ -1,8 +1,9 @@
 import {
 	AuthoringSessionPipeline,
-	AuthoringSessionReview
-} from "@ue-shed/authoring/review-contracts";
-import { AuthoringTableSnapshot, AuthoringValue } from "@ue-shed/protocol";
+	AuthoringSessionReview,
+	AuthoringTableSnapshot,
+	AuthoringValue
+} from "@ue-shed/protocol";
 import { Context, type Effect, Schema } from "effect";
 
 export const AuthoringSessionView = Schema.Struct({

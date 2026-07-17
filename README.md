@@ -44,7 +44,32 @@ TypeScript, Effect, SolidJS, StyleX, observability, and testing.
 - Static extension composition until a real need justifies runtime plugin loading.
 - No studio-project assumptions in public packages, fixtures, examples, or documentation.
 
-## Getting started
+## Choose an integration
+
+Use the headless CLI when you want DataTable inspection or authoring automation without a desktop
+host:
+
+```powershell
+pnpm install
+pnpm ue-shed --help
+```
+
+Embed the maintained Data Authoring UI in a Solid/Vite host by following its
+[adoption guide](extensions/data-authoring/ADOPTING.md) and
+[machine-readable manifest](extensions/data-authoring/adoption.manifest.json). The conformance gate
+materializes a fresh copied workspace, typechecks it, builds its production CSS, and proves that its
+owned theme can diverge:
+
+```powershell
+pnpm test:adoption:data-authoring
+```
+
+Build a trusted non-Electron host with `ShedHostLive` and the direct `AuthoringClient` by starting
+from the [headless authoring example](examples/authoring-headless/README.md). The browser slice stays
+on the same client contract; choosing a browser-to-host transport remains the embedding host's
+responsibility.
+
+## Explore the showcase
 
 ```powershell
 pnpm install
@@ -57,11 +82,10 @@ in-product actions that build and launch the fixture only when requested. The so
 incrementally builds its in-repo `uasset` reader. See
 [the showcase walkthrough](docs/showcase.md) for prerequisites and exact demo flows.
 
-For development and headless use:
+For repository development:
 
 ```powershell
 pnpm check
-pnpm ue-shed --help
 ```
 
 The repository is private and unpublished until licensing, trademark, provenance, and dependency

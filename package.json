@@ -5,7 +5,7 @@
 	"description": "External tools for Unreal Engine development.",
 	"type": "module",
 	"scripts": {
-		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run effect:architecture && pnpm run test:architecture && pnpm run lint && pnpm run format:check && pnpm run test",
+		"check": "pnpm run uasset:check && pnpm run typecheck && pnpm run effect:architecture && pnpm run test:architecture && pnpm run test:adoption:data-authoring && pnpm run lint && pnpm run format:check && pnpm run test",
 		"check:unreal": "pnpm run test:uasset-conformance && pnpm run test:unreal-authoring",
 		"authoring:parity": "node scripts/ue-shed.mjs authoring parity",
 		"effect:architecture": "node scripts/check-effect-architecture.mjs",
@@ -28,6 +28,7 @@
 		"showcase:record": "node scripts/record-showcase.mjs",
 		"test": "node scripts/test.mjs",
 		"test:architecture": "node --test scripts/check-effect-architecture.test.mjs",
+		"test:adoption:data-authoring": "node scripts/test-data-authoring-adoption.mjs",
 		"test:components": "node scripts/test.mjs --project component",
 		"test:coverage": "node scripts/test.mjs --coverage",
 		"test:e2e": "pnpm run test:e2e:cli && pnpm run test:e2e:workbench",

@@ -7,23 +7,24 @@ update the status row when done.
 
 ## Execution order and status
 
-| Plan                                           | Title                                                        | Priority | Effort | Depends on | Status                     |
-| ---------------------------------------------- | ------------------------------------------------------------ | -------- | ------ | ---------- | -------------------------- |
-| [001](001-texture-asset-audit-demo.md)         | Deliver the first Texture Asset Audit demo end to end        | P1       | L      | —          | DONE — landed in `c6156f8` |
-| [002](002-authoring-boundary-and-grid-gate.md) | Freeze the product boundary and approve the grid dependency  | P0       | S      | —          | DONE                       |
-| [003](003-authoring-contract-and-catalog.md)   | Establish the authoritative schema and DataTable catalog     | P0       | L      | 002        | DONE                       |
-| [004](004-authoring-session-service.md)        | Build the persistent, headless authoring session service     | P0       | L      | 003        | DONE                       |
-| [005](005-peculiar-sheets-draft-editor.md)     | Ship the Peculiar Sheets draft editor and Session Review     | P1       | L      | 004        | DONE                       |
-| [006](006-live-apply-save-pipeline.md)         | Make Apply and Save safe, recoverable authority transitions  | P0       | L      | 005        | DONE                       |
-| [008](008-adopt-effect-v4-core.md)             | Make Effect v4 the repository's application core             | P0       | L      | —          | DONE                       |
-| [009](009-effect-schema-errors-contracts.md)   | Make schemas and typed errors the only application contracts | P0       | L      | 008        | DONE                       |
-| [010](010-effect-infrastructure-services.md)   | Put every external system behind scoped Effect services      | P0       | XL     | 009        | DONE                       |
-| [011](011-effect-domain-services.md)           | Make domain workflows Effect services                        | P0       | XL     | 010        | DONE                       |
-| [012](012-effect-cli-runtime.md)               | Run the CLI as one Effect program                            | P1       | L      | 011        | DONE                       |
-| [013](013-effect-workbench-runtime-ipc.md)     | Make Workbench main and IPC one scoped Effect runtime        | P0       | XL     | 011        | DONE                       |
-| [014](014-effect-renderer-solid.md)            | Make renderer and extension clients Effect-native            | P1       | XL     | 009, 013   | DONE                       |
-| [015](015-effect-observability-enforcement.md) | Close the Effect migration with telemetry and enforcement    | P1       | L      | 012–014    | DONE                       |
-| [007](007-conflicts-rich-types-and-views.md)   | Complete conflicts, rich Unreal types, composites, and views | P1       | XL     | 006, 015   | TODO — rebase after 015    |
+| Plan                                           | Title                                                        | Priority | Effort | Depends on       | Status                     |
+| ---------------------------------------------- | ------------------------------------------------------------ | -------- | ------ | ---------------- | -------------------------- |
+| [001](001-texture-asset-audit-demo.md)         | Deliver the first Texture Asset Audit demo end to end        | P1       | L      | —                | DONE — landed in `c6156f8` |
+| [002](002-authoring-boundary-and-grid-gate.md) | Freeze the product boundary and approve the grid dependency  | P0       | S      | —                | DONE                       |
+| [003](003-authoring-contract-and-catalog.md)   | Establish the authoritative schema and DataTable catalog     | P0       | L      | 002              | DONE                       |
+| [004](004-authoring-session-service.md)        | Build the persistent, headless authoring session service     | P0       | L      | 003              | DONE                       |
+| [005](005-peculiar-sheets-draft-editor.md)     | Ship the Peculiar Sheets draft editor and Session Review     | P1       | L      | 004              | DONE                       |
+| [006](006-live-apply-save-pipeline.md)         | Make Apply and Save safe, recoverable authority transitions  | P0       | L      | 005              | DONE                       |
+| [008](008-adopt-effect-v4-core.md)             | Make Effect v4 the repository's application core             | P0       | L      | —                | DONE                       |
+| [009](009-effect-schema-errors-contracts.md)   | Make schemas and typed errors the only application contracts | P0       | L      | 008              | DONE                       |
+| [010](010-effect-infrastructure-services.md)   | Put every external system behind scoped Effect services      | P0       | XL     | 009              | DONE                       |
+| [011](011-effect-domain-services.md)           | Make domain workflows Effect services                        | P0       | XL     | 010              | DONE                       |
+| [012](012-effect-cli-runtime.md)               | Run the CLI as one Effect program                            | P1       | L      | 011              | DONE                       |
+| [013](013-effect-workbench-runtime-ipc.md)     | Make Workbench main and IPC one scoped Effect runtime        | P0       | XL     | 011              | DONE                       |
+| [014](014-effect-renderer-solid.md)            | Make renderer and extension clients Effect-native            | P1       | XL     | 009, 013         | DONE                       |
+| [015](015-effect-observability-enforcement.md) | Close the Effect migration with telemetry and enforcement    | P1       | L      | 012–014          | DONE                       |
+| [016](016-data-authoring-adoption-seam.md)     | Prove the Data Authoring adoption seam                       | P0       | XL     | 004–006, 014–015 | DONE                       |
+| [007](007-conflicts-rich-types-and-views.md)   | Complete conflicts, rich Unreal types, composites, and views | P1       | XL     | 006, 015         | TODO — rebase after 015    |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED` with a one-line reason, or `REJECTED` with a
 one-line rationale.
@@ -43,6 +44,8 @@ one-line rationale.
   allowlist and closes the program.
 - Pause Plan 007 before adding more TypeScript workflow code. Rebase and execute it after Plan 015 so
   conflicts/rich values are built on the Effect-native domain services rather than migrated twice.
+- Plan 016 now precedes Plan 007 so the flagship workflow grows on the public adoption seam rather
+  than adding more Workbench-owned orchestration that would immediately move.
 - Effect v4 is `4.0.0-beta.98` at planning time while npm `latest` remains 3.22.0. Plan 008 selects
   the newest coherent v4 release at execution and centralizes shared dependency versions in the pnpm
   workspace catalog; packages retain truthful dependency declarations through `catalog:`.

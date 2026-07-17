@@ -1,0 +1,45 @@
+{
+	"schemaVersion": 1,
+	"slice": "data-authoring",
+	"description": "Maintained Solid and StyleX DataTable authoring workflow",
+	"provenance": {
+		"repository": "ue-shed",
+		"recordSourceCommitAtAdoption": true
+	},
+	"copy": {
+		"kernel": [
+			"packages/protocol/package.json",
+			"packages/protocol/tsconfig.json",
+			"packages/protocol/src",
+			"packages/authoring-sdk/package.json",
+			"packages/authoring-sdk/tsconfig.json",
+			"packages/authoring-sdk/tsconfig.browser.json",
+			"packages/authoring-sdk/src"
+		],
+		"owned": [
+			"packages/ui/package.json",
+			"packages/ui/tsconfig.json",
+			"packages/ui/src",
+			"packages/ui-theme/package.json",
+			"packages/ui-theme/tsconfig.json",
+			"packages/ui-theme/src",
+			"extensions/data-authoring/package.json",
+			"extensions/data-authoring/tsconfig.json",
+			"extensions/data-authoring/src"
+		]
+	},
+	"consumerTemplate": "extensions/data-authoring/adoption/consumer",
+	"toolchain": {
+		"solid": "vite-plugin-solid",
+		"stylex": {
+			"build": "extract stylex.css",
+			"serve": "set runtimeInjection to true"
+		}
+	},
+	"conformance": {
+		"command": "pnpm test:adoption:data-authoring",
+		"requiresNoWorkbenchImports": true,
+		"requiresNonEmptyStylexCss": true,
+		"requiresTokenDivergence": true
+	}
+}

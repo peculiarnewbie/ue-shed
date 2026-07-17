@@ -21,6 +21,7 @@
 		"@ue-shed/extension-data-authoring": "workspace:*",
 		"@ue-shed/extension-game-text": "workspace:*",
 		"@ue-shed/game-text": "workspace:*",
+		"@ue-shed/host": "workspace:*",
 		"@ue-shed/observability": "workspace:*",
 		"@ue-shed/protocol": "workspace:*",
 		"@ue-shed/ui": "workspace:*",
