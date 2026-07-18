@@ -15,6 +15,8 @@ import type {
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringResult,
 	MapReviewCandidatePreviewResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureResult,
 	MapReviewResult,
 	MapReviewRunView
 } from "@ue-shed/cameras/review-contracts";
@@ -47,7 +49,7 @@ export interface WorkbenchMapReviewShape {
 		intent: MapReviewApproveCandidateIntent
 	) => Effect.Effect<MapReviewApprovalResult>;
 	readonly authorFromSelection: () => Effect.Effect<MapReviewAuthoringResult>;
-	readonly capture: () => Effect.Effect<MapReviewResult>;
+	readonly capture: (intent: MapReviewCaptureIntent) => Effect.Effect<MapReviewCaptureResult>;
 	readonly load: () => Effect.Effect<MapReviewResult>;
 	readonly previewCandidate: (
 		candidateId: string
@@ -175,6 +177,22 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			const { projectRoot, reviewSetPath } = configuration.review;
 			return yield* Effect.gen(function* () {
 				const reviewSet = yield* repository.loadSet(reviewSetPath);
+				const views = yield* Effect.forEach(reviewSet.views, (view) => {
+					const profile = reviewSet.captureProfiles.find(
+						(candidate) => candidate.id === view.captureProfileId
+					);
+					return profile
+						? Effect.succeed({
+								displayName: view.displayName,
+								id: view.id,
+								resolution: profile.resolution
+							})
+						: Effect.fail(
+								new Error(
+									`Review View ${view.id} references missing profile ${view.captureProfileId}.`
+								)
+							);
+				});
 				const summaries = yield* repository.listRuns(projectRoot);
 				const runs = yield* Effect.forEach(
 					summaries,
@@ -185,7 +203,8 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					reviewSet: {
 						displayName: reviewSet.displayName,
 						mapPath: reviewSet.project.mapPath,
-						viewCount: reviewSet.views.length
+						viewCount: reviewSet.views.length,
+						views
 					},
 					runs,
 					status: "ready" as const
@@ -193,7 +212,9 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			}).pipe(Effect.catch((cause) => Effect.succeed(mapReviewFailure(cause))));
 		});
 
-		const captureAndReload = Effect.fn("Workbench.WorkbenchMapReview.capture")(function* () {
+		const captureAndReload = Effect.fn("Workbench.WorkbenchMapReview.capture")(function* (
+			intent: MapReviewCaptureIntent
+		) {
 			if (configuration.review.status !== "configured")
 				return { status: "not_configured" as const };
 			const session = yield* editorSession
@@ -221,10 +242,38 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					.captureSet({
 						endpoint: configuration.remoteControlEndpoint,
 						projectRoot,
-						reviewSetPath
+						reviewSetPath,
+						viewIds: intent.viewIds.map((viewId) => ReviewViewId.make(viewId))
 					})
 					.pipe(
-						Effect.flatMap(() => load()),
+						Effect.flatMap((run) =>
+							load().pipe(
+								Effect.map((review): MapReviewCaptureResult => {
+									if (review.status !== "ready") return review;
+									const failedViews = run.results.filter(
+										(result) => result.status === "failed"
+									).length;
+									return {
+										job: {
+											completedAt: run.completedAt,
+											context: "editor",
+											failedViews,
+											jobId: run.id,
+											progress: {
+												completedViews: run.results.length,
+												totalViews: intent.viewIds.length
+											},
+											runId: run.id,
+											status: "completed",
+											successfulViews: run.results.length - failedViews,
+											viewIds: intent.viewIds
+										},
+										review,
+										status: "completed"
+									};
+								})
+							)
+						),
 						Effect.catch((cause) => Effect.succeed(mapReviewFailure(cause)))
 					)
 			);

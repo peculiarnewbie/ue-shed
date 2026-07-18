@@ -2,10 +2,13 @@ import {
 	decodeMapReviewApprovalResult,
 	decodeMapReviewAuthoringResult,
 	decodeMapReviewCandidatePreviewResult,
+	decodeMapReviewCaptureResult,
 	decodeMapReviewResult,
 	type MapReviewApprovalResult,
 	type MapReviewAuthoringResult,
 	type MapReviewCandidatePreviewResult,
+	type MapReviewCaptureIntent,
+	type MapReviewCaptureResult,
 	type MapReviewResult
 } from "@ue-shed/cameras/review-contracts";
 import {
@@ -117,10 +120,12 @@ export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
 		});
 	}),
 	capture: Effect.fn("MapReviewClient.capture")(
-		(): Effect.Effect<MapReviewResult, MapReviewClientError> =>
+		(
+			intent: MapReviewCaptureIntent
+		): Effect.Effect<MapReviewCaptureResult, MapReviewClientError> =>
 			request({
-				decode: decodeMapReviewResult,
-				invoke: () => window.ueShed.mapReview.capture(),
+				decode: decodeMapReviewCaptureResult,
+				invoke: () => window.ueShed.mapReview.capture(intent),
 				operation: "mapReview.capture"
 			})
 	),

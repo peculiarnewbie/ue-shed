@@ -3,6 +3,8 @@ import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/extension-camera-review/client";
@@ -101,7 +103,8 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("map-review:author-from-selection"),
 		previewCandidate: (candidateId: string): Promise<MapReviewCandidatePreviewResult> =>
 			ipcRenderer.invoke("map-review:preview-candidate", candidateId),
-		capture: (): Promise<MapReviewResult> => ipcRenderer.invoke("map-review:capture"),
+		capture: (intent: MapReviewCaptureIntent): Promise<MapReviewCaptureResult> =>
+			ipcRenderer.invoke("map-review:capture", intent),
 		load: (): Promise<MapReviewResult> => ipcRenderer.invoke("map-review:load")
 	},
 	configure: (config: CameraScheduleConfig): Promise<CameraStatus> =>

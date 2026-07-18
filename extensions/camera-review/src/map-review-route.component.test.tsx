@@ -5,18 +5,47 @@ import { userEvent } from "@testing-library/user-event";
 import { EffectRuntimeProvider } from "@ue-shed/ui";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { MapReviewClientShape, MapReviewResult } from "./map-review-client.js";
+import type {
+	MapReviewCaptureResult,
+	MapReviewClientShape,
+	MapReviewResult
+} from "./map-review-client.js";
 import { MapReviewRoute } from "./map-review-route.js";
 
 const empty = {
 	reviewSet: {
 		displayName: "Fixture Structure",
 		mapPath: "/Game/Fixture/Cameras/L_CameraLoad",
-		viewCount: 1
+		viewCount: 1,
+		views: [
+			{
+				displayName: "Structure context",
+				id: "structure-context",
+				resolution: { height: 720, width: 1280 }
+			}
+		]
 	},
 	runs: [],
 	status: "ready"
 } satisfies MapReviewResult;
+
+function completedCapture(review: Extract<MapReviewResult, { status: "ready" }>) {
+	return {
+		job: {
+			completedAt: "2026-07-15T08:00:00.000Z",
+			context: "editor",
+			failedViews: 0,
+			jobId: "run-001",
+			progress: { completedViews: 1, totalViews: 1 },
+			runId: "run-001",
+			status: "completed",
+			successfulViews: 1,
+			viewIds: ["structure-context"]
+		},
+		review,
+		status: "completed"
+	} satisfies MapReviewCaptureResult;
+}
 
 afterEach(cleanup);
 const runtime = ManagedRuntime.make(Layer.empty);
@@ -61,6 +90,7 @@ describe("MapReviewRoute", () => {
 			]
 		};
 		let captures = 0;
+		let captureViewIds: ReadonlyArray<string> = [];
 		const client: MapReviewClientShape = {
 			...offlineScout,
 			approveCandidate: () => Effect.succeed({ candidateId: "context", status: "approved" }),
@@ -75,10 +105,11 @@ describe("MapReviewRoute", () => {
 					status: "ready",
 					viewId: "structure-context"
 				}),
-			capture: () =>
+			capture: (intent) =>
 				Effect.sync(() => {
 					captures += 1;
-					return captured;
+					captureViewIds = intent.viewIds;
+					return completedCapture(captured);
 				}),
 			load: () => Effect.succeed(empty),
 			previewCandidate: () =>
@@ -91,11 +122,20 @@ describe("MapReviewRoute", () => {
 		renderRoute(client);
 		expect(await screen.findByText("No visual history yet.")).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "CAPTURE SET" }));
+		expect(
+			screen.getByRole("dialog", { name: "Commit the view, deliberately." })
+		).toBeDefined();
+		await user.click(screen.getByRole("button", { name: "REVIEW CAPTURE PLAN →" }));
+		expect(screen.getByText("Structure context")).toBeDefined();
+		await user.click(screen.getByRole("button", { name: "CAPTURE 1 VIEW" }));
+		expect(await screen.findByText("Evidence committed.")).toBeDefined();
+		await user.click(screen.getByRole("button", { name: "DONE" }));
 		expect(await screen.findByText("PURE / ORDINARY WORLD")).toBeDefined();
 		expect(screen.getByRole("region", { name: "Capture history" }).textContent).toContain(
 			"completed"
 		);
 		expect(captures).toBe(1);
+		expect(captureViewIds).toEqual(["structure-context"]);
 	});
 
 	it("generates, adjusts, and approves a framing candidate through the public client", async () => {
@@ -143,7 +183,7 @@ describe("MapReviewRoute", () => {
 					status: "ready",
 					viewId: "structure-context"
 				}),
-			capture: () => Effect.succeed(empty),
+			capture: () => Effect.die("not used"),
 			load: () => Effect.succeed(empty),
 			previewCandidate: () =>
 				Effect.succeed({

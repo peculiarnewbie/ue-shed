@@ -48,6 +48,21 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 		fullPage: true,
 		path: testInfo.outputPath("map-review-world-scout.png")
 	});
+	await workbench.page.getByRole("button", { name: "CAPTURE SET" }).click();
+	const captureWorkflow = workbench.page.getByRole("dialog", {
+		name: "Commit the view, deliberately."
+	});
+	await expect(captureWorkflow).toContainText("Editor World");
+	await captureWorkflow.getByRole("button", { name: "REVIEW CAPTURE PLAN →" }).click();
+	await expect(
+		captureWorkflow.getByRole("region", { name: "Preview capture plan" })
+	).toContainText("Structure Context");
+	await workbench.page.screenshot({
+		fullPage: true,
+		path: testInfo.outputPath("map-review-capture-plan.png")
+	});
+	await captureWorkflow.getByRole("button", { name: "← BACK" }).click();
+	await captureWorkflow.getByRole("button", { name: "CANCEL" }).click();
 
 	await workbench.openRoute("Data Authoring");
 	await workbench.page

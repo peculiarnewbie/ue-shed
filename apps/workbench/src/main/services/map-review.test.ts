@@ -149,7 +149,14 @@ it.effect("loads the review set and reads captured artifacts with bounded concur
 		expect(result.reviewSet).toEqual({
 			displayName: "Fixture Review Set",
 			mapPath: "/Game/Maps/Fixture",
-			viewCount: 1
+			viewCount: 1,
+			views: [
+				{
+					displayName: "Front view",
+					id: "view-1",
+					resolution: { height: 1080, width: 1920 }
+				}
+			]
 		});
 		expect(result.runs).toHaveLength(1);
 		expect(result.runs[0]?.preview).toEqual({

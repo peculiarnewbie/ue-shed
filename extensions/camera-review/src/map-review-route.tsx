@@ -19,16 +19,11 @@ import type {
 	MapReviewRunView
 } from "./map-review-client.js";
 import { MapReviewAuthoring } from "./map-review-authoring.js";
+import { CaptureWorkflow } from "./capture-workflow.js";
 import { WorldScout } from "./world-scout.js";
 import type { ObservedActor } from "@ue-shed/observatory";
 
-type ViewState =
-	| { readonly status: "loading" }
-	| {
-			readonly status: "capturing";
-			readonly previous?: Extract<MapReviewResult, { status: "ready" }>;
-	  }
-	| MapReviewResult;
+type ViewState = { readonly status: "loading" } | MapReviewResult;
 
 function PreviewImage(props: { readonly run: MapReviewRunView }) {
 	const [source, setSource] = createSignal<string>();
@@ -69,11 +64,11 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [selectedRunId, setSelectedRunId] = createSignal<string>();
 	const [focusedActor, setFocusedActor] = createSignal<ObservedActor>();
+	const [captureOpen, setCaptureOpen] = createSignal(false);
 	const [focusGeneration, setFocusGeneration] = createSignal(0);
 	const ready = createMemo(() => {
 		const current = state();
 		if (current.status === "ready") return current;
-		if (current.status === "capturing") return current.previous;
 		return undefined;
 	});
 	const selected = createMemo(() => {
@@ -96,29 +91,31 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 			onFailure: (cause) => apply(clientFailure(cause)),
 			onSuccess: apply
 		});
-	const capture = () => {
-		const previous = ready();
-		setState(previous ? { status: "capturing", previous } : { status: "capturing" });
-		action.run(props.client.capture(), {
-			onFailure: (cause) => apply(clientFailure(cause)),
-			onSuccess: apply
-		});
-	};
 	onMount(load);
 
 	return (
 		<main {...stylex.props(styles.page)}>
+			<Show when={captureOpen() && ready()}>
+				{(current) => (
+					<CaptureWorkflow
+						client={props.client}
+						onCaptured={apply}
+						onClose={() => setCaptureOpen(false)}
+						review={current()}
+					/>
+				)}
+			</Show>
 			<header {...stylex.props(styles.header)}>
 				<nav aria-label="Breadcrumb" {...stylex.props(styles.eyebrow)}>
 					Map review / Live world
 				</nav>
 				<button
 					type="button"
-					disabled={state().status === "capturing"}
-					onClick={capture}
+					disabled={ready() === undefined}
+					onClick={() => setCaptureOpen(true)}
 					{...stylex.props(styles.captureButton)}
 				>
-					{state().status === "capturing" ? "CAPTURING…" : "CAPTURE SET"}
+					CAPTURE SET
 				</button>
 			</header>
 			<WorldScout

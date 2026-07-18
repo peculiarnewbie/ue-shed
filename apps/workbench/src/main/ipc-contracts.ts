@@ -11,6 +11,8 @@ import {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/cameras/review-contracts";
@@ -298,8 +300,8 @@ export const invokeContracts = {
 	}),
 	"map-review:capture": invoke({
 		channel: "map-review:capture",
-		args: EmptyArgs,
-		result: MapReviewResult
+		args: Schema.Tuple([MapReviewCaptureIntent]),
+		result: MapReviewCaptureResult
 	}),
 	"map-review:author-from-selection": invoke({
 		channel: "map-review:author-from-selection",

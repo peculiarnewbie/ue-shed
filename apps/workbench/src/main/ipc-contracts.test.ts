@@ -142,7 +142,7 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 	"map-review:load": [],
 	"map-review:world-snapshot": [],
 	"map-review:focus-actor": ["/Game/Fixture.Map:PersistentLevel.Actor", true],
-	"map-review:capture": [],
+	"map-review:capture": [{ viewIds: ["view-1"] }],
 	"map-review:author-from-selection": [],
 	"map-review:preview-candidate": ["candidate-1"],
 	"map-review:approve-candidate": [approveIntent]
@@ -239,6 +239,7 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"camera:presentation-budget": [Number.NaN],
 	"camera:configure": [{ paused: true }],
 	"map-review:preview-candidate": [""],
+	"map-review:capture": [{ viewIds: [] }],
 	"map-review:approve-candidate": [{ candidateId: "only" }]
 };
 

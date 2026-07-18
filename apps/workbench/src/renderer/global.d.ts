@@ -11,6 +11,8 @@ import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/extension-camera-review/client";
@@ -76,7 +78,9 @@ declare global {
 				readonly previewCandidate: (
 					candidateId: string
 				) => Promise<MapReviewCandidatePreviewResult>;
-				readonly capture: () => Promise<MapReviewResult>;
+				readonly capture: (
+					intent: MapReviewCaptureIntent
+				) => Promise<MapReviewCaptureResult>;
 				readonly load: () => Promise<MapReviewResult>;
 			};
 			readonly configure: (config: CameraScheduleConfig) => Promise<CameraStatus>;

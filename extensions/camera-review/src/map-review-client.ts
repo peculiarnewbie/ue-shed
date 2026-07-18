@@ -2,6 +2,8 @@ import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/cameras/review-contracts";
@@ -18,6 +20,11 @@ export type {
 	MapReviewApproveCandidateIntent,
 	MapReviewAuthoringCandidate,
 	MapReviewAuthoringResult,
+	MapReviewCaptureIntent,
+	MapReviewCaptureCompletedJob,
+	MapReviewCaptureJobState,
+	MapReviewCapturePlanView,
+	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewPose,
 	MapReviewResult,
@@ -49,7 +56,9 @@ export interface MapReviewClientShape {
 		MapReviewAuthoringResult,
 		MapReviewClientError
 	>;
-	readonly capture: () => Effect.Effect<MapReviewResult, MapReviewClientError>;
+	readonly capture: (
+		intent: MapReviewCaptureIntent
+	) => Effect.Effect<MapReviewCaptureResult, MapReviewClientError>;
 	readonly load: () => Effect.Effect<MapReviewResult, MapReviewClientError>;
 	readonly previewCandidate: (
 		candidateId: string

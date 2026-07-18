@@ -445,7 +445,7 @@ it.effect("dispatches map-review channels to WorkbenchMapReview", () =>
 		const { recorder } = yield* runRegistered((ipc) =>
 			Effect.gen(function* () {
 				yield* ipc.invoke("map-review:load");
-				yield* ipc.invoke("map-review:capture");
+				yield* ipc.invoke("map-review:capture", { viewIds: ["view-1"] });
 				yield* ipc.invoke("map-review:preview-candidate", "candidate-1");
 			})
 		);

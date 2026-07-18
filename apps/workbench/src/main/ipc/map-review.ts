@@ -1,4 +1,7 @@
-import type { MapReviewApproveCandidateIntent } from "@ue-shed/cameras/review-contracts";
+import type {
+	MapReviewApproveCandidateIntent,
+	MapReviewCaptureIntent
+} from "@ue-shed/cameras/review-contracts";
 import { Effect } from "effect";
 import { ElectronIpc } from "../adapters/electron-ipc.js";
 import { invokeContracts, type CandidateId } from "../ipc-contracts.js";
@@ -10,7 +13,10 @@ export const register = Effect.gen(function* () {
 	const mapReview = yield* WorkbenchMapReview;
 
 	yield* ipc.register(invokeContracts["map-review:load"], () => mapReview.load());
-	yield* ipc.register(invokeContracts["map-review:capture"], () => mapReview.capture());
+	yield* ipc.register(invokeContracts["map-review:capture"], (...args) => {
+		const [intent] = args as [MapReviewCaptureIntent];
+		return mapReview.capture(intent);
+	});
 	yield* ipc.register(invokeContracts["map-review:world-snapshot"], () =>
 		mapReview.worldSnapshot()
 	);
