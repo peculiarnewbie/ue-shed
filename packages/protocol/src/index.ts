@@ -152,3 +152,4 @@ export * from "./authoring.js";
 export * from "./authoring-review.js";
 export * from "./companion.js";
 export * from "./cameras.js";
+export * from "./editor-play-session.js";

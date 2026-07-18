@@ -1,0 +1,64 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://ue-shed.dev/contracts/editor-session/v1/state-response.schema.json",
+	"$ref": "#/$defs/response",
+	"$defs": {
+		"contract": {
+			"type": "object",
+			"properties": {
+				"name": { "const": "unreal-editor-play-session" },
+				"version": {
+					"type": "object",
+					"properties": { "major": { "const": 1 }, "minor": { "const": 0 } },
+					"required": ["major", "minor"],
+					"additionalProperties": false
+				}
+			},
+			"required": ["name", "version"],
+			"additionalProperties": false
+		},
+		"active": {
+			"type": "object",
+			"properties": {
+				"mode": { "enum": ["play", "simulate"] },
+				"sessionId": { "type": "string", "minLength": 1 }
+			},
+			"required": ["mode", "sessionId"]
+		},
+		"state": {
+			"oneOf": [
+				{
+					"type": "object",
+					"properties": { "status": { "const": "stopped" } },
+					"required": ["status"],
+					"additionalProperties": false
+				},
+				{
+					"allOf": [
+						{ "$ref": "#/$defs/active" },
+						{
+							"type": "object",
+							"properties": {
+								"status": {
+									"enum": ["starting", "running", "paused", "stopping"]
+								}
+							},
+							"required": ["status"],
+							"additionalProperties": true
+						}
+					],
+					"unevaluatedProperties": false
+				}
+			]
+		},
+		"response": {
+			"type": "object",
+			"properties": {
+				"contract": { "$ref": "#/$defs/contract" },
+				"state": { "$ref": "#/$defs/state" }
+			},
+			"required": ["contract", "state"],
+			"additionalProperties": false
+		}
+	}
+}

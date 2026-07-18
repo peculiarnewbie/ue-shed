@@ -1,0 +1,44 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://ue-shed.dev/contracts/editor-session/v1/command-response.schema.json",
+	"type": "object",
+	"properties": {
+		"contract": {
+			"type": "object",
+			"properties": {
+				"name": { "const": "unreal-editor-play-session" },
+				"version": {
+					"type": "object",
+					"properties": { "major": { "const": 1 }, "minor": { "const": 0 } },
+					"required": ["major", "minor"],
+					"additionalProperties": false
+				}
+			},
+			"required": ["name", "version"],
+			"additionalProperties": false
+		},
+		"command": { "enum": ["start_play", "start_simulate", "stop", "pause", "resume"] },
+		"outcome": { "enum": ["accepted", "already_satisfied", "rejected"] },
+		"state": { "$ref": "state-response.schema.json#/$defs/state" },
+		"code": { "enum": ["invalid_state", "unavailable", "unsupported"] },
+		"message": { "type": "string" },
+		"recovery": { "type": "string" }
+	},
+	"required": ["contract", "command", "outcome", "state"],
+	"allOf": [
+		{
+			"if": { "properties": { "outcome": { "const": "rejected" } } },
+			"then": { "required": ["code", "message", "recovery"] },
+			"else": {
+				"not": {
+					"anyOf": [
+						{ "required": ["code"] },
+						{ "required": ["message"] },
+						{ "required": ["recovery"] }
+					]
+				}
+			}
+		}
+	],
+	"additionalProperties": false
+}

@@ -1,0 +1,4 @@
+{
+	"contract": { "name": "unreal-editor-play-session", "version": { "major": 1, "minor": 0 } },
+	"state": { "status": "running", "mode": "play", "sessionId": "fixture-session" }
+}
