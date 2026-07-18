@@ -14,6 +14,7 @@ import { gameTextClient } from "./game-text-client.js";
 import { mapReviewClient } from "./map-review-client.js";
 import { CameraLab } from "./camera-lab.js";
 import { workbenchRendererClient } from "./workbench-client.js";
+import { EditorSessionTransport } from "./editor-session-transport.js";
 
 const routes = [
 	{ href: "#/", label: "Showcase", route: "#/" },
@@ -101,7 +102,8 @@ export function AppShell() {
 						)}
 					</For>
 				</div>
-				<span {...stylex.props(styles.version)}>WORKBENCH / 0.0.0</span>
+				<EditorSessionTransport client={workbenchRendererClient} />
+				<span {...stylex.props(styles.version)}>0.0.0</span>
 			</nav>
 			<Switch fallback={<ShowcaseHome />}>
 				<Match when={route() === "#/authoring"}>
@@ -295,8 +297,7 @@ const styles = stylex.create({
 		color: tokens.colorText
 	},
 	version: {
-		marginLeft: "auto",
-		paddingRight: 24,
+		padding: "0 12px",
 		color: "#4f5852",
 		fontSize: 9,
 		letterSpacing: "0.12em"

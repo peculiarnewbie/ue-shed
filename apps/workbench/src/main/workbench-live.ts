@@ -9,6 +9,7 @@ import {
 } from "@ue-shed/cameras";
 import { AuthoringCatalogLive } from "@ue-shed/authoring-catalog";
 import { TextCorpusServiceLive } from "@ue-shed/game-text";
+import { EditorPlaySessionLive } from "@ue-shed/engine-discovery";
 import { AuthoringClientLive } from "@ue-shed/host";
 import { runtimeObservabilityLayer } from "@ue-shed/observability";
 import { ObservatoryLive } from "@ue-shed/observatory";
@@ -64,6 +65,7 @@ function baseLayer(hosts: WorkbenchHosts) {
 		workbenchWindowLayer(windowOptions),
 		AssetReaderLive,
 		RemoteControlClientLive,
+		EditorPlaySessionLive.pipe(Layer.provide(RemoteControlClientLive)),
 		ReviewRepositoryLive,
 		ReviewIdGeneratorLive,
 		cameraFeedLayer(),

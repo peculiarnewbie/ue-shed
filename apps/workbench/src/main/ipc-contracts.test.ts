@@ -103,6 +103,8 @@ const approveIntent = {
 };
 
 const validArgsByChannel: Record<InvokeChannel, unknown> = {
+	"editor-session:status": [],
+	"editor-session:execute": ["start_play"],
 	"fixture:launch": [],
 	"fixture:launch-review": [],
 	"showcase:context": [],
@@ -147,6 +149,16 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 };
 
 const validResultByChannel: Record<InvokeChannel, unknown> = {
+	"editor-session:status": {
+		contract: { name: "unreal-editor-play-session", version: { major: 1, minor: 0 } },
+		state: { status: "stopped" }
+	},
+	"editor-session:execute": {
+		command: "start_play",
+		contract: { name: "unreal-editor-play-session", version: { major: 1, minor: 0 } },
+		outcome: "accepted",
+		state: { mode: "play", sessionId: "session-1", status: "starting" }
+	},
 	"fixture:launch": { status: "ready" },
 	"fixture:launch-review": {
 		status: "failed",
@@ -230,9 +242,9 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"map-review:approve-candidate": [{ candidateId: "only" }]
 };
 
-it("registers exactly 34 invoke channels plus the camera:frame event", () => {
-	expect(invokeChannelNames).toHaveLength(34);
-	expect(new Set(invokeChannelNames).size).toBe(34);
+it("registers exactly 36 invoke channels plus the camera:frame event", () => {
+	expect(invokeChannelNames).toHaveLength(36);
+	expect(new Set(invokeChannelNames).size).toBe(36);
 	expect(cameraFrameEvent.channel).toBe("camera:frame");
 });
 

@@ -8,7 +8,7 @@ const enabled = process.env.UE_SHED_UNREAL_PLAY_SESSION_INTEGRATION === "1" && e
 const live = EditorPlaySessionLive.pipe(Layer.provide(RemoteControlClientLive));
 
 describe.skipIf(!enabled)("real Unreal editor play-session lifecycle", () => {
-	it("starts, pauses, resumes, and stops PIE", async () => {
+	it("covers idempotent PIE control and a complete SIE session", async () => {
 		const program = Effect.gen(function* () {
 			const session = yield* EditorPlaySession;
 			const waitFor = (status: "stopped" | "running" | "paused") =>
@@ -34,6 +34,8 @@ describe.skipIf(!enabled)("real Unreal editor play-session lifecycle", () => {
 			expect(started.outcome).toBe("accepted");
 			const running = yield* waitFor("running");
 			expect(running.state).toMatchObject({ mode: "play", status: "running" });
+			const startedAgain = yield* session.start(endpoint, "play");
+			expect(startedAgain.outcome).toBe("already_satisfied");
 
 			const paused = yield* session.pause(endpoint);
 			expect(paused.outcome).toBe("accepted");
@@ -45,6 +47,15 @@ describe.skipIf(!enabled)("real Unreal editor play-session lifecycle", () => {
 
 			const stopped = yield* session.stop(endpoint);
 			expect(stopped.outcome).toBe("accepted");
+			yield* waitFor("stopped");
+			const stoppedAgain = yield* session.stop(endpoint);
+			expect(stoppedAgain.outcome).toBe("already_satisfied");
+
+			const simulated = yield* session.start(endpoint, "simulate");
+			expect(simulated.outcome).toBe("accepted");
+			const simulating = yield* waitFor("running");
+			expect(simulating.state).toMatchObject({ mode: "simulate", status: "running" });
+			yield* session.stop(endpoint);
 			yield* waitFor("stopped");
 		}).pipe(
 			Effect.ensuring(

@@ -17,7 +17,13 @@ import {
 import { TextCorpusRunResult } from "@ue-shed/game-text";
 import { RuntimeHealth } from "@ue-shed/observability";
 import { ActorId, WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
-import { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import {
+	CameraScheduleConfig,
+	CameraStatus,
+	EditorPlaySessionCommand,
+	EditorPlaySessionCommandResponse,
+	EditorPlaySessionStateResponse
+} from "@ue-shed/protocol";
 import { Schema, SchemaGetter } from "effect";
 
 const EmptyArgs = Schema.Tuple([]);
@@ -130,6 +136,16 @@ const invoke = <
 });
 
 export const invokeContracts = {
+	"editor-session:status": invoke({
+		channel: "editor-session:status",
+		args: EmptyArgs,
+		result: EditorPlaySessionStateResponse
+	}),
+	"editor-session:execute": invoke({
+		channel: "editor-session:execute",
+		args: Schema.Tuple([EditorPlaySessionCommand]),
+		result: EditorPlaySessionCommandResponse
+	}),
 	"fixture:launch": invoke({
 		channel: "fixture:launch",
 		args: EmptyArgs,

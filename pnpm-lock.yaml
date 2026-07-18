@@ -165,6 +165,9 @@ importers:
       '@ue-shed/cameras':
         specifier: workspace:*
         version: link:../../packages/cameras
+      '@ue-shed/engine-discovery':
+        specifier: workspace:*
+        version: link:../../packages/engine-discovery
       '@ue-shed/extension-asset-audits':
         specifier: workspace:*
         version: link:../../extensions/asset-audits

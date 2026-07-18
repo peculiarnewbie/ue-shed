@@ -1,4 +1,10 @@
-import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import type {
+	CameraScheduleConfig,
+	CameraStatus,
+	EditorPlaySessionCommand,
+	EditorPlaySessionCommandResponse,
+	EditorPlaySessionStateResponse
+} from "@ue-shed/protocol";
 import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
 import type { AuthoringSessionIntent } from "@ue-shed/authoring-sdk";
 import type {
@@ -18,6 +24,12 @@ import type {
 declare global {
 	interface Window {
 		readonly ueShed: {
+			readonly editorSession: {
+				readonly status: () => Promise<EditorPlaySessionStateResponse>;
+				readonly execute: (
+					command: EditorPlaySessionCommand
+				) => Promise<EditorPlaySessionCommandResponse>;
+			};
 			readonly showcase: {
 				readonly context: () => Promise<ShowcaseContext>;
 			};

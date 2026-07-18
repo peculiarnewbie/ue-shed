@@ -1,4 +1,13 @@
-import { CameraStatus, decodeCameraStatus, type CameraScheduleConfig } from "@ue-shed/protocol";
+import {
+	CameraStatus,
+	decodeCameraStatus,
+	decodeEditorPlaySessionCommandResponse,
+	decodeEditorPlaySessionStateResponse,
+	type CameraScheduleConfig,
+	type EditorPlaySessionCommand,
+	type EditorPlaySessionCommandResponse,
+	type EditorPlaySessionStateResponse
+} from "@ue-shed/protocol";
 import { RuntimeHealth } from "@ue-shed/observability/health";
 import { Effect, Exit, Queue, Schedule, Schema, Stream } from "effect";
 import type {
@@ -89,6 +98,16 @@ const getMetrics = Effect.fn("WorkbenchRenderer.getMetrics")(
 );
 
 export interface WorkbenchRendererClient {
+	readonly editorSessionStatus: () => Effect.Effect<
+		EditorPlaySessionStateResponse,
+		WorkbenchRendererError
+	>;
+	readonly executeEditorSessionCommand: (
+		command: EditorPlaySessionCommand
+	) => Effect.Effect<EditorPlaySessionCommandResponse, WorkbenchRendererError>;
+	readonly editorSessionStatuses: Stream.Stream<
+		Exit.Exit<EditorPlaySessionStateResponse, WorkbenchRendererError>
+	>;
 	readonly showcaseContext: () => Effect.Effect<ShowcaseContext, WorkbenchRendererError>;
 	readonly configure: (
 		config: CameraScheduleConfig
@@ -105,6 +124,31 @@ export interface WorkbenchRendererClient {
 }
 
 export const workbenchRendererClient: WorkbenchRendererClient = {
+	editorSessionStatus: Effect.fn("WorkbenchRenderer.editorSessionStatus")(() =>
+		request({
+			decode: decodeEditorPlaySessionStateResponse,
+			invoke: () => window.ueShed.editorSession.status(),
+			operation: "editorSession.status"
+		})
+	),
+	executeEditorSessionCommand: Effect.fn("WorkbenchRenderer.executeEditorSessionCommand")(
+		(command) =>
+			request({
+				decode: decodeEditorPlaySessionCommandResponse,
+				invoke: () => window.ueShed.editorSession.execute(command),
+				operation: `editorSession.${command}`
+			})
+	),
+	editorSessionStatuses: Stream.fromEffectSchedule(
+		Effect.exit(
+			request({
+				decode: decodeEditorPlaySessionStateResponse,
+				invoke: () => window.ueShed.editorSession.status(),
+				operation: "editorSession.status"
+			})
+		),
+		Schedule.spaced("750 millis")
+	),
 	showcaseContext: Effect.fn("WorkbenchRenderer.showcaseContext")(() =>
 		request({
 			decode: decodeShowcaseContext,

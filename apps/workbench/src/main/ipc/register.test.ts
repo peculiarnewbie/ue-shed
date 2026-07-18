@@ -4,6 +4,7 @@ import type { TextureAuditRunResult, TexturePreviewResult } from "@ue-shed/asset
 import type { MapReviewApprovalResult } from "@ue-shed/cameras/review-contracts";
 import type { TextCorpusRunResult } from "@ue-shed/game-text";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import { makeEditorPlaySessionTestLayer } from "@ue-shed/engine-discovery";
 import { Effect, Layer, Ref } from "effect";
 import { expect } from "vitest";
 import { ElectronIpcTest, makeElectronIpcTestLayer } from "../adapters/electron-ipc.js";
@@ -15,6 +16,7 @@ import { makeFixtureLauncherTestLayer } from "../services/fixture-launcher.js";
 import { makeWorkbenchGameTextTestLayer } from "../services/game-text.js";
 import { makeWorkbenchMapReviewTestLayer } from "../services/map-review.js";
 import { makeShowcaseTestLayer } from "../services/showcase.js";
+import { makeWorkbenchConfigurationLayer } from "../workbench-config.js";
 import { register } from "./register.js";
 
 function makeRecorder() {
@@ -255,6 +257,43 @@ function buildRegistrationLayer(recorder: Recorder) {
 		status: () =>
 			recorder.record("cameraPresentation.status").pipe(Effect.as(sampleCameraStatus))
 	});
+	const editorSession = makeEditorPlaySessionTestLayer({
+		execute: (_endpoint, command) =>
+			recorder.record(`editorSession.execute:${command}`).pipe(
+				Effect.as({
+					command,
+					contract: {
+						name: "unreal-editor-play-session" as const,
+						version: { major: 1 as const, minor: 0 as const }
+					},
+					outcome: "accepted" as const,
+					state: { status: "stopped" as const }
+				})
+			),
+		pause: () => Effect.die("not used"),
+		resume: () => Effect.die("not used"),
+		start: () => Effect.die("not used"),
+		status: () =>
+			recorder.record("editorSession.status").pipe(
+				Effect.as({
+					contract: {
+						name: "unreal-editor-play-session" as const,
+						version: { major: 1 as const, minor: 0 as const }
+					},
+					state: { status: "stopped" as const }
+				})
+			),
+		stop: () => Effect.die("not used")
+	});
+	const configuration = makeWorkbenchConfigurationLayer({
+		authoringAsset: { status: "not_configured" },
+		expectedProject: { status: "not_configured" },
+		project: { status: "not_configured" },
+		remoteControlEndpoint: "http://127.0.0.1:30001",
+		review: { status: "not_configured" },
+		sourceCheckout: { status: "not_configured" },
+		textureAuditRules: { status: "not_configured" }
+	});
 
 	return Layer.mergeAll(
 		showcase,
@@ -263,7 +302,9 @@ function buildRegistrationLayer(recorder: Recorder) {
 		authoring,
 		mapReview,
 		fixtureLauncher,
-		cameraPresentation
+		cameraPresentation,
+		editorSession,
+		configuration
 	);
 }
 
@@ -290,13 +331,13 @@ function runRegistered<A>(
 	}).pipe(Effect.scoped);
 }
 
-it.effect("registers exactly the 34 contract channels", () =>
+it.effect("registers exactly the 36 contract channels", () =>
 	Effect.gen(function* () {
 		const { result } = yield* runRegistered((ipc) => ipc.handlers());
 		expect(result.map((entry) => entry.channel).toSorted()).toEqual(
 			[...invokeChannelNames].toSorted()
 		);
-		expect(result).toHaveLength(34);
+		expect(result).toHaveLength(36);
 	})
 );
 

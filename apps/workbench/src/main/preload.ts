@@ -6,7 +6,13 @@ import type {
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/extension-camera-review/client";
-import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import type {
+	CameraScheduleConfig,
+	CameraStatus,
+	EditorPlaySessionCommand,
+	EditorPlaySessionCommandResponse,
+	EditorPlaySessionStateResponse
+} from "@ue-shed/protocol";
 import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
@@ -24,6 +30,12 @@ export type {
 } from "./ipc-contracts.js";
 
 contextBridge.exposeInMainWorld("ueShed", {
+	editorSession: {
+		status: (): Promise<EditorPlaySessionStateResponse> =>
+			ipcRenderer.invoke("editor-session:status"),
+		execute: (command: EditorPlaySessionCommand): Promise<EditorPlaySessionCommandResponse> =>
+			ipcRenderer.invoke("editor-session:execute", command)
+	},
 	showcase: {
 		context: (): Promise<ShowcaseContext> => ipcRenderer.invoke("showcase:context")
 	},

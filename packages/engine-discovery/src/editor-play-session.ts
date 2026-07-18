@@ -186,3 +186,9 @@ export const EditorPlaySessionLive = Layer.effect(
 		});
 	})
 );
+
+export function makeEditorPlaySessionTestLayer(
+	service: EditorPlaySessionShape
+): Layer.Layer<EditorPlaySession> {
+	return Layer.succeed(EditorPlaySession, EditorPlaySession.of(service));
+}
