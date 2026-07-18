@@ -2,8 +2,6 @@ import { expect, test } from "./fixtures/workbench-test.js";
 
 const endpoint = process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT;
 const enabled = process.env.UE_SHED_MAP_REVIEW_AUTHORING_E2E === "1" && endpoint !== undefined;
-const subjectPath = "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad:PersistentLevel.ReviewSubject";
-
 async function editorActorCall(functionName: string, parameters: object): Promise<void> {
 	const response = await fetch(`${endpoint}/remote/object/call`, {
 		body: JSON.stringify({
@@ -25,14 +23,13 @@ test.setTimeout(90_000);
 test("authors real candidate previews from the selected fixture subject", async ({
 	workbench
 }, testInfo) => {
-	await editorActorCall("SetActorSelectionState", {
-		Actor: subjectPath,
-		bShouldBeSelected: true
-	});
 	try {
 		await workbench.expectShowcaseReady();
 		await workbench.openRoute("Map Review");
-		await workbench.page.getByRole("button", { name: "REFRAME SELECTED ACTOR" }).click();
+		await workbench.page
+			.getByRole("button", { name: "Select Review Subject" })
+			.click({ timeout: 60_000 });
+		await workbench.page.getByRole("button", { name: "GO TO ACTOR ↗" }).click();
 		const candidates = workbench.page.getByRole("region", { name: "Framing candidates" });
 		await expect(
 			candidates.getByRole("button", { name: "Select Context three-quarter" })
@@ -41,6 +38,10 @@ test("authors real candidate previews from the selected fixture subject", async 
 		await expect(candidates.getByRole("img").first()).toHaveJSProperty("naturalWidth", 640, {
 			timeout: 30_000
 		});
+		await workbench.page.getByRole("button", { name: "FOLLOW ACTOR" }).click();
+		await workbench.page.waitForTimeout(750);
+		await expect(workbench.page.getByRole("button", { name: "STOP FOLLOWING" })).toBeVisible();
+		await workbench.page.getByRole("button", { name: "STOP FOLLOWING" }).click();
 		await workbench.page.screenshot({
 			fullPage: true,
 			path: testInfo.outputPath("map-review-authoring.png")

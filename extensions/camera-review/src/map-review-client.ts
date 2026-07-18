@@ -5,7 +5,8 @@ import type {
 	MapReviewCandidatePreviewResult,
 	MapReviewResult
 } from "@ue-shed/cameras/review-contracts";
-import { Context, type Effect, Schema } from "effect";
+import type { ActorId, WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
+import { Context, type Effect, Schema, type Stream } from "effect";
 
 export type {
 	MapReviewApprovalResult,
@@ -28,6 +29,12 @@ export class MapReviewClientError extends Schema.TaggedErrorClass<MapReviewClien
 ) {}
 
 export interface MapReviewClientShape {
+	readonly connectWorld: () => Effect.Effect<WorldScoutResult, MapReviewClientError>;
+	readonly focusActor: (
+		actorId: ActorId,
+		bringToFront: boolean
+	) => Effect.Effect<WorldScoutFocusResult, MapReviewClientError>;
+	readonly worldSnapshots: Stream.Stream<WorldScoutResult>;
 	readonly approveCandidate: (
 		intent: MapReviewApproveCandidateIntent
 	) => Effect.Effect<MapReviewApprovalResult, MapReviewClientError>;

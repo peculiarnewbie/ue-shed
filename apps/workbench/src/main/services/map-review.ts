@@ -16,6 +16,12 @@ import type {
 	MapReviewResult,
 	MapReviewRunView
 } from "@ue-shed/cameras/review-contracts";
+import {
+	Observatory,
+	type ActorId,
+	type WorldScoutFocusResult,
+	type WorldScoutResult
+} from "@ue-shed/observatory";
 import { Context, Effect, Layer } from "effect";
 import { dirname } from "node:path";
 import { LocalFiles } from "../adapters/local-files.js";
@@ -29,6 +35,11 @@ interface ReviewFailure {
 }
 
 export interface WorkbenchMapReviewShape {
+	readonly worldSnapshot: () => Effect.Effect<WorldScoutResult>;
+	readonly focusActor: (
+		actorId: ActorId,
+		bringToFront: boolean
+	) => Effect.Effect<WorldScoutFocusResult>;
 	readonly approveCandidate: (
 		intent: MapReviewApproveCandidateIntent
 	) => Effect.Effect<MapReviewApprovalResult>;
@@ -83,6 +94,38 @@ export const WorkbenchMapReviewLive = Layer.effect(
 		const repository = yield* ReviewRepository;
 		const capture = yield* ReviewCapture;
 		const authoring = yield* ReviewAuthoring;
+		const observatory = yield* Observatory;
+
+		const worldSnapshot = Effect.fn("Workbench.WorkbenchMapReview.worldSnapshot")(function* () {
+			return yield* observatory.snapshot(configuration.remoteControlEndpoint).pipe(
+				Effect.map((snapshot) => ({ snapshot, status: "ready" as const })),
+				Effect.catch((cause) =>
+					Effect.succeed({
+						message: cause.message,
+						recovery: cause.recovery,
+						status: "unavailable" as const
+					})
+				)
+			);
+		});
+
+		const focusActor = Effect.fn("Workbench.WorkbenchMapReview.focusActor")(function* (
+			actorId: ActorId,
+			bringToFront: boolean
+		) {
+			return yield* observatory
+				.focus(configuration.remoteControlEndpoint, actorId, bringToFront)
+				.pipe(
+					Effect.catch((cause) =>
+						Effect.succeed({
+							actorId,
+							message: cause.message,
+							recovery: cause.recovery,
+							status: "failed" as const
+						})
+					)
+				);
+		});
 
 		const buildRunView = Effect.fn("Workbench.WorkbenchMapReview.buildRunView")(function* (
 			summary: CaptureRunSummary,
@@ -334,8 +377,10 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			approveCandidate,
 			authorFromSelection,
 			capture: captureAndReload,
+			focusActor,
 			load,
-			previewCandidate
+			previewCandidate,
+			worldSnapshot
 		});
 	})
 );

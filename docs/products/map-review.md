@@ -33,6 +33,15 @@ transient previews as a contact sheet and supports discard, numeric pose/FOV adj
 provenance, explicit Reframe, and Keep View persistence without creating a map actor. The CLI exposes
 the same selection, generation, and approval path.
 
+The Live World Scout composition is also implemented as the primary Workbench entry into that flow.
+The separately enabled Observatory capability returns bounded editor-world actor snapshots with
+identity, class, label, transform, bounds, map, world kind, sequence, and observation time. Workbench
+projects those actors onto an aspect-preserving XY canvas at 2 Hz, with class counts, search,
+hide/show filters, selection, and an inspector. Selecting a point only inspects the actor. **Go to
+Actor** brings Unreal forward, selects and focuses the actor, and starts transient Review View
+framing. **Follow Actor** keeps re-framing it from the live observation stream until stopped. Map
+Review remains the authority only after the author keeps a view or captures durable evidence.
+
 This is the beginning of Slice 2 rather than its completion. Post-realization projected-bounds
 diagnostics, richer orientation inputs, viewport manipulation, and restart-level authoring-session
 recovery remain. Layered identity, Clear captures, comparison, and review decisions remain later
@@ -846,7 +855,10 @@ forking camera definitions or capture behavior.
 - Persistent map actors as a camera database.
 - External Data Layer authoring before transient realization proves insufficient.
 - Remote continuous video or WebRTC.
-- A geographic map atlas or spatial-comment system.
+- A multi-map geographic atlas, measurement system, region authoring, or spatial-comment system.
+
+The lightweight live top-down actor canvas is part of the maintained Map Review workflow. This
+anti-goal defers the larger durable cartography product, not spatial navigation of one observed world.
 
 ## Anti-goals
 

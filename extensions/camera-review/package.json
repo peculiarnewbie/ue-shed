@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@stylexjs/stylex": "catalog:",
 		"@ue-shed/cameras": "workspace:*",
+		"@ue-shed/observatory": "workspace:*",
 		"@ue-shed/ui": "workspace:*",
 		"@ue-shed/ui-theme": "workspace:*",
 		"effect": "catalog:",

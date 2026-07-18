@@ -178,6 +178,18 @@ function buildRegistrationLayer(recorder: Recorder) {
 	});
 
 	const mapReview = makeWorkbenchMapReviewTestLayer({
+		worldSnapshot: () =>
+			recorder.record("mapReview.worldSnapshot").pipe(
+				Effect.as({
+					message: "offline",
+					recovery: "open Unreal",
+					status: "unavailable" as const
+				})
+			),
+		focusActor: (actorId) =>
+			recorder
+				.record(`mapReview.focusActor:${actorId}`)
+				.pipe(Effect.as({ actorId, status: "not_supported" as const })),
 		approveCandidate: (intent) =>
 			recorder.record(`mapReview.approveCandidate:${intent.candidateId}`).pipe(
 				Effect.as({
@@ -278,13 +290,13 @@ function runRegistered<A>(
 	}).pipe(Effect.scoped);
 }
 
-it.effect("registers exactly the 32 contract channels", () =>
+it.effect("registers exactly the 34 contract channels", () =>
 	Effect.gen(function* () {
 		const { result } = yield* runRegistered((ipc) => ipc.handlers());
 		expect(result.map((entry) => entry.channel).toSorted()).toEqual(
 			[...invokeChannelNames].toSorted()
 		);
-		expect(result).toHaveLength(32);
+		expect(result).toHaveLength(34);
 	})
 );
 

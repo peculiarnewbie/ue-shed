@@ -138,6 +138,8 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 	"camera:status": [],
 	"camera:configure": [cameraStatus.config],
 	"map-review:load": [],
+	"map-review:world-snapshot": [],
+	"map-review:focus-actor": ["/Game/Fixture.Map:PersistentLevel.Actor", true],
 	"map-review:capture": [],
 	"map-review:author-from-selection": [],
 	"map-review:preview-candidate": ["candidate-1"],
@@ -188,6 +190,15 @@ const validResultByChannel: Record<InvokeChannel, unknown> = {
 	"camera:status": cameraStatus,
 	"camera:configure": cameraStatus,
 	"map-review:load": { status: "not_configured" },
+	"map-review:world-snapshot": {
+		message: "offline",
+		recovery: "open Unreal",
+		status: "unavailable"
+	},
+	"map-review:focus-actor": {
+		actorId: "/Game/Fixture.Map:PersistentLevel.Actor",
+		status: "not_supported"
+	},
 	"map-review:capture": { status: "not_configured" },
 	"map-review:author-from-selection": {
 		status: "failed",
@@ -219,9 +230,9 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"map-review:approve-candidate": [{ candidateId: "only" }]
 };
 
-it("registers exactly 32 invoke channels plus the camera:frame event", () => {
-	expect(invokeChannelNames).toHaveLength(32);
-	expect(new Set(invokeChannelNames).size).toBe(32);
+it("registers exactly 34 invoke channels plus the camera:frame event", () => {
+	expect(invokeChannelNames).toHaveLength(34);
+	expect(new Set(invokeChannelNames).size).toBe(34);
 	expect(cameraFrameEvent.channel).toBe("camera:frame");
 });
 

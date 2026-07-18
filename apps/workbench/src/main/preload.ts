@@ -7,6 +7,7 @@ import type {
 	MapReviewResult
 } from "@ue-shed/extension-camera-review/client";
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
 	FixtureLaunchResult,
@@ -76,6 +77,10 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("fixture:launch-review")
 	},
 	mapReview: {
+		worldSnapshot: (): Promise<WorldScoutResult> =>
+			ipcRenderer.invoke("map-review:world-snapshot"),
+		focusActor: (actorId: string, bringToFront: boolean): Promise<WorldScoutFocusResult> =>
+			ipcRenderer.invoke("map-review:focus-actor", actorId, bringToFront),
 		approveCandidate: (
 			intent: MapReviewApproveCandidateIntent
 		): Promise<MapReviewApprovalResult> =>

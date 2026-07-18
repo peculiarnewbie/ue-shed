@@ -1,4 +1,5 @@
 import type { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
+import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
 import type { AuthoringSessionIntent } from "@ue-shed/authoring-sdk";
 import type {
 	MapReviewApprovalResult,
@@ -51,6 +52,11 @@ declare global {
 				readonly launchReview: () => Promise<FixtureLaunchResult>;
 			};
 			readonly mapReview: {
+				readonly worldSnapshot: () => Promise<WorldScoutResult>;
+				readonly focusActor: (
+					actorId: string,
+					bringToFront: boolean
+				) => Promise<WorldScoutFocusResult>;
 				readonly approveCandidate: (
 					intent: MapReviewApproveCandidateIntent
 				) => Promise<MapReviewApprovalResult>;

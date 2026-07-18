@@ -7,6 +7,7 @@ import {
 	type ReviewSet
 } from "@ue-shed/cameras";
 import { it } from "@effect/vitest";
+import { Observatory } from "@ue-shed/observatory";
 import { Effect, Layer } from "effect";
 import { join } from "node:path";
 import { expect } from "vitest";
@@ -77,6 +78,17 @@ const dyingAuthoring: ReviewAuthoringShape = {
 	inspectSelection: () => Effect.die("not used"),
 	previewCandidate: () => Effect.die("not used")
 };
+const WorkbenchMapReviewTestLive = WorkbenchMapReviewLive.pipe(
+	Layer.provide(
+		Layer.succeed(
+			Observatory,
+			Observatory.of({
+				focus: () => Effect.die("not used"),
+				snapshot: () => Effect.die("not used")
+			})
+		)
+	)
+);
 
 it.effect("returns not_configured when no review project is configured", () =>
 	Effect.gen(function* () {
@@ -85,7 +97,7 @@ it.effect("returns not_configured when no review project is configured", () =>
 		expect(result).toEqual({ status: "not_configured" });
 	}).pipe(
 		Effect.provide(
-			WorkbenchMapReviewLive.pipe(
+			WorkbenchMapReviewTestLive.pipe(
 				Layer.provide(
 					Layer.mergeAll(
 						makeWorkbenchConfigurationLayer(notConfigured),
@@ -130,7 +142,7 @@ it.effect("loads the review set and reads captured artifacts with bounded concur
 		});
 	}).pipe(
 		Effect.provide(
-			WorkbenchMapReviewLive.pipe(
+			WorkbenchMapReviewTestLive.pipe(
 				Layer.provide(
 					Layer.mergeAll(
 						makeWorkbenchConfigurationLayer(configuredReview),
@@ -214,7 +226,7 @@ it.effect("reports authoring failure when the selection map does not match the r
 		}
 	}).pipe(
 		Effect.provide(
-			WorkbenchMapReviewLive.pipe(
+			WorkbenchMapReviewTestLive.pipe(
 				Layer.provide(
 					Layer.mergeAll(
 						makeWorkbenchConfigurationLayer(configuredReview),
@@ -271,7 +283,7 @@ it.effect("generates framing candidates for a matching selection", () =>
 		});
 	}).pipe(
 		Effect.provide(
-			WorkbenchMapReviewLive.pipe(
+			WorkbenchMapReviewTestLive.pipe(
 				Layer.provide(
 					Layer.mergeAll(
 						makeWorkbenchConfigurationLayer(configuredReview),
@@ -335,7 +347,7 @@ it.effect(
 			expect(result.status).toBe("failed");
 		}).pipe(
 			Effect.provide(
-				WorkbenchMapReviewLive.pipe(
+				WorkbenchMapReviewTestLive.pipe(
 					Layer.provide(
 						Layer.mergeAll(
 							makeWorkbenchConfigurationLayer(configuredReview),

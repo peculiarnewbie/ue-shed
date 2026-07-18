@@ -2,6 +2,7 @@ import type { MapReviewApproveCandidateIntent } from "@ue-shed/cameras/review-co
 import { Effect } from "effect";
 import { ElectronIpc } from "../adapters/electron-ipc.js";
 import { invokeContracts, type CandidateId } from "../ipc-contracts.js";
+import type { ActorId } from "@ue-shed/observatory";
 import { WorkbenchMapReview } from "../services/map-review.js";
 
 export const register = Effect.gen(function* () {
@@ -10,6 +11,13 @@ export const register = Effect.gen(function* () {
 
 	yield* ipc.register(invokeContracts["map-review:load"], () => mapReview.load());
 	yield* ipc.register(invokeContracts["map-review:capture"], () => mapReview.capture());
+	yield* ipc.register(invokeContracts["map-review:world-snapshot"], () =>
+		mapReview.worldSnapshot()
+	);
+	yield* ipc.register(invokeContracts["map-review:focus-actor"], (...args) => {
+		const [actorId, bringToFront] = args as [ActorId, boolean];
+		return mapReview.focusActor(actorId, bringToFront);
+	});
 	yield* ipc.register(invokeContracts["map-review:author-from-selection"], () =>
 		mapReview.authorFromSelection()
 	);

@@ -19,6 +19,8 @@ import type {
 	MapReviewRunView
 } from "./map-review-client.js";
 import { MapReviewAuthoring } from "./map-review-authoring.js";
+import { WorldScout } from "./world-scout.js";
+import type { ObservedActor } from "@ue-shed/observatory";
 
 type ViewState =
 	| { readonly status: "loading" }
@@ -66,6 +68,8 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 	const action = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [selectedRunId, setSelectedRunId] = createSignal<string>();
+	const [focusedActor, setFocusedActor] = createSignal<ObservedActor>();
+	const [focusGeneration, setFocusGeneration] = createSignal(0);
 	const ready = createMemo(() => {
 		const current = state();
 		if (current.status === "ready") return current;
@@ -105,14 +109,9 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 	return (
 		<main {...stylex.props(styles.page)}>
 			<header {...stylex.props(styles.header)}>
-				<div>
-					<p {...stylex.props(styles.eyebrow)}>MAP REVIEW / LOCAL LIGHT TABLE</p>
-					<h1 {...stylex.props(styles.title)}>A memory for the world.</h1>
-					<p {...stylex.props(styles.subtitle)}>
-						Frame from a live subject, approve deliberately, and retain every
-						observation.
-					</p>
-				</div>
+				<nav aria-label="Breadcrumb" {...stylex.props(styles.eyebrow)}>
+					Map review / Live world
+				</nav>
 				<button
 					type="button"
 					disabled={state().status === "capturing"}
@@ -122,6 +121,13 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 					{state().status === "capturing" ? "CAPTURING…" : "CAPTURE SET"}
 				</button>
 			</header>
+			<WorldScout
+				client={props.client}
+				onActorFocused={(actor) => {
+					setFocusedActor(actor);
+					setFocusGeneration((current) => current + 1);
+				}}
+			/>
 
 			<Switch>
 				<Match when={state().status === "loading"}>
@@ -171,7 +177,12 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 								</div>
 								<code>{current().reviewSet.mapPath}</code>
 							</section>
-							<MapReviewAuthoring client={props.client} onApproved={load} />
+							<MapReviewAuthoring
+								client={props.client}
+								focusedActor={focusedActor()}
+								focusGeneration={focusGeneration()}
+								onApproved={load}
+							/>
 
 							<Show
 								when={selected()}
@@ -274,6 +285,9 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 const styles = stylex.create({
 	page: {
 		minHeight: "calc(100vh - 52px)",
+		width: "100%",
+		boxSizing: "border-box",
+		overflowX: "hidden",
 		padding: "30px 34px 44px",
 		backgroundColor: "#0d0f0e",
 		backgroundImage:
@@ -284,19 +298,11 @@ const styles = stylex.create({
 	header: {
 		display: "flex",
 		justifyContent: "space-between",
-		alignItems: "end",
-		paddingBottom: 24,
+		alignItems: "center",
+		paddingBottom: 16,
 		borderBottom: "1px solid #343936"
 	},
-	eyebrow: { margin: "0 0 10px", color: "#b9f227", fontSize: 9, letterSpacing: ".19em" },
-	title: {
-		margin: 0,
-		fontFamily: "Georgia, serif",
-		fontWeight: 400,
-		fontSize: 50,
-		letterSpacing: "-.035em"
-	},
-	subtitle: { margin: "10px 0 0", color: "#8d9690", fontSize: 11 },
+	eyebrow: { margin: 0, color: "#b9f227", fontSize: 9, letterSpacing: ".19em" },
 	captureButton: {
 		border: "1px solid #b9f227",
 		backgroundColor: { default: "#b9f227", ":hover": "#d0ff4f", ":disabled": "#5d6d35" },

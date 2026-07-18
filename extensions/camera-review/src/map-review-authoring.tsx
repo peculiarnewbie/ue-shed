@@ -8,6 +8,7 @@ import type {
 	MapReviewClientShape,
 	MapReviewPose
 } from "./map-review-client.js";
+import type { ObservedActor } from "@ue-shed/observatory";
 
 type AuthoringState =
 	| { readonly status: "idle" }
@@ -83,6 +84,8 @@ function poseFieldValue(
 
 export function MapReviewAuthoring(props: {
 	readonly client: MapReviewClientShape;
+	readonly focusedActor?: ObservedActor | undefined;
+	readonly focusGeneration?: number;
 	readonly onApproved: () => void;
 }) {
 	const generateAction = createEffectAction();
@@ -185,6 +188,13 @@ export function MapReviewAuthoring(props: {
 			}
 		});
 	};
+	let handledFocusGeneration = 0;
+	createEffect(() => {
+		const generation = props.focusGeneration ?? 0;
+		if (generation <= handledFocusGeneration || !props.focusedActor) return;
+		handledFocusGeneration = generation;
+		generate();
+	});
 	const discard = (candidateId: string) => {
 		setDiscarded((current) => new Set([...current, candidateId]));
 		if (selectedId() === candidateId) {
@@ -276,7 +286,8 @@ export function MapReviewAuthoring(props: {
 				<div {...stylex.props(styles.emptyAuthoring)}>
 					<span>01</span>
 					<p>
-						Select one actor in the Level Editor, then generate bounded candidate views.
+						Select an actor on the world map or in the Level Editor, then generate
+						bounded candidate views.
 					</p>
 				</div>
 			</Show>

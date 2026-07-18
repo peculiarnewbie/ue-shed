@@ -8,5 +8,10 @@ The spatial-authoring desk inspects one live editor selection, presents real tra
 previews as a contact sheet, supports discard and manual pose/FOV refinement, and persists the kept
 Approved Pose with preset lineage and adjustment provenance outside the map.
 
+Live World Scout is the primary entry surface: it polls bounded Observatory snapshots, renders an
+aspect-preserving XY actor map, filters by label and class, and turns point selection into Unreal
+focus plus transient framing. The larger geographic atlas and spatial-comment product remain out of
+scope.
+
 Workbench supplies the thin Electron IPC adapter. The route and client contract remain in this
 extension so the product UI does not become an architecture layer.

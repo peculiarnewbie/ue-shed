@@ -16,6 +16,7 @@ import {
 } from "@ue-shed/cameras/review-contracts";
 import { TextCorpusRunResult } from "@ue-shed/game-text";
 import { RuntimeHealth } from "@ue-shed/observability";
+import { ActorId, WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
 import { CameraScheduleConfig, CameraStatus } from "@ue-shed/protocol";
 import { Schema, SchemaGetter } from "effect";
 
@@ -268,6 +269,16 @@ export const invokeContracts = {
 		channel: "map-review:load",
 		args: EmptyArgs,
 		result: MapReviewResult
+	}),
+	"map-review:world-snapshot": invoke({
+		channel: "map-review:world-snapshot",
+		args: EmptyArgs,
+		result: WorldScoutResult
+	}),
+	"map-review:focus-actor": invoke({
+		channel: "map-review:focus-actor",
+		args: Schema.Tuple([ActorId, Schema.Boolean]),
+		result: WorldScoutFocusResult
 	}),
 	"map-review:capture": invoke({
 		channel: "map-review:capture",

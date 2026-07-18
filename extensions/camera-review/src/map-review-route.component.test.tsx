@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { userEvent } from "@testing-library/user-event";
 import { EffectRuntimeProvider } from "@ue-shed/ui";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { MapReviewClientShape, MapReviewResult } from "./map-review-client.js";
 import { MapReviewRoute } from "./map-review-route.js";
@@ -21,6 +21,21 @@ const empty = {
 afterEach(cleanup);
 const runtime = ManagedRuntime.make(Layer.empty);
 afterAll(() => runtime.dispose());
+
+const offlineScout = {
+	connectWorld: () =>
+		Effect.succeed({
+			message: "Offline",
+			recovery: "Open Unreal",
+			status: "unavailable" as const
+		}),
+	focusActor: (actorId) => Effect.succeed({ actorId, status: "not_supported" as const }),
+	worldSnapshots: Stream.make({
+		message: "Offline",
+		recovery: "Open Unreal",
+		status: "unavailable" as const
+	})
+} satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
 
 function renderRoute(client: MapReviewClientShape) {
 	return render(() => (
@@ -46,6 +61,7 @@ describe("MapReviewRoute", () => {
 		};
 		let captures = 0;
 		const client: MapReviewClientShape = {
+			...offlineScout,
 			approveCandidate: () => Effect.succeed({ candidateId: "context", status: "approved" }),
 			authorFromSelection: () =>
 				Effect.succeed({
@@ -91,6 +107,7 @@ describe("MapReviewRoute", () => {
 		};
 		let approved: Parameters<MapReviewClientShape["approveCandidate"]>[0] | undefined;
 		const client: MapReviewClientShape = {
+			...offlineScout,
 			approveCandidate: (intent) =>
 				Effect.sync(() => {
 					approved = intent;

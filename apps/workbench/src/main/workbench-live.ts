@@ -11,6 +11,7 @@ import { AuthoringCatalogLive } from "@ue-shed/authoring-catalog";
 import { TextCorpusServiceLive } from "@ue-shed/game-text";
 import { AuthoringClientLive } from "@ue-shed/host";
 import { runtimeObservabilityLayer } from "@ue-shed/observability";
+import { ObservatoryLive } from "@ue-shed/observatory";
 import { AssetReaderLive } from "@ue-shed/unreal-assets";
 import { RemoteControlClientLive } from "@ue-shed/unreal-connection";
 import { Effect, Layer } from "effect";
@@ -99,13 +100,14 @@ function reviewAndFixtureLayer(hosts: WorkbenchHosts) {
 function featureLayer(hosts: WorkbenchHosts) {
 	const authoring = WorkbenchAuthoringLive.pipe(Layer.provide(WorkbenchAuthoringSessionsLive));
 	const authoringClient = AuthoringClientLive.pipe(Layer.provide(authoring));
+	const mapReview = WorkbenchMapReviewLive.pipe(Layer.provide(ObservatoryLive));
 	return Layer.mergeAll(
 		ShowcaseLive,
 		WorkbenchAssetAuditsLive,
 		WorkbenchGameTextLive,
 		authoring,
 		authoringClient,
-		WorkbenchMapReviewLive,
+		mapReview,
 		CameraPresentationLive
 	).pipe(Layer.provideMerge(reviewAndFixtureLayer(hosts)));
 }

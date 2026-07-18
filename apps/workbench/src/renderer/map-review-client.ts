@@ -13,7 +13,13 @@ import {
 	MapReviewClientError,
 	type MapReviewClientShape
 } from "@ue-shed/extension-camera-review/client";
-import { Effect, Schema } from "effect";
+import {
+	decodeWorldScoutFocusResult,
+	decodeWorldScoutResult,
+	type ActorId,
+	type WorldScoutResult
+} from "@ue-shed/observatory";
+import { Effect, Schedule, Schema, Stream } from "effect";
 
 const recovery = "Restart Workbench. If the problem persists, verify package versions.";
 const FixtureLaunchResult = Schema.Union([
@@ -25,6 +31,13 @@ const FixtureLaunchResult = Schema.Union([
 	})
 ]);
 const decodeFixtureLaunchResult = Schema.decodeUnknownEffect(FixtureLaunchResult);
+
+const loadWorldSnapshot = (): Effect.Effect<WorldScoutResult, MapReviewClientError> =>
+	request({
+		decode: decodeWorldScoutResult,
+		invoke: () => window.ueShed.mapReview.worldSnapshot(),
+		operation: "mapReview.worldSnapshot"
+	});
 
 function request<A>(args: {
 	readonly decode: (value: unknown) => Effect.Effect<A, unknown>;
@@ -43,6 +56,38 @@ function request<A>(args: {
 }
 
 export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
+	connectWorld: Effect.fn("MapReviewClient.connectWorld")(function* () {
+		const launch = yield* request({
+			decode: decodeFixtureLaunchResult,
+			invoke: () => window.ueShed.fixture.launchReview(),
+			operation: "fixture.launchReview"
+		});
+		if (launch.status === "failed") {
+			return {
+				message: launch.message,
+				recovery: launch.recovery,
+				status: "unavailable" as const
+			};
+		}
+		return yield* loadWorldSnapshot();
+	}),
+	focusActor: Effect.fn("MapReviewClient.focusActor")((actorId: ActorId, bringToFront: boolean) =>
+		request({
+			decode: decodeWorldScoutFocusResult,
+			invoke: () => window.ueShed.mapReview.focusActor(actorId, bringToFront),
+			operation: "mapReview.focusActor"
+		})
+	),
+	worldSnapshots: Stream.fromEffectSchedule(
+		Effect.catch(loadWorldSnapshot(), (cause) =>
+			Effect.succeed({
+				message: cause.message,
+				recovery: cause.recovery,
+				status: "unavailable" as const
+			})
+		),
+		Schedule.spaced("500 millis")
+	),
 	approveCandidate: Effect.fn("MapReviewClient.approveCandidate")(
 		(intent): Effect.Effect<MapReviewApprovalResult, MapReviewClientError> =>
 			request({
