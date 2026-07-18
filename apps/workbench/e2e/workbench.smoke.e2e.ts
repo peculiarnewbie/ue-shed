@@ -6,7 +6,9 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	await workbench.expectShowcaseReady();
 	await workbench.openRoute("Data Authoring");
 
-	await expect(workbench.page.getByRole("heading", { name: "Table ledger" })).toBeVisible();
+	await expect(workbench.page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(
+		"Data authoring/Tables"
+	);
 	await expect(
 		workbench.page.getByRole("navigation", { name: "Project DataTables" })
 	).toBeVisible();
@@ -26,9 +28,13 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	});
 
 	await workbench.openRoute("Map Review");
+	await expect(workbench.page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(
+		"Map review / Live world"
+	);
 	await expect(
-		workbench.page.getByRole("heading", { name: "A memory for the world." })
+		workbench.page.getByRole("heading", { name: "The level is the index." })
 	).toBeVisible();
+	await expect(workbench.page.getByRole("button", { name: "CONNECT LIVE WORLD" })).toBeVisible();
 	await expect(workbench.page.getByRole("region", { name: "Review set status" })).toContainText(
 		"Fixture Structure"
 	);
@@ -38,6 +44,10 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	await expect(
 		workbench.page.getByRole("button", { name: "REFRAME SELECTED ACTOR" })
 	).toBeVisible();
+	await workbench.page.screenshot({
+		fullPage: true,
+		path: testInfo.outputPath("map-review-world-scout.png")
+	});
 
 	await workbench.openRoute("Data Authoring");
 	await workbench.page

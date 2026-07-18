@@ -206,9 +206,7 @@ export function TextureAuditRoute(props: { readonly client: TextureAuditClientSh
 	return (
 		<main {...stylex.props(styles.page)}>
 			<PageHeader
-				eyebrow="ASSET AUDITS / TEXTURE + IMPORT"
-				title="Texture evidence desk"
-				description="Serialized facts, corpus shape, and explicit rules. No editor required."
+				eyebrow="Asset audits / Texture audit"
 				actions={
 					<>
 						<Button type="button" tone="primary" onClick={() => void run(true)}>

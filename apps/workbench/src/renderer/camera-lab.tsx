@@ -295,10 +295,9 @@ export function CameraLab() {
 	return (
 		<main {...stylex.props(styles.shell)}>
 			<header {...stylex.props(styles.header)}>
-				<div>
-					<p {...stylex.props(styles.eyebrow)}>UE SHED / OBSERVATION SYSTEMS</p>
-					<h1 {...stylex.props(styles.title)}>CAMERA LOAD LAB</h1>
-				</div>
+				<nav aria-label="Breadcrumb" {...stylex.props(styles.eyebrow)}>
+					Camera lab / Observation systems
+				</nav>
 				<div {...stylex.props(styles.systemActions)}>
 					<div {...stylex.props(styles.systemState)}>
 						<span {...stylex.props(styles.pulse)} />
@@ -694,23 +693,14 @@ const styles = stylex.create({
 	},
 	header: {
 		display: "flex",
-		alignItems: "flex-end",
+		alignItems: "center",
 		justifyContent: "space-between",
 		borderBottomColor: tokens.colorBorderStrong,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		paddingBottom: "18px"
 	},
-	eyebrow: { color: "#8f9992", fontSize: "10px", letterSpacing: "0.2em", margin: "0 0 7px" },
-	title: {
-		color: tokens.colorTextStrong,
-		fontFamily: tokens.fontBody,
-		fontSize: "30px",
-		fontWeight: 500,
-		letterSpacing: "0.045em",
-		lineHeight: 1,
-		margin: 0
-	},
+	eyebrow: { color: "#8f9992", fontSize: "10px", letterSpacing: "0.2em", margin: 0 },
 	systemState: {
 		alignItems: "center",
 		color: "#b8c2ba",

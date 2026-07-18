@@ -17,9 +17,9 @@ export class WorkbenchPage {
 
 	async expectShowcaseReady(): Promise<void> {
 		await expect(this.page).toHaveTitle("UE Shed Workbench");
-		await expect(
-			this.page.getByRole("heading", { name: "Unreal tooling, outside the editor." })
-		).toBeVisible();
+		await expect(this.page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(
+			"Showcase / Workbench"
+		);
 		const readiness = this.page.getByRole("region", { name: "Showcase readiness" });
 		await expect(readiness).toContainText("Fixture preset");
 		await expect(readiness).toContainText("committed corpus");

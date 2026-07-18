@@ -118,14 +118,9 @@ export function GameTextRoute(props: { readonly client: GameTextClientShape }) {
 	return (
 		<main {...stylex.props(styles.page)}>
 			<header {...stylex.props(styles.header)}>
-				<div>
-					<p {...stylex.props(styles.eyebrow)}>GAME TEXT / CORPUS DESK</p>
-					<h1 {...stylex.props(styles.title)}>Find the words in the game.</h1>
-					<p {...stylex.props(styles.subtitle)}>
-						Search language first. Storage, identity, and authority stay close enough to
-						explain every result.
-					</p>
-				</div>
+				<nav aria-label="Breadcrumb" {...stylex.props(styles.eyebrow)}>
+					Game text / Corpus
+				</nav>
 				<div {...stylex.props(styles.headerActions)}>
 					<button
 						type="button"
@@ -415,32 +410,17 @@ const styles = stylex.create({
 	},
 	header: {
 		display: "flex",
-		alignItems: "end",
+		alignItems: "center",
 		justifyContent: "space-between",
 		gap: 40,
-		padding: "4px 2px 26px"
+		padding: "4px 2px 16px"
 	},
 	eyebrow: {
-		margin: "0 0 10px",
+		margin: 0,
 		color: "#e87655",
 		fontFamily: "Cascadia Mono, Consolas, monospace",
 		fontSize: 9,
 		letterSpacing: ".18em"
-	},
-	title: {
-		margin: 0,
-		fontFamily: "Palatino Linotype, Book Antiqua, serif",
-		fontSize: 48,
-		lineHeight: 1,
-		fontWeight: 400,
-		letterSpacing: "-.035em"
-	},
-	subtitle: {
-		maxWidth: 720,
-		margin: "12px 0 0",
-		color: "#99938a",
-		fontSize: 11,
-		lineHeight: 1.6
 	},
 	headerActions: { display: "flex", gap: 8 },
 	primaryButton: {

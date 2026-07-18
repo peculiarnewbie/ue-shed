@@ -12,7 +12,7 @@ import type {
 	AuthoringSessionView
 } from "@ue-shed/authoring-sdk";
 import type { AuthoringRow, AuthoringTableSnapshot, AuthoringValue } from "@ue-shed/protocol";
-import { Button, PageHeader, createEffectAction, createEffectSubscription } from "@ue-shed/ui";
+import { Button, createEffectAction, createEffectSubscription } from "@ue-shed/ui";
 import { tokens } from "@ue-shed/ui-theme/tokens.stylex.js";
 import { Cause, Schedule, Stream, type Effect } from "effect";
 import {
@@ -876,30 +876,26 @@ export function AuthoringRoute(props: { readonly client: AuthoringClientShape })
 
 	return (
 		<main {...stylex.props(styles.page)}>
-			<PageHeader
-				eyebrow="DATA AUTHORING / SAVED + LIVE AUTHORITY"
-				title="Table ledger"
-				description="Typed DataTable evidence with durable staged edits."
-				actions={
-					<>
-						<Button
-							type="button"
-							tone="primary"
-							disabled={isReplacing()}
-							onClick={() => void load(true)}
-						>
-							{isReplacing() ? "Opening…" : "Open saved table"}
-						</Button>
-						<Button
-							type="button"
-							disabled={isReplacing()}
-							onClick={() => void load(false)}
-						>
-							Reload preset
-						</Button>
-					</>
-				}
-			/>
+			<header {...stylex.props(styles.routeHeader)}>
+				<nav aria-label="Breadcrumb" {...stylex.props(styles.breadcrumb)}>
+					<span>Data authoring</span>
+					<span aria-hidden="true">/</span>
+					<span>Tables</span>
+				</nav>
+				<div {...stylex.props(styles.routeActions)}>
+					<Button
+						type="button"
+						tone="primary"
+						disabled={isReplacing()}
+						onClick={() => void load(true)}
+					>
+						{isReplacing() ? "Opening…" : "Open saved table"}
+					</Button>
+					<Button type="button" disabled={isReplacing()} onClick={() => void load(false)}>
+						Reload preset
+					</Button>
+				</div>
+			</header>
 
 			<Switch>
 				<Match when={state().status === "loading"}>
@@ -1724,6 +1720,15 @@ export function AuthoringRoute(props: { readonly client: AuthoringClientShape })
 }
 
 const styles = stylex.create({
+	breadcrumb: {
+		alignItems: "center",
+		color: tokens.colorTextMuted,
+		display: "flex",
+		fontSize: 9,
+		gap: tokens.space2,
+		letterSpacing: ".14em",
+		textTransform: "uppercase"
+	},
 	page: {
 		minHeight: "calc(100vh - 52px)",
 		padding: { default: "32px 36px 42px", "@media (max-width: 700px)": "18px 14px 28px" },
@@ -1732,6 +1737,14 @@ const styles = stylex.create({
 		backgroundImage:
 			"linear-gradient(90deg, #ffffff05 1px, transparent 1px), linear-gradient(#ffffff04 1px, transparent 1px)",
 		backgroundSize: "32px 32px"
+	},
+	routeActions: { display: "flex", gap: tokens.space2 },
+	routeHeader: {
+		alignItems: "center",
+		display: "flex",
+		gap: tokens.space4,
+		justifyContent: "space-between",
+		paddingBottom: 16
 	},
 	coldStart: {
 		display: "grid",

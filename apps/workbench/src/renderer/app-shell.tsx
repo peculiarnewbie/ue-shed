@@ -141,23 +141,9 @@ function ShowcaseHome() {
 	return (
 		<main {...stylex.props(styles.home)}>
 			<header {...stylex.props(styles.hero)}>
-				<div {...stylex.props(styles.heroCopy)}>
-					<p {...stylex.props(styles.eyebrow)}>
-						THE EXTERNAL TOOL BENCH / THREE PROVING SLICES
-					</p>
-					<h1 {...stylex.props(styles.title)}>
-						Unreal tooling,
-						<br /> outside the editor.
-					</h1>
-				</div>
-				<div {...stylex.props(styles.manifest)}>
-					<span>PUBLIC SPINE</span>
-					<strong>LIBRARY → CLI → WORKBENCH</strong>
-					<p>
-						Every screen here consumes the same headless capability available to another
-						host.
-					</p>
-				</div>
+				<nav aria-label="Breadcrumb" {...stylex.props(styles.eyebrow)}>
+					Showcase / Workbench
+				</nav>
 			</header>
 
 			<section aria-label="Showcase readiness" {...stylex.props(styles.readiness)}>
@@ -323,34 +309,15 @@ const styles = stylex.create({
 			"linear-gradient(90deg, transparent 49.8%, #ffffff08 50%, transparent 50.2%), radial-gradient(circle at 85% 3%, #b7e26d12, transparent 28%)"
 	},
 	hero: {
-		display: "grid",
-		gridTemplateColumns: "minmax(0, 1.7fr) minmax(280px, .8fr)",
-		gap: 60,
-		alignItems: "end"
-	},
-	heroCopy: { borderLeft: "2px solid #b7e26d", paddingLeft: 22 },
-	eyebrow: { margin: "0 0 17px", color: "#89938c", fontSize: 10, letterSpacing: "0.18em" },
-	title: {
-		margin: 0,
-		fontFamily: tokens.fontDisplay,
-		fontWeight: 400,
-		fontSize: 62,
-		lineHeight: 0.94,
-		letterSpacing: "-0.045em"
-	},
-	manifest: {
-		borderTop: "1px solid #4c544f",
-		paddingTop: 14,
 		display: "flex",
-		flexDirection: "column",
-		gap: 7,
-		color: "#89938c",
-		fontSize: 10
+		alignItems: "center",
+		minHeight: 32
 	},
+	eyebrow: { margin: 0, color: "#89938c", fontSize: 10, letterSpacing: "0.18em" },
 	readiness: {
 		display: "grid",
 		gridTemplateColumns: "repeat(3, 1fr)",
-		margin: "42px 0 18px",
+		margin: "16px 0 18px",
 		borderColor: tokens.colorBorder,
 		borderStyle: "solid",
 		borderWidth: 1

@@ -156,9 +156,7 @@ test(`records the ${journey} Workbench journey`, async ({
 		if (journey === "map-review") {
 			await workbench.expectShowcaseReady();
 			await workbench.openRoute("Map Review");
-			await expect(
-				page.getByRole("heading", { name: "A memory for the world." })
-			).toBeVisible();
+			await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible();
 			await expect(page.getByRole("region", { name: "Review set status" })).toContainText(
 				"Fixture Structure"
 			);
@@ -265,7 +263,7 @@ test(`records the ${journey} Workbench journey`, async ({
 					action: async () => {
 						await workbench.openRoute("Data Authoring");
 						await expect(
-							page!.getByRole("heading", { name: "Table ledger" })
+							page!.getByRole("navigation", { name: "Breadcrumb" })
 						).toBeVisible();
 						await expect(
 							page!.getByRole("region", { name: "Table manifest" })
@@ -283,7 +281,7 @@ test(`records the ${journey} Workbench journey`, async ({
 					action: async () => {
 						await workbench.openRoute("Texture Audit");
 						await expect(
-							page!.getByRole("heading", { name: "Texture evidence desk" })
+							page!.getByRole("navigation", { name: "Breadcrumb" })
 						).toBeVisible();
 						await expect(
 							page!.getByRole("region", { name: "Scan coverage" })
@@ -301,7 +299,7 @@ test(`records the ${journey} Workbench journey`, async ({
 					action: async () => {
 						await workbench.openRoute("Game Text");
 						await expect(
-							page!.getByRole("heading", { name: "Find the words in the game." })
+							page!.getByRole("navigation", { name: "Breadcrumb" })
 						).toBeVisible();
 						await page!
 							.getByRole("searchbox", { name: "Search corpus" })
