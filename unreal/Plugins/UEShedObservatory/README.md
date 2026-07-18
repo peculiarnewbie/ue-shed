@@ -1,4 +1,5 @@
 # UEShedObservatory
 
-Planned optional plugin for actor registration, identity, discovery, and bounded state subscriptions.
-It is implemented with UEShedCore for the first observatory vertical slice.
+The separately enabled editor capability for bounded actor snapshots and focus. It reports stable
+object paths, class, label, transform, bounds, map identity, world kind, and observation time through
+validated JSON. It does not mirror arbitrary UObject properties or retain history.

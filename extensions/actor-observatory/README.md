@@ -1,4 +1,5 @@
 # Actor Observatory
 
-The first domain showcase: search, filter, inspect, and focus actors while their bounded live state
-updates. The CLI must expose the same underlying capabilities.
+The standalone Observatory showcase remains a roadmap surface. Its first maintained interaction is
+currently composed into Map Review's Live World Scout: search, class filters, a top-down actor map,
+inspection, and Focus in Unreal over the public `@ue-shed/observatory` module.

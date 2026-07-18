@@ -183,6 +183,9 @@ importers:
       '@ue-shed/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@ue-shed/observatory':
+        specifier: workspace:*
+        version: link:../../packages/observatory
       '@ue-shed/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -281,6 +284,9 @@ importers:
       '@ue-shed/cameras':
         specifier: workspace:*
         version: link:../../packages/cameras
+      '@ue-shed/observatory':
+        specifier: workspace:*
+        version: link:../../packages/observatory
       '@ue-shed/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -484,6 +490,15 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10)
+
+  packages/observatory:
+    dependencies:
+      '@ue-shed/unreal-connection':
+        specifier: workspace:*
+        version: link:../unreal-connection
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.98
 
   packages/protocol:
     dependencies:

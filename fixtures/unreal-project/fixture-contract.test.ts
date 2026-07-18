@@ -375,6 +375,7 @@ describe("fixture project", () => {
 			"UEShedCore",
 			"UEShedAuthoring",
 			"UEShedCameras",
+			"UEShedObservatory",
 			"UEShedAssetAudits"
 		]);
 	});

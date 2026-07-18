@@ -36,6 +36,13 @@ void UUEShedCoreLibrary::GetCapabilityManifest(FString& ResultJson)
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("cameras.control.v1")));
 		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("cameras.frames.bgra8.pipe.v1")));
 	}
+	if (FModuleManager::Get().IsModuleLoaded(TEXT("UEShedObservatoryEditor")))
+	{
+		Root->SetStringField(TEXT("observatoryObjectPath"),
+			TEXT("/Script/UEShedObservatoryEditor.Default__UEShedObservatoryLibrary"));
+		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("observatory.actors.snapshot.v1")));
+		Capabilities.Add(MakeShared<FJsonValueString>(TEXT("observatory.actors.focus.v1")));
+	}
 	if (FModuleManager::Get().IsModuleLoaded(TEXT("UEShedAssetAudits")))
 	{
 		Root->SetStringField(TEXT("assetAuditsObjectPath"),

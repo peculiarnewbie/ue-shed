@@ -1,0 +1,17 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "UE Shed Observatory",
+	"Description": "Bounded actor discovery, spatial snapshots, and editor focus.",
+	"Category": "UE Shed",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"Modules": [
+		{
+			"Name": "UEShedObservatoryEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

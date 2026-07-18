@@ -36,6 +36,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "UEShedObservatory",
+			"Enabled": true
+		},
+		{
 			"Name": "UEShedAssetAudits",
 			"Enabled": true
 		}
