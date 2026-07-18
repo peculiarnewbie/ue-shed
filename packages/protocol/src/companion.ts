@@ -4,6 +4,7 @@ export const CompanionCapabilityManifest = Schema.Struct({
 	assetAuditsObjectPath: Schema.optional(Schema.String),
 	authoringObjectPath: Schema.optional(Schema.String),
 	camerasObjectPath: Schema.optional(Schema.String),
+	playSessionObjectPath: Schema.optional(Schema.String),
 	capabilities: Schema.Array(Schema.String),
 	authoringLimits: Schema.optional(
 		Schema.Struct({
