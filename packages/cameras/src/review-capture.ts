@@ -22,6 +22,7 @@ import {
 	type CaptureRun,
 	type ReviewCaptureResponse,
 	type ReviewSet,
+	type ReviewViewId,
 	type ViewResult
 } from "./review-schema.js";
 
@@ -86,6 +87,7 @@ export interface CaptureReviewSetOptions {
 	readonly endpoint: string;
 	readonly projectRoot: string;
 	readonly reviewSetPath: string;
+	readonly viewIds?: ReadonlyArray<ReviewViewId>;
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -252,6 +254,20 @@ function captureReviewSetWith(args: {
 	return Effect.gen(function* () {
 		const reviewSet = yield* args.repository.loadSet(args.options.reviewSetPath);
 		const runId = CaptureRunId.make(yield* args.ids.generate());
+		const views = args.options.viewIds
+			? reviewSet.views.filter((view) => args.options.viewIds?.includes(view.id))
+			: reviewSet.views;
+		if (views.length === 0 || views.length !== (args.options.viewIds?.length ?? views.length)) {
+			return yield* Effect.fail(
+				new ReviewCaptureRunError({
+					message:
+						"The requested capture plan contains missing or duplicate Review View IDs.",
+					operation: "prepare",
+					recovery: "Reload the Review Set, review the capture plan, and retry.",
+					runId
+				})
+			);
+		}
 		const startedAt = isoNow(yield* Clock.currentTimeMillis);
 		const root = captureRunsRoot(args.options.projectRoot);
 		const stagingRoot = join(root, `.staging-${runId}`);
@@ -268,7 +284,7 @@ function captureReviewSetWith(args: {
 
 		return yield* Effect.gen(function* () {
 			const results = yield* Effect.forEach(
-				reviewSet.views,
+				views,
 				(view) =>
 					captureOneView({
 						capturePort: args.capturePort,

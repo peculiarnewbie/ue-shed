@@ -87,6 +87,7 @@ function runCapture(
 	options: {
 		readonly projectRoot: string;
 		readonly reviewSetPath: string;
+		readonly viewIds?: ReadonlyArray<ReviewViewId>;
 	},
 	port: ReviewCapturePortShape,
 	makeId: () => string
@@ -96,7 +97,8 @@ function runCapture(
 			service.captureSet({
 				endpoint: "http://127.0.0.1:30001",
 				projectRoot: options.projectRoot,
-				reviewSetPath: options.reviewSetPath
+				reviewSetPath: options.reviewSetPath,
+				...(options.viewIds ? { viewIds: options.viewIds } : {})
 			})
 		).pipe(
 			Effect.provide(ReviewCaptureLive),
@@ -144,6 +146,52 @@ describe("Map Review contracts", () => {
 });
 
 describe("durable capture loop", () => {
+	it("captures only the approved views selected by the plan", async () => {
+		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-subset-"));
+		temporaryDirectories.push(projectRoot);
+		const reviewSetPath = join(projectRoot, "set.json");
+		const reviewSet = fixtureReviewSet();
+		const second = {
+			...reviewSet.views[0]!,
+			displayName: "Structure detail",
+			id: ReviewViewId.make("structure-detail")
+		};
+		await Effect.runPromise(
+			saveReviewSet({
+				path: reviewSetPath,
+				reviewSet: { ...reviewSet, views: [...reviewSet.views, second] }
+			}).pipe(Effect.provide(ReviewRepositoryLive))
+		);
+		const requested: string[] = [];
+		const port: ReviewCapturePortShape = {
+			capture: (request) => {
+				requested.push(request.viewId);
+				return Effect.succeed({
+					code: "fixture_failure",
+					contract: request.contract,
+					message: "Expected fixture failure",
+					operationId: request.operationId,
+					recovery: "No recovery required",
+					retrySafe: false,
+					status: "failed",
+					viewId: request.viewId
+				});
+			}
+		};
+		const ids = ["run-subset", "operation-subset"];
+		const run = await runCapture(
+			{
+				projectRoot,
+				reviewSetPath,
+				viewIds: [ReviewViewId.make("structure-detail")]
+			},
+			port,
+			() => ids.shift()!
+		);
+		expect(requested).toEqual(["structure-detail"]);
+		expect(run.results).toHaveLength(1);
+	});
+
 	it("promotes a validated Unreal staging image into an immutable run and history", async () => {
 		const projectRoot = await mkdtemp(join(tmpdir(), "ue-shed-review-run-"));
 		temporaryDirectories.push(projectRoot);
