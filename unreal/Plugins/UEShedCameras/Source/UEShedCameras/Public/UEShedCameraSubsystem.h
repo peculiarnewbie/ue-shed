@@ -5,6 +5,7 @@
 #include "UEShedCameraSubsystem.generated.h"
 
 struct FUEShedCameraRuntime;
+class AUEShedCameraSource;
 
 enum class EUEShedCameraRenderProfile : uint8
 {
@@ -19,6 +20,13 @@ enum class EUEShedCameraPipelineMode : uint8
 	ScheduleOnly
 };
 
+enum class EUEShedCameraViewMode : uint8
+{
+	Overview,
+	ActorPov,
+	Posed
+};
+
 USTRUCT()
 struct FUEShedCameraScheduleConfig
 {
@@ -30,11 +38,24 @@ struct FUEShedCameraScheduleConfig
 	int32 FocusedCameraIndex = 0;
 	double FocusedFps = 8.0;
 	bool bPaused = false;
-	bool bActorPov = false;
+	EUEShedCameraViewMode ViewMode = EUEShedCameraViewMode::Overview;
 	EUEShedCameraPipelineMode PipelineMode = EUEShedCameraPipelineMode::FullPipeline;
 	EUEShedCameraRenderProfile RenderProfile = EUEShedCameraRenderProfile::FullFidelity;
 	int32 CaptureWidth = 320;
 	int32 CaptureHeight = 180;
+};
+
+USTRUCT()
+struct FUEShedReviewPreviewSourceSpec
+{
+	GENERATED_BODY()
+
+	FString CandidateId;
+	FVector Location = FVector::ZeroVector;
+	FRotator Rotation = FRotator::ZeroRotator;
+	float FieldOfViewDegrees = 60.f;
+	int32 Width = 320;
+	int32 Height = 180;
 };
 
 UCLASS()
@@ -53,6 +74,16 @@ public:
 	bool ApplyConfigJson(const FString& ConfigJson, FString& Error);
 	FString StatusJson() const;
 
+	bool EnsureReviewPreviewSources(
+		const TArray<FUEShedReviewPreviewSourceSpec>& Specs,
+		FString& Error);
+	void ClearReviewPreviewSources();
+	bool IsReviewPreviewSessionActive() const;
+
 private:
+	void DiscoverPlacedSources();
+	void RegisterSource(AUEShedCameraSource* Source);
+	void ResetCameraStates();
+
 	TUniquePtr<FUEShedCameraRuntime> Runtime;
 };

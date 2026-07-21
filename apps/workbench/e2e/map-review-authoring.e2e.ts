@@ -39,9 +39,17 @@ test("authors real candidate previews from the selected fixture subject", async 
 			candidates.getByRole("button", { name: "Select Context three-quarter" })
 		).toBeVisible({ timeout: 60_000 });
 		await expect(candidates.getByRole("button", { name: /^Select / })).toHaveCount(7);
-		await expect(candidates.getByRole("img").first()).toHaveJSProperty("naturalWidth", 640, {
-			timeout: 30_000
+		const preview = candidates.locator("canvas, img").first();
+		await expect(preview).toBeVisible({ timeout: 30_000 });
+		const width = await preview.evaluate((node) => {
+			const previewNode = node as unknown as {
+				readonly naturalWidth: number;
+				readonly tagName: string;
+				readonly width: number;
+			};
+			return previewNode.tagName === "CANVAS" ? previewNode.width : previewNode.naturalWidth;
 		});
+		expect(width).toBe(320);
 		await workbench.page.getByRole("button", { name: "FOLLOW ACTOR" }).click();
 		await workbench.page.waitForTimeout(750);
 		await expect(workbench.page.getByRole("button", { name: "STOP FOLLOWING" })).toBeVisible();

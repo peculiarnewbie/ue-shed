@@ -135,11 +135,12 @@ function launchAuthoring(tools) {
 	const remoteControlPort = new URL(
 		process.env.UE_SHED_REMOTE_CONTROL_ENDPOINT ?? "http://127.0.0.1:30001"
 	).port;
+	// Keep the editor window visible: Map Review "Go to Actor" moves the viewport and
+	// brings this window forward. Hiding it makes focus look like a no-op.
 	const child = spawn(
 		tools.editor,
 		[
 			projectFile,
-			"-unattended",
 			"-RCWebControlEnable",
 			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlHttpServerPort=${remoteControlPort}`,
 			`-ini:RemoteControl:[/Script/RemoteControlCommon.RemoteControlSettings]:RemoteControlWebSocketServerPort=${Number(remoteControlPort) + 1}`,
@@ -152,7 +153,7 @@ function launchAuthoring(tools) {
 			cwd: fixtureRoot,
 			detached: true,
 			stdio: "ignore",
-			windowsHide: true
+			windowsHide: false
 		}
 	);
 	child.unref();

@@ -102,9 +102,9 @@ export function CaptureWorkflow(props: {
 			>
 				<header {...stylex.props(styles.header)}>
 					<div>
-						<span {...stylex.props(styles.kicker)}>DURABLE EVIDENCE / CAPTURE SET</span>
+						<span {...stylex.props(styles.kicker)}>CAPTURE</span>
 						<h2 id="capture-workflow-title" {...stylex.props(styles.title)}>
-							Commit the view, deliberately.
+							Capture review set
 						</h2>
 					</div>
 					<button
@@ -139,10 +139,10 @@ export function CaptureWorkflow(props: {
 						<Match when={state().stage === "prepare"}>
 							<section aria-label="Prepare capture" {...stylex.props(styles.stage)}>
 								<p {...stylex.props(styles.stageNumber)}>01 / PREPARE</p>
-								<h3 {...stylex.props(styles.stageTitle)}>Confirm the authority.</h3>
+								<h3 {...stylex.props(styles.stageTitle)}>Confirm what will run</h3>
 								<p {...stylex.props(styles.copy)}>
-									This run reads approved poses from the Review Set and writes
-									immutable evidence. It does not save or modify the map.
+									Captures approved Review Set poses to PNG on disk. Does not save
+									or modify the Unreal map.
 								</p>
 								<dl {...stylex.props(styles.facts)}>
 									<div {...stylex.props(styles.fact)}>
@@ -175,9 +175,9 @@ export function CaptureWorkflow(props: {
 								</dl>
 								<div {...stylex.props(styles.distinction)}>
 									<span>PREVIEW</span>
-									<p>Transient plan inspection. Nothing enters history.</p>
+									<p>Pick which views to include. Nothing is written yet.</p>
 									<span>CAPTURE</span>
-									<p>Creates a durable run with immutable artifacts.</p>
+									<p>Writes a run folder with PNG artifacts under .ue-shed.</p>
 								</div>
 							</section>
 						</Match>
@@ -246,13 +246,10 @@ export function CaptureWorkflow(props: {
 							>
 								<div {...stylex.props(styles.aperture)} />
 								<p {...stylex.props(styles.stageNumber)}>03 / CAPTURE</p>
-								<h3 {...stylex.props(styles.stageTitle)}>
-									Writing durable evidence.
-								</h3>
+								<h3 {...stylex.props(styles.stageTitle)}>Capturing in Unreal</h3>
 								<p>
 									{selectedIds().length} approved{" "}
-									{selectedIds().length === 1 ? "view" : "views"} queued through
-									Unreal.
+									{selectedIds().length === 1 ? "view" : "views"} in this run.
 								</p>
 								<div {...stylex.props(styles.progressTrack)}>
 									<span {...stylex.props(styles.progressFill)} />
@@ -277,12 +274,10 @@ export function CaptureWorkflow(props: {
 										<p {...stylex.props(styles.stageNumber)}>
 											03 / CAPTURE COMPLETE
 										</p>
-										<h3 {...stylex.props(styles.stageTitle)}>
-											Evidence committed.
-										</h3>
+										<h3 {...stylex.props(styles.stageTitle)}>Capture finished</h3>
 										<p {...stylex.props(styles.copy)}>
-											The run is immutable and now appears at the front of
-											Visual History.
+											The new run is listed in capture history for this Review
+											Set.
 										</p>
 										<div {...stylex.props(styles.resultGrid)}>
 											<div {...stylex.props(styles.result)}>

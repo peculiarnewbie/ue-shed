@@ -149,8 +149,8 @@ export function WorldScout(props: {
 		<section aria-label="Live top-down actor map" {...stylex.props(styles.scout)}>
 			<header {...stylex.props(styles.header)}>
 				<div>
-					<p {...stylex.props(styles.eyebrow)}>LIVE WORLD SCOUT / XY ORTHOGRAPHIC</p>
-					<h2 {...stylex.props(styles.title)}>The level is the index.</h2>
+					<p {...stylex.props(styles.eyebrow)}>WORLD SCOUT</p>
+					<h2 {...stylex.props(styles.title)}>Actors in the open level</h2>
 				</div>
 				<div {...stylex.props(styles.worldStatus)}>
 					<span {...stylex.props(styles.liveDot)} />
@@ -175,10 +175,10 @@ export function WorldScout(props: {
 				fallback={
 					<div {...stylex.props(styles.offline)}>
 						<div {...stylex.props(styles.offlineReticle)}>＋</div>
-						<h3>Open a world to survey it.</h3>
+						<h3>No live world connected</h3>
 						<p>
-							Map Review needs the optional Observatory capability before it can place
-							actors in world space.
+							Start the editor with Remote Control, open a map, then connect to list
+							actors and jump the viewport to a selection.
 						</p>
 						<button
 							type="button"

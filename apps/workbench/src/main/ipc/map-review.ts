@@ -1,5 +1,8 @@
 import type {
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent
 } from "@ue-shed/cameras/review-contracts";
 import { Effect } from "effect";
@@ -27,6 +30,29 @@ export const register = Effect.gen(function* () {
 	yield* ipc.register(invokeContracts["map-review:author-from-selection"], () =>
 		mapReview.authorFromSelection()
 	);
+	yield* ipc.register(invokeContracts["map-review:authoring-resume"], () =>
+		mapReview.authoringResume(undefined)
+	);
+	yield* ipc.register(invokeContracts["map-review:authoring-patch"], (...args) => {
+		const [intent] = args as [MapReviewAuthoringPatchIntent];
+		return mapReview.authoringPatch(intent);
+	});
+	yield* ipc.register(invokeContracts["map-review:authoring-reframe"], (...args) => {
+		const [intent] = args as [MapReviewAuthoringSessionIntent];
+		return mapReview.authoringReframe(intent);
+	});
+	yield* ipc.register(invokeContracts["map-review:authoring-discard"], (...args) => {
+		const [intent] = args as [MapReviewAuthoringSessionIntent];
+		return mapReview.discardAuthoring(intent);
+	});
+	yield* ipc.register(invokeContracts["map-review:preview-authoring-candidate"], (...args) => {
+		const [intent] = args as [MapReviewAuthoringPreviewIntent];
+		return mapReview.previewAuthoringCandidate(intent);
+	});
+	yield* ipc.register(invokeContracts["map-review:approve-authoring"], (...args) => {
+		const [intent] = args as [MapReviewAuthoringSessionIntent];
+		return mapReview.approveAuthoring(intent);
+	});
 	yield* ipc.register(invokeContracts["map-review:preview-candidate"], (...args) => {
 		const [candidateId] = args as [CandidateId];
 		return mapReview.previewCandidate(candidateId);

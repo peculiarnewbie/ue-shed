@@ -15,18 +15,20 @@ UE Shed code should be functional, typed, observable, and well tested.
 8. Prefer real local systems and the Unreal fixture over broad mocks.
 9. Keep Solid views thin and StyleX styles local.
 10. Keep every feature usable without Workbench.
+11. Design maintained workflows for both agent operation and, when applicable, agent adoption.
 
 ## Guides
 
-| Guide                                     | Use it for                                |
-| ----------------------------------------- | ----------------------------------------- |
-| [Functional design](functional-design.md) | Logic, state, services, and concurrency   |
-| [Types and errors](types-and-errors.md)   | Schemas, IDs, APIs, and failures          |
-| [Effect](effect.md)                       | Services, resources, streams, and retries |
-| [SolidJS](solidjs.md)                     | First-party UI code                       |
-| [StyleX](stylex.md)                       | Styles, themes, and UI packages           |
-| [Observability](observability.md)         | Telemetry, health, and diagnostics        |
-| [Testing](testing.md)                     | Test scope and test types                 |
+| Guide                                     | Use it for                                 |
+| ----------------------------------------- | ------------------------------------------ |
+| [Functional design](functional-design.md) | Logic, state, services, and concurrency    |
+| [Types and errors](types-and-errors.md)   | Schemas, IDs, APIs, and failures           |
+| [Effect](effect.md)                       | Services, resources, streams, and retries  |
+| [SolidJS](solidjs.md)                     | First-party UI code                        |
+| [StyleX](stylex.md)                       | Styles, themes, and UI packages            |
+| [Observability](observability.md)         | Telemetry, health, and diagnostics         |
+| [Testing](testing.md)                     | Test scope and test types                  |
+| [Agent adoption](agent-adoption.md)       | Agent-operated workflows and copied slices |
 
 ## Stack
 

@@ -10,7 +10,10 @@ import { TextureAuditRunResult, TexturePreviewResult } from "@ue-shed/asset-audi
 import {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
 	MapReviewAuthoringResult,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent,
 	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
@@ -307,6 +310,36 @@ export const invokeContracts = {
 		channel: "map-review:author-from-selection",
 		args: EmptyArgs,
 		result: MapReviewAuthoringResult
+	}),
+	"map-review:authoring-resume": invoke({
+		channel: "map-review:authoring-resume",
+		args: EmptyArgs,
+		result: MapReviewAuthoringResult
+	}),
+	"map-review:authoring-patch": invoke({
+		channel: "map-review:authoring-patch",
+		args: Schema.Tuple([MapReviewAuthoringPatchIntent]),
+		result: MapReviewAuthoringResult
+	}),
+	"map-review:authoring-reframe": invoke({
+		channel: "map-review:authoring-reframe",
+		args: Schema.Tuple([MapReviewAuthoringSessionIntent]),
+		result: MapReviewAuthoringResult
+	}),
+	"map-review:authoring-discard": invoke({
+		channel: "map-review:authoring-discard",
+		args: Schema.Tuple([MapReviewAuthoringSessionIntent]),
+		result: MapReviewAuthoringResult
+	}),
+	"map-review:preview-authoring-candidate": invoke({
+		channel: "map-review:preview-authoring-candidate",
+		args: Schema.Tuple([MapReviewAuthoringPreviewIntent]),
+		result: MapReviewCandidatePreviewResult
+	}),
+	"map-review:approve-authoring": invoke({
+		channel: "map-review:approve-authoring",
+		args: Schema.Tuple([MapReviewAuthoringSessionIntent]),
+		result: MapReviewApprovalResult
 	}),
 	"map-review:preview-candidate": invoke({
 		channel: "map-review:preview-candidate",

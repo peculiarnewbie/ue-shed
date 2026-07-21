@@ -205,10 +205,40 @@ function buildRegistrationLayer(recorder: Recorder) {
 				.pipe(
 					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
 				),
+		authoringPatch: () =>
+			recorder
+				.record("mapReview.authoringPatch")
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
+		authoringReframe: () =>
+			recorder
+				.record("mapReview.authoringReframe")
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
+		authoringResume: () =>
+			recorder
+				.record("mapReview.authoringResume")
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
 		capture: () =>
 			recorder
 				.record("mapReview.capture")
 				.pipe(Effect.as({ status: "not_configured" as const })),
+		discardAuthoring: () =>
+			recorder
+				.record("mapReview.discardAuthoring")
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
+		approveAuthoring: () =>
+			recorder
+				.record("mapReview.approveAuthoring")
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
 		load: () =>
 			recorder
 				.record("mapReview.load")
@@ -216,6 +246,12 @@ function buildRegistrationLayer(recorder: Recorder) {
 		previewCandidate: (candidateId) =>
 			recorder
 				.record(`mapReview.previewCandidate:${candidateId}`)
+				.pipe(
+					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
+				),
+		previewAuthoringCandidate: () =>
+			recorder
+				.record("mapReview.previewAuthoringCandidate")
 				.pipe(
 					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
 				)
@@ -331,13 +367,13 @@ function runRegistered<A>(
 	}).pipe(Effect.scoped);
 }
 
-it.effect("registers exactly the 36 contract channels", () =>
+it.effect("registers exactly the 42 contract channels", () =>
 	Effect.gen(function* () {
 		const { result } = yield* runRegistered((ipc) => ipc.handlers());
 		expect(result.map((entry) => entry.channel).toSorted()).toEqual(
 			[...invokeChannelNames].toSorted()
 		);
-		expect(result).toHaveLength(36);
+		expect(result).toHaveLength(42);
 	})
 );
 

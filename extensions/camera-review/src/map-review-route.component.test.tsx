@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { userEvent } from "@testing-library/user-event";
 import { EffectRuntimeProvider } from "@ue-shed/ui";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type {
 	MapReviewCaptureResult,
+	MapReviewAuthoringResult,
 	MapReviewClientShape,
 	MapReviewResult
 } from "./map-review-client.js";
@@ -67,6 +68,47 @@ const offlineScout = {
 		})
 } satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
 
+const unavailableDurableAuthoring = {
+	authoringResume: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		}),
+	authoringPatch: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		}),
+	authoringReframe: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		}),
+	discardAuthoring: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		}),
+	previewAuthoringCandidate: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		}),
+	approveAuthoring: () =>
+		Effect.succeed({
+			error: { message: "No saved session", recovery: "Select an actor" },
+			status: "failed" as const
+		})
+} satisfies Pick<
+	MapReviewClientShape,
+	| "approveAuthoring"
+	| "authoringPatch"
+	| "authoringReframe"
+	| "authoringResume"
+	| "discardAuthoring"
+	| "previewAuthoringCandidate"
+>;
+
 function renderRoute(client: MapReviewClientShape) {
 	return render(() => (
 		<EffectRuntimeProvider runtime={runtime}>
@@ -76,6 +118,22 @@ function renderRoute(client: MapReviewClientShape) {
 }
 
 describe("MapReviewRoute", () => {
+	it("offers first-run authoring when a configured project has no Review Set", async () => {
+		const client: MapReviewClientShape = {
+			...offlineScout,
+			...unavailableDurableAuthoring,
+			approveCandidate: () => Effect.die("not used"),
+			authorFromSelection: () => Effect.die("not used"),
+			capture: () => Effect.die("not used"),
+			load: () => Effect.succeed({ status: "setup_required" }),
+			previewCandidate: () => Effect.die("not used")
+		};
+
+		renderRoute(client);
+		expect(await screen.findByRole("button", { name: "REFRAME SELECTED ACTOR" })).toBeDefined();
+		expect(screen.getByText("Select an actor, then reframe")).toBeDefined();
+	});
+
 	it("establishes the first durable capture and exposes it in history", async () => {
 		const captured = {
 			...empty,
@@ -93,6 +151,7 @@ describe("MapReviewRoute", () => {
 		let captureViewIds: ReadonlyArray<string> = [];
 		const client: MapReviewClientShape = {
 			...offlineScout,
+			...unavailableDurableAuthoring,
 			approveCandidate: () => Effect.succeed({ candidateId: "context", status: "approved" }),
 			authorFromSelection: () =>
 				Effect.succeed({
@@ -120,15 +179,13 @@ describe("MapReviewRoute", () => {
 		};
 		const user = userEvent.setup();
 		renderRoute(client);
-		expect(await screen.findByText("No visual history yet.")).toBeDefined();
+		expect(await screen.findByText("No captures yet. Use Capture Set when you want PNG evidence.")).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "CAPTURE SET" }));
-		expect(
-			screen.getByRole("dialog", { name: "Commit the view, deliberately." })
-		).toBeDefined();
+		expect(screen.getByRole("dialog", { name: "Capture review set" })).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "REVIEW CAPTURE PLAN →" }));
 		expect(screen.getByText("Structure context")).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "CAPTURE 1 VIEW" }));
-		expect(await screen.findByText("Evidence committed.")).toBeDefined();
+		expect(await screen.findByText("Capture finished")).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "DONE" }));
 		expect(await screen.findByText("PURE / ORDINARY WORLD")).toBeDefined();
 		expect(screen.getByRole("region", { name: "Capture history" }).textContent).toContain(
@@ -149,6 +206,7 @@ describe("MapReviewRoute", () => {
 		let approved: Parameters<MapReviewClientShape["approveCandidate"]>[0] | undefined;
 		const client: MapReviewClientShape = {
 			...offlineScout,
+			...unavailableDurableAuthoring,
 			approveCandidate: (intent) =>
 				Effect.sync(() => {
 					approved = intent;
@@ -193,7 +251,7 @@ describe("MapReviewRoute", () => {
 		};
 		const user = userEvent.setup();
 		renderRoute(client);
-		await screen.findByText("No visual history yet.");
+		await screen.findByText("No captures yet. Use Capture Set when you want PNG evidence.");
 		await user.click(screen.getByRole("button", { name: "REFRAME SELECTED ACTOR" }));
 		expect(await screen.findByText("Review Subject")).toBeDefined();
 		const z = screen.getByRole("spinbutton", { name: "Z" });
@@ -213,5 +271,136 @@ describe("MapReviewRoute", () => {
 			sourceActorPath: "/Game/Fixture.Subject",
 			viewId: "structure-context"
 		});
+	});
+
+	it("resumes durable intent, regenerates previews, and requires explicit Reframe for stale evidence", async () => {
+		const pose = {
+			aspectRatio: "16:9" as const,
+			fieldOfViewDegrees: 60,
+			location: { x: 1000, y: -1000, z: 725 },
+			projection: "perspective" as const,
+			rotation: { pitch: -15, roll: 0, yaw: 135 }
+		};
+		const subject = {
+			actorPath: "/Game/Fixture.Subject",
+			displayName: "Recovered Review Subject",
+			mapPath: "/Game/Fixture/Cameras/L_CameraLoad"
+		};
+		const recovered: MapReviewAuthoringResult = {
+			candidates: [
+				{
+					diagnostics: [
+						{
+							code: "subject_margin_below_requested",
+							message: "The subject is below the requested framing margin.",
+							severity: "warning"
+						}
+					],
+					displayName: "Recovered framing",
+					id: "recovered-candidate",
+					pose,
+					preset: "context_three_quarter",
+					preview: { status: "pending" }
+				},
+				{
+					diagnostics: [],
+					displayName: "Discarded framing",
+					id: "discarded-candidate",
+					pose,
+					preset: "facade_front",
+					preview: { status: "pending" }
+				}
+			],
+			selection: subject,
+			session: {
+				candidates: [],
+				contract: {
+					name: "ue-shed-review-authoring-session",
+					version: { major: 1, minor: 0 }
+				},
+				createdAt: "2026-07-20T00:00:00.000Z",
+				diagnostics: [],
+				discardedCandidateIds: ["discarded-candidate"],
+				draftPose: pose,
+				id: "recovered-session",
+				lifecycle: "stale",
+				manualReason: "Recovered art direction note",
+				realizations: [],
+				reviewSet: {
+					id: "fixture-review-set",
+					mapPath: subject.mapPath,
+					path: "C:/Fixture/.ue-shed/review/sets/fixture.json"
+				},
+				selectedCandidateId: "recovered-candidate",
+				subject: {
+					actorPath: subject.actorPath,
+					bounds: {
+						center: { x: 0, y: 0, z: 0 },
+						extent: { x: 1, y: 1, z: 1 },
+						rotation: { pitch: 0, roll: 0, yaw: 0 }
+					},
+					displayName: subject.displayName,
+					mapPath: subject.mapPath
+				},
+				updatedAt: "2026-07-20T00:00:01.000Z",
+				viewId: "structure-context"
+			} as never,
+			sessionId: "recovered-session",
+			status: "ready",
+			viewId: "structure-context"
+		};
+		let reframeCount = 0;
+		const regeneratedPreviews: Array<{
+			readonly candidateId: string;
+			readonly sessionId: string;
+		}> = [];
+		const client: MapReviewClientShape = {
+			...offlineScout,
+			...unavailableDurableAuthoring,
+			approveCandidate: () => Effect.die("not used"),
+			authorFromSelection: () => Effect.die("not used"),
+			authoringResume: () => Effect.succeed(recovered),
+			authoringReframe: () =>
+				Effect.sync(() => {
+					reframeCount += 1;
+					return recovered;
+				}),
+			capture: () => Effect.die("not used"),
+			load: () => Effect.succeed(empty),
+			previewAuthoringCandidate: (intent) =>
+				Effect.sync(() => {
+					regeneratedPreviews.push(intent);
+					return {
+						error: {
+							message: "Preview unavailable in component test",
+							recovery: "Reframe"
+						},
+						status: "failed" as const
+					};
+				}),
+			previewCandidate: () => Effect.die("not used")
+		};
+		const user = userEvent.setup();
+		renderRoute(client);
+		await screen.findByText("Recovered Review Subject");
+		expect(
+			(screen.getByRole("textbox", { name: "MANUAL ADJUSTMENT NOTE" }) as HTMLInputElement)
+				.value
+		).toBe("Recovered art direction note");
+		expect(screen.queryByText("Discarded framing")).toBeNull();
+		expect(screen.getByRole("status").textContent).toMatch(
+			/below the requested framing margin/i
+		);
+		expect(
+			(screen.getByRole("button", { name: "KEEP VIEW" }) as HTMLButtonElement).disabled
+		).toBe(true);
+		await waitFor(() =>
+			expect(regeneratedPreviews).toEqual([
+				{ candidateId: "recovered-candidate", sessionId: "recovered-session" },
+				{ candidateId: "discarded-candidate", sessionId: "recovered-session" }
+			])
+		);
+		await user.click(screen.getByRole("button", { name: "REFRAME SELECTED ACTOR" }));
+		await waitFor(() => expect(reframeCount).toBe(1));
 	});
 });

@@ -185,6 +185,7 @@ struct FUEShedCameraRuntime
 	TUniquePtr<FCameraPipeWriter> Writer;
 	FGuid ProducerId = FGuid::NewGuid();
 	FGuid SessionId = FGuid::NewGuid();
+	bool bReviewPreviewSession = false;
 	uint64 CaptureBatchesSubmitted = 0;
 	uint64 CadenceIntervalsSkipped = 0;
 	uint64 CamerasDue = 0;
@@ -237,6 +238,7 @@ void UUEShedCameraSubsystem::Deinitialize()
 {
 	if (Runtime)
 	{
+		ClearReviewPreviewSources();
 		if (Runtime->TraceRegionId != 0)
 		{
 			TRACE_END_REGION_WITH_ID(Runtime->TraceRegionId);
@@ -248,41 +250,160 @@ void UUEShedCameraSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
+void UUEShedCameraSubsystem::ResetCameraStates()
+{
+	if (!Runtime) return;
+	FlushRenderingCommands();
+	Runtime->Cameras.Reset();
+	Runtime->SchedulerCursor = 0;
+}
+
+void UUEShedCameraSubsystem::RegisterSource(AUEShedCameraSource* Source)
+{
+	if (!Runtime || Source == nullptr) return;
+	FCameraState& State = Runtime->Cameras.AddDefaulted_GetRef();
+	State.Source = Source;
+	State.OverviewTransform = Source->GetActorTransform();
+	State.FullFidelityShowFlags = Source->GetCaptureComponent2D()->ShowFlags;
+	for (TSharedPtr<FReadbackSlot, ESPMode::ThreadSafe>& Slot : State.Slots)
+	{
+		Slot = MakeShared<FReadbackSlot, ESPMode::ThreadSafe>();
+	}
+}
+
+void UUEShedCameraSubsystem::DiscoverPlacedSources()
+{
+	if (!Runtime) return;
+	TArray<AUEShedCameraSource*> Sources;
+	for (TActorIterator<AUEShedCameraSource> It(GetWorld()); It; ++It)
+	{
+		if (It->bTransientReviewPreview) continue;
+		Sources.Add(*It);
+	}
+	Sources.Sort([](const AUEShedCameraSource& Left, const AUEShedCameraSource& Right)
+	{
+		return Left.CameraIndex < Right.CameraIndex;
+	});
+	for (AUEShedCameraSource* Source : Sources)
+	{
+		RegisterSource(Source);
+	}
+}
+
+bool UUEShedCameraSubsystem::IsReviewPreviewSessionActive() const
+{
+	return Runtime != nullptr && Runtime->bReviewPreviewSession;
+}
+
+void UUEShedCameraSubsystem::ClearReviewPreviewSources()
+{
+	if (!Runtime) return;
+	UWorld* World = GetWorld();
+	TArray<AUEShedCameraSource*> ToDestroy;
+	for (TActorIterator<AUEShedCameraSource> It(World); It; ++It)
+	{
+		if (It->bTransientReviewPreview) ToDestroy.Add(*It);
+	}
+	ResetCameraStates();
+	Runtime->bReviewPreviewSession = false;
+	Runtime->Config.ViewMode = EUEShedCameraViewMode::Overview;
+	for (AUEShedCameraSource* Source : ToDestroy)
+	{
+		if (IsValid(Source))
+		{
+			Source->Destroy();
+		}
+	}
+}
+
+bool UUEShedCameraSubsystem::EnsureReviewPreviewSources(
+	const TArray<FUEShedReviewPreviewSourceSpec>& Specs,
+	FString& Error)
+{
+	if (!Runtime)
+	{
+		Error = TEXT("not-initialized");
+		return false;
+	}
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		Error = TEXT("world-unavailable");
+		return false;
+	}
+	if (Specs.Num() == 0 || Specs.Num() > 32)
+	{
+		Error = TEXT("invalid-source-count");
+		return false;
+	}
+	ClearReviewPreviewSources();
+	ResetCameraStates();
+	for (int32 Index = 0; Index < Specs.Num(); ++Index)
+	{
+		const FUEShedReviewPreviewSourceSpec& Spec = Specs[Index];
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride =
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.Name = *FString::Printf(TEXT("UEShedReviewPreview_%d"), Index);
+		AUEShedCameraSource* Source = World->SpawnActor<AUEShedCameraSource>(
+			AUEShedCameraSource::StaticClass(),
+			Spec.Location,
+			Spec.Rotation,
+			SpawnParams);
+		if (Source == nullptr)
+		{
+			ClearReviewPreviewSources();
+			Error = TEXT("spawn-failed");
+			return false;
+		}
+		Source->bTransientReviewPreview = true;
+		Source->ReviewCandidateId = Spec.CandidateId;
+		Source->CameraIndex = Index;
+		Source->CameraId = FGuid::NewGuid();
+		Source->CaptureWidth = FMath::Clamp(Spec.Width, 64, 2560);
+		Source->CaptureHeight = FMath::Clamp(Spec.Height, 64, 1440);
+		Source->EnsureCaptureTarget();
+		if (USceneCaptureComponent2D* Capture = Source->GetCaptureComponent2D())
+		{
+			Capture->FOVAngle = FMath::Clamp(Spec.FieldOfViewDegrees, 5.f, 170.f);
+		}
+		RegisterSource(Source);
+	}
+	Runtime->bReviewPreviewSession = true;
+	Runtime->Config.ViewMode = EUEShedCameraViewMode::Posed;
+	Runtime->Config.ActiveCameraCount = Specs.Num();
+	Runtime->Config.FocusedCameraIndex = -1;
+	Runtime->Config.FocusedFps = 8.0;
+	Runtime->Config.BackgroundFps = 8.0;
+	Runtime->Config.CaptureBudgetPerTick = FMath::Clamp(Specs.Num(), 1, 8);
+	Runtime->Config.CaptureWidth = Specs[0].Width;
+	Runtime->Config.CaptureHeight = Specs[0].Height;
+	Runtime->Config.bPaused = false;
+	Runtime->Config.RenderProfile = EUEShedCameraRenderProfile::Observation;
+	return true;
+}
+
 void UUEShedCameraSubsystem::Tick(float DeltaTime)
 {
 	if (!Runtime) return;
-	if (Runtime->Cameras.IsEmpty())
+	if (Runtime->Cameras.IsEmpty() && !Runtime->bReviewPreviewSession)
 	{
-		TArray<AUEShedCameraSource*> Sources;
-		for (TActorIterator<AUEShedCameraSource> It(GetWorld()); It; ++It) Sources.Add(*It);
-		Sources.Sort([](const AUEShedCameraSource& Left, const AUEShedCameraSource& Right)
-		{
-			return Left.CameraIndex < Right.CameraIndex;
-		});
-		for (AUEShedCameraSource* Source : Sources)
-		{
-			FCameraState& State = Runtime->Cameras.AddDefaulted_GetRef();
-			State.Source = Source;
-			State.OverviewTransform = Source->GetActorTransform();
-			State.FullFidelityShowFlags = Source->GetCaptureComponent2D()->ShowFlags;
-			for (TSharedPtr<FReadbackSlot, ESPMode::ThreadSafe>& Slot : State.Slots)
-			{
-				Slot = MakeShared<FReadbackSlot, ESPMode::ThreadSafe>();
-			}
-		}
+		DiscoverPlacedSources();
 	}
 	for (FCameraState& Camera : Runtime->Cameras)
 	{
 		AUEShedCameraSource* Source = Camera.Source.Get();
 		if (Source == nullptr) continue;
-		if (Runtime->Config.bActorPov && Source->ObservationTarget != nullptr)
+		if (Runtime->Config.ViewMode == EUEShedCameraViewMode::ActorPov
+			&& Source->ObservationTarget != nullptr)
 		{
 			const FTransform TargetTransform = Source->ObservationTarget->GetActorTransform();
 			Source->SetActorLocationAndRotation(
 				TargetTransform.TransformPosition(Source->ActorPovOffset),
 				TargetTransform.GetRotation());
 		}
-		else if (!Source->GetActorTransform().Equals(Camera.OverviewTransform))
+		else if (Runtime->Config.ViewMode == EUEShedCameraViewMode::Overview
+			&& !Source->GetActorTransform().Equals(Camera.OverviewTransform))
 		{
 			Source->SetActorTransform(Camera.OverviewTransform);
 		}
@@ -616,15 +737,26 @@ bool UUEShedCameraSubsystem::ApplyConfigJson(const FString& ConfigJson, FString&
 		return false;
 	}
 	FString ViewMode;
-	bool bActorPov = Runtime->Config.bActorPov;
+	EUEShedCameraViewMode DesiredViewMode = Runtime->Config.ViewMode;
 	if (Root->TryGetStringField(TEXT("viewMode"), ViewMode))
 	{
-		if (ViewMode != TEXT("overview") && ViewMode != TEXT("actor_pov"))
+		if (ViewMode == TEXT("overview"))
+		{
+			DesiredViewMode = EUEShedCameraViewMode::Overview;
+		}
+		else if (ViewMode == TEXT("actor_pov"))
+		{
+			DesiredViewMode = EUEShedCameraViewMode::ActorPov;
+		}
+		else if (ViewMode == TEXT("posed"))
+		{
+			DesiredViewMode = EUEShedCameraViewMode::Posed;
+		}
+		else
 		{
 			Error = TEXT("invalid-view-mode");
 			return false;
 		}
-		bActorPov = ViewMode == TEXT("actor_pov");
 	}
 	int32 CaptureWidth = Runtime->Config.CaptureWidth;
 	int32 CaptureHeight = Runtime->Config.CaptureHeight;
@@ -649,7 +781,7 @@ bool UUEShedCameraSubsystem::ApplyConfigJson(const FString& ConfigJson, FString&
 	Runtime->Config.FocusedFps = FMath::Clamp(FocusedFps, 0.1, 60.0);
 	Runtime->Config.CaptureBudgetPerTick = FMath::Clamp(FMath::RoundToInt(CaptureBudget), 1, 32);
 	Runtime->Config.bPaused = bPaused;
-	Runtime->Config.bActorPov = bActorPov;
+	Runtime->Config.ViewMode = DesiredViewMode;
 	Runtime->Config.PipelineMode = DesiredPipelineMode;
 	Runtime->Config.RenderProfile = DesiredRenderProfile;
 	Runtime->Config.CaptureWidth = CaptureWidth;
@@ -726,7 +858,9 @@ FString UUEShedCameraSubsystem::StatusJson() const
 	Config->SetStringField(TEXT("resolution"), FString::Printf(TEXT("%dx%d"),
 		Runtime->Config.CaptureWidth, Runtime->Config.CaptureHeight));
 	Config->SetStringField(TEXT("viewMode"),
-		Runtime->Config.bActorPov ? TEXT("actor_pov") : TEXT("overview"));
+		Runtime->Config.ViewMode == EUEShedCameraViewMode::ActorPov ? TEXT("actor_pov")
+			: Runtime->Config.ViewMode == EUEShedCameraViewMode::Posed ? TEXT("posed")
+			: TEXT("overview"));
 	Root->SetObjectField(TEXT("config"), Config);
 	TArray<TSharedPtr<FJsonValue>> Cameras;
 	for (const FCameraState& State : Runtime->Cameras)
@@ -735,10 +869,17 @@ FString UUEShedCameraSubsystem::StatusJson() const
 		if (Source == nullptr) continue;
 		const TSharedRef<FJsonObject> Camera = MakeShared<FJsonObject>();
 		Camera->SetStringField(TEXT("cameraId"), GuidString(Source->CameraId));
-		Camera->SetStringField(TEXT("displayName"), Source->GetActorNameOrLabel());
+		Camera->SetStringField(TEXT("displayName"),
+			Source->ReviewCandidateId.IsEmpty()
+				? Source->GetActorNameOrLabel()
+				: Source->ReviewCandidateId);
 		Camera->SetNumberField(TEXT("index"), Source->CameraIndex);
 		Camera->SetNumberField(TEXT("width"), Source->CaptureWidth);
 		Camera->SetNumberField(TEXT("height"), Source->CaptureHeight);
+		if (!Source->ReviewCandidateId.IsEmpty())
+		{
+			Camera->SetStringField(TEXT("candidateId"), Source->ReviewCandidateId);
+		}
 		Cameras.Add(MakeShared<FJsonValueObject>(Camera));
 	}
 	Root->SetArrayField(TEXT("cameras"), Cameras);

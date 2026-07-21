@@ -23,7 +23,7 @@ export const CameraScheduleConfig = Schema.Struct({
 		"1920x1080",
 		"2560x1440"
 	]),
-	viewMode: Schema.Literals(["overview", "actor_pov"])
+	viewMode: Schema.Literals(["overview", "actor_pov", "posed"])
 }).annotate({ identifier: "CameraScheduleConfig" });
 export type CameraScheduleConfig = Schema.Schema.Type<typeof CameraScheduleConfig>;
 
@@ -66,7 +66,8 @@ export const CameraDescriptor = Schema.Struct({
 	displayName: Schema.String,
 	index: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 31 })),
 	height: Schema.Int.check(Schema.isGreaterThan(0)),
-	width: Schema.Int.check(Schema.isGreaterThan(0))
+	width: Schema.Int.check(Schema.isGreaterThan(0)),
+	candidateId: Schema.optional(Schema.String)
 }).annotate({ identifier: "CameraDescriptor" });
 export type CameraDescriptor = Schema.Schema.Type<typeof CameraDescriptor>;
 

@@ -1,14 +1,19 @@
 import {
 	makeReviewAuthoringTestLayer,
+	makeReviewAuthoringSessionsTestLayer,
 	makeReviewCaptureTestLayer,
 	makeReviewRepositoryTestLayer,
+	makeCameraFeedTestLayer,
 	type ReviewAuthoringShape,
+	ReviewAuthoringSessionError,
+	type ReviewAuthoringSessionsShape,
 	type ReviewCaptureShape,
 	type ReviewSet
 } from "@ue-shed/cameras";
 import { it } from "@effect/vitest";
 import { Observatory } from "@ue-shed/observatory";
 import { makeEditorPlaySessionTestLayer } from "@ue-shed/engine-discovery";
+import { makeRemoteControlClientTestLayer } from "@ue-shed/unreal-connection";
 import { Effect, Layer } from "effect";
 import { join } from "node:path";
 import { expect } from "vitest";
@@ -74,14 +79,76 @@ const notConfigured: WorkbenchConfigurationShape = {
 	review: { status: "not_configured" }
 };
 
+const projectConfigured: WorkbenchConfigurationShape = {
+	...configuredReview,
+	review: { projectRoot, status: "project_configured" }
+};
+
 const dyingCapture: ReviewCaptureShape = { captureSet: () => Effect.die("not used") };
 const dyingAuthoring: ReviewAuthoringShape = {
 	inspectSelection: () => Effect.die("not used"),
+	inspectSubject: () => Effect.die("not used"),
 	previewCandidate: () => Effect.die("not used")
+};
+const dyingAuthoringSessions: ReviewAuthoringSessionsShape = {
+	approve: () => Effect.die("not used"),
+	create: (args) =>
+		Effect.succeed({
+			candidates: [...args.candidates],
+			contract: { name: "ue-shed-review-authoring-session", version: { major: 1, minor: 0 } },
+			createdAt: "2026-07-20T00:00:00.000Z",
+			diagnostics: [],
+			discardedCandidateIds: [],
+			id: "session-1",
+			lifecycle: "active",
+			realizations: [],
+			reviewSet: {
+				id: fixtureReviewSet.id,
+				mapPath: args.selection.mapPath,
+				path: args.reviewSetPath
+			},
+			subject: {
+				actorPath: args.selection.actorPath,
+				bounds: args.selection.bounds,
+				displayName: args.selection.displayName,
+				mapPath: args.selection.mapPath
+			},
+			updatedAt: "2026-07-20T00:00:00.000Z",
+			viewId: args.viewId
+		} as never),
+	start: (args) => {
+		if (args.selection.mapPath !== fixtureReviewSet.project.mapPath) {
+			return Effect.fail(
+				new ReviewAuthoringSessionError({
+					message: "The selected subject belongs to a different map.",
+					operation: "create",
+					path: args.reviewSetPath ?? reviewSetPath,
+					recovery: "Select an actor in the configured map."
+				})
+			);
+		}
+		return dyingAuthoringSessions.create({
+			candidates: args.candidates,
+			projectRoot: args.projectRoot,
+			reviewSetPath: args.reviewSetPath ?? reviewSetPath,
+			selection: args.selection,
+			viewId: "structure-context"
+		});
+	},
+	discard: () => Effect.die("not used"),
+	latest: () => Effect.die("not used"),
+	load: () => Effect.die("not used"),
+	patch: () => Effect.die("not used"),
+	recordProjection: () => Effect.die("not used"),
+	reframe: () => Effect.die("not used"),
+	resume: () => Effect.die("not used")
 };
 const WorkbenchMapReviewTestLive = WorkbenchMapReviewLive.pipe(
 	Layer.provide(
 		Layer.mergeAll(
+			makeCameraFeedTestLayer(),
+			makeRemoteControlClientTestLayer(() => Effect.die("not used")),
+			makeReviewAuthoringSessionsTestLayer(dyingAuthoringSessions),
 			Layer.succeed(
 				Observatory,
 				Observatory.of({
@@ -122,6 +189,39 @@ it.effect("returns not_configured when no review project is configured", () =>
 						makeLocalFilesTestLayer(),
 						makeReviewRepositoryTestLayer({
 							discardStaging: () => Effect.die("not used"),
+							findSet: () => Effect.die("not used"),
+							finalizeRun: () => Effect.die("not used"),
+							listRuns: () => Effect.die("not used"),
+							loadRun: () => Effect.die("not used"),
+							loadSet: () => Effect.die("not used"),
+							prepareRun: () => Effect.die("not used"),
+							saveSet: () => Effect.die("not used"),
+							storeArtifact: () => Effect.die("not used"),
+							writeRunDocument: () => Effect.die("not used")
+						}),
+						makeReviewCaptureTestLayer(dyingCapture),
+						makeReviewAuthoringTestLayer(dyingAuthoring)
+					)
+				)
+			)
+		)
+	)
+);
+
+it.effect("enters first-run Map Review setup when a project has no configured Review Set", () =>
+	Effect.gen(function* () {
+		const service = yield* WorkbenchMapReview;
+		expect(yield* service.load()).toEqual({ status: "setup_required" });
+	}).pipe(
+		Effect.provide(
+			WorkbenchMapReviewTestLive.pipe(
+				Layer.provide(
+					Layer.mergeAll(
+						makeWorkbenchConfigurationLayer(projectConfigured),
+						makeLocalFilesTestLayer(),
+						makeReviewRepositoryTestLayer({
+							discardStaging: () => Effect.die("not used"),
+							findSet: () => Effect.die("not used"),
 							finalizeRun: () => Effect.die("not used"),
 							listRuns: () => Effect.die("not used"),
 							loadRun: () => Effect.die("not used"),
@@ -181,6 +281,7 @@ it.effect("loads the review set and reads captured artifacts with bounded concur
 						),
 						makeReviewRepositoryTestLayer({
 							discardStaging: () => Effect.die("not used"),
+							findSet: () => Effect.die("not used"),
 							finalizeRun: () => Effect.die("not used"),
 							listRuns: () =>
 								Effect.succeed([
@@ -247,7 +348,7 @@ it.effect("reports authoring failure when the selection map does not match the r
 		const result = yield* service.authorFromSelection();
 		expect(result.status).toBe("failed");
 		if (result.status === "failed") {
-			expect(result.error.message).toContain("not");
+			expect(result.error.message).toContain("different map");
 		}
 	}).pipe(
 		Effect.provide(
@@ -258,6 +359,7 @@ it.effect("reports authoring failure when the selection map does not match the r
 						makeLocalFilesTestLayer(),
 						makeReviewRepositoryTestLayer({
 							discardStaging: () => Effect.die("not used"),
+							findSet: () => Effect.die("not used"),
 							finalizeRun: () => Effect.die("not used"),
 							listRuns: () => Effect.die("not used"),
 							loadRun: () => Effect.die("not used"),
@@ -315,6 +417,7 @@ it.effect("generates framing candidates for a matching selection", () =>
 						makeLocalFilesTestLayer(),
 						makeReviewRepositoryTestLayer({
 							discardStaging: () => Effect.die("not used"),
+							findSet: () => Effect.die("not used"),
 							finalizeRun: () => Effect.die("not used"),
 							listRuns: () => Effect.die("not used"),
 							loadRun: () => Effect.die("not used"),
@@ -353,6 +456,228 @@ it.effect("generates framing candidates for a matching selection", () =>
 );
 
 it.effect(
+	"previews first-run authoring candidates from the pending Review Set capture profile",
+	() =>
+		Effect.gen(function* () {
+			const service = yield* WorkbenchMapReview;
+			const result = yield* service.previewAuthoringCandidate({
+				candidateId: "facade_front",
+				sessionId: "session-1"
+			});
+			expect(result).toEqual({
+				bytes: new Uint8Array([9, 8, 7]),
+				diagnostics: [],
+				height: 180,
+				pixelFormat: "png",
+				projection: {
+					margins: { bottom: 0.25, left: 0.25, right: 0.25, top: 0.25 },
+					normalizedBounds: { maxX: 0.75, maxY: 0.75, minX: 0.25, minY: 0.25 },
+					status: "projected",
+					viewportStatus: "fully_within_viewport"
+				},
+				status: "ready",
+				width: 320
+			});
+		}).pipe(
+			Effect.provide(
+				WorkbenchMapReviewLive.pipe(
+					Layer.provide(
+						Layer.mergeAll(
+							makeCameraFeedTestLayer(),
+							makeRemoteControlClientTestLayer(() => Effect.die("not used")),
+							makeReviewAuthoringSessionsTestLayer({
+								...dyingAuthoringSessions,
+								load: () =>
+									Effect.succeed({
+										candidates: [
+											{
+												approvedPose: {
+													aspectRatio: "16:9",
+													fieldOfViewDegrees: 60,
+													location: { x: 1, y: 2, z: 3 },
+													projection: "perspective",
+													rotation: { pitch: -10, roll: 0, yaw: 90 }
+												},
+												diagnostics: [],
+												displayName: "Facade front",
+												id: "facade_front",
+												recipe: {
+													kind: "preset",
+													margin: 0.12,
+													preset: "facade_front",
+													subjectBounds: {
+														center: { x: 0, y: 0, z: 0 },
+														extent: { x: 10, y: 10, z: 10 },
+														rotation: { pitch: 0, roll: 0, yaw: 0 }
+													},
+													version: 1
+												}
+											}
+										],
+										contract: {
+											name: "ue-shed-review-authoring-session",
+											version: { major: 1, minor: 0 }
+										},
+										createdAt: "2026-07-20T00:00:00.000Z",
+										diagnostics: [],
+										discardedCandidateIds: [],
+										id: "session-1",
+										lifecycle: "active",
+										pendingReviewSet: {
+											...fixtureReviewSet,
+											views: []
+										},
+										realizations: [],
+										reviewSet: {
+											id: fixtureReviewSet.id,
+											mapPath: fixtureReviewSet.project.mapPath,
+											path: reviewSetPath
+										},
+										subject: {
+											actorPath:
+												"/Game/Maps/Fixture.Fixture:PersistentLevel.Subject_0",
+											bounds: {
+												center: { x: 0, y: 0, z: 0 },
+												extent: { x: 10, y: 10, z: 10 },
+												rotation: { pitch: 0, roll: 0, yaw: 0 }
+											},
+											displayName: "Fixture Subject",
+											mapPath: "/Game/Maps/Fixture"
+										},
+										updatedAt: "2026-07-20T00:00:00.000Z",
+										viewId: "initial-view"
+									} as never),
+								recordProjection: (args) =>
+									Effect.succeed({
+										candidates: [],
+										contract: {
+											name: "ue-shed-review-authoring-session",
+											version: { major: 1, minor: 0 }
+										},
+										createdAt: "2026-07-20T00:00:00.000Z",
+										diagnostics: [],
+										discardedCandidateIds: [],
+										id: args.sessionId,
+										lifecycle: "active",
+										pendingReviewSet: {
+											...fixtureReviewSet,
+											views: []
+										},
+										realizations: [
+											{
+												candidateId: args.candidateId,
+												diagnostics: [],
+												projection: args.projection,
+												recordedAt: "2026-07-20T00:00:00.000Z"
+											}
+										],
+										reviewSet: {
+											id: fixtureReviewSet.id,
+											mapPath: fixtureReviewSet.project.mapPath,
+											path: reviewSetPath
+										},
+										subject: {
+											actorPath:
+												"/Game/Maps/Fixture.Fixture:PersistentLevel.Subject_0",
+											bounds: {
+												center: { x: 0, y: 0, z: 0 },
+												extent: { x: 10, y: 10, z: 10 },
+												rotation: { pitch: 0, roll: 0, yaw: 0 }
+											},
+											displayName: "Fixture Subject",
+											mapPath: "/Game/Maps/Fixture"
+										},
+										updatedAt: "2026-07-20T00:00:00.000Z",
+										viewId: "initial-view"
+									} as never)
+							}),
+							Layer.succeed(
+								Observatory,
+								Observatory.of({
+									focus: () => Effect.die("not used"),
+									snapshot: () => Effect.die("not used")
+								})
+							),
+							makeEditorPlaySessionTestLayer({
+								execute: () => Effect.die("not used"),
+								pause: () => Effect.die("not used"),
+								resume: () => Effect.die("not used"),
+								start: () => Effect.die("not used"),
+								status: () =>
+									Effect.succeed({
+										contract: {
+											name: "unreal-editor-play-session",
+											version: { major: 1, minor: 0 }
+										},
+										state: { status: "stopped" }
+									}),
+								stop: () => Effect.die("not used")
+							}),
+							makeWorkbenchConfigurationLayer(projectConfigured),
+							makeLocalFilesTestLayer(),
+							makeReviewRepositoryTestLayer({
+								discardStaging: () => Effect.die("not used"),
+								findSet: () => Effect.die("not used"),
+								finalizeRun: () => Effect.die("not used"),
+								listRuns: () => Effect.die("not used"),
+								loadRun: () => Effect.die("not used"),
+								loadSet: () => Effect.die("not used"),
+								prepareRun: () => Effect.die("not used"),
+								saveSet: () => Effect.die("not used"),
+								storeArtifact: () => Effect.die("not used"),
+								writeRunDocument: () => Effect.die("not used")
+							}),
+							makeReviewCaptureTestLayer(dyingCapture),
+							makeReviewAuthoringTestLayer({
+								...dyingAuthoring,
+								inspectSubject: () =>
+									Effect.succeed({
+										actorPath:
+											"/Game/Maps/Fixture.Fixture:PersistentLevel.Subject_0",
+										bounds: {
+											center: { x: 0, y: 0, z: 0 },
+											extent: { x: 10, y: 10, z: 10 },
+											rotation: { pitch: 0, roll: 0, yaw: 0 }
+										},
+										contract: {
+											name: "ue-shed-review-subject-inspection" as const,
+											version: { major: 1, minor: 0 }
+										},
+										displayName: "Fixture Subject",
+										mapPath: "/Game/Maps/Fixture",
+										status: "ready" as const
+									} as never),
+								previewCandidate: () =>
+									Effect.succeed({
+										bytes: new Uint8Array([9, 8, 7]),
+										height: 180,
+										projection: {
+											margins: {
+												bottom: 0.25,
+												left: 0.25,
+												right: 0.25,
+												top: 0.25
+											},
+											normalizedBounds: {
+												maxX: 0.75,
+												maxY: 0.75,
+												minX: 0.25,
+												minY: 0.25
+											},
+											status: "projected" as const,
+											viewportStatus: "fully_within_viewport" as const
+										},
+										width: 320
+									})
+							})
+						)
+					)
+				)
+			)
+		)
+);
+
+it.effect(
 	"rejects approval when the selected actor changed since the candidates were generated",
 	() =>
 		Effect.gen(function* () {
@@ -379,6 +704,7 @@ it.effect(
 							makeLocalFilesTestLayer(),
 							makeReviewRepositoryTestLayer({
 								discardStaging: () => Effect.die("not used"),
+								findSet: () => Effect.die("not used"),
 								finalizeRun: () => Effect.die("not used"),
 								listRuns: () => Effect.die("not used"),
 								loadRun: () => Effect.die("not used"),

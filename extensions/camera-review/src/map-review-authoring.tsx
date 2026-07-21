@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { createEffectAction } from "@ue-shed/ui";
-import { Cause, Effect } from "effect";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffectAction, createEffectSubscription } from "@ue-shed/ui";
+import { Cause, Effect, Stream } from "effect";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type {
 	MapReviewAuthoringCandidate,
 	MapReviewAuthoringResult,
+	MapReviewCandidatePreviewResult,
 	MapReviewClientShape,
 	MapReviewPose
 } from "./map-review-client.js";
@@ -23,45 +24,97 @@ type AuthoringState =
 	  };
 
 type ReadyAuthoring = Extract<MapReviewAuthoringResult, { status: "ready" }>;
+type CandidateId = MapReviewAuthoringCandidate["id"];
+type AuthoringPatch = Parameters<MapReviewClientShape["authoringPatch"]>[0]["patch"];
 
 function CandidateImage(props: { readonly candidate: MapReviewAuthoringCandidate }) {
-	const [source, setSource] = createSignal<string>();
+	const [canvasEl, setCanvasEl] = createSignal<HTMLCanvasElement>();
+	let rgba = new Uint8ClampedArray(0);
+	let imageData: ImageData | undefined;
+	const [pngUrl, setPngUrl] = createSignal<string>();
+	const preview = createMemo(() => props.candidate.preview);
+	const isLive = createMemo(() => {
+		const current = preview();
+		return current.status === "ready" && current.pixelFormat === "bgra8";
+	});
+	const isPng = createMemo(() => {
+		const current = preview();
+		return (
+			current.status === "ready" &&
+			(current.pixelFormat === "png" || current.pixelFormat === undefined)
+		);
+	});
+
 	createEffect(() => {
-		if (props.candidate.preview.status !== "ready") {
-			setSource(undefined);
+		const current = preview();
+		const canvas = canvasEl();
+		if (current.status !== "ready" || current.pixelFormat !== "bgra8" || !canvas) return;
+		const context = canvas.getContext("2d", { alpha: false });
+		if (!context) return;
+		if (canvas.width !== current.width || canvas.height !== current.height) {
+			canvas.width = current.width;
+			canvas.height = current.height;
+			rgba = new Uint8ClampedArray(current.bytes.byteLength);
+			imageData = new ImageData(rgba, current.width, current.height);
+		}
+		for (let offset = 0; offset < current.bytes.byteLength; offset += 4) {
+			rgba[offset] = current.bytes[offset + 2] ?? 0;
+			rgba[offset + 1] = current.bytes[offset + 1] ?? 0;
+			rgba[offset + 2] = current.bytes[offset] ?? 0;
+			rgba[offset + 3] = 255;
+		}
+		if (imageData) context.putImageData(imageData, 0, 0);
+	});
+
+	createEffect(() => {
+		const current = preview();
+		if (
+			current.status !== "ready" ||
+			current.pixelFormat === "bgra8" ||
+			(current.pixelFormat !== "png" && current.pixelFormat !== undefined)
+		) {
+			setPngUrl(undefined);
 			return;
 		}
-		const bytes = Uint8Array.from(props.candidate.preview.bytes);
+		const bytes = Uint8Array.from(current.bytes);
 		const url = URL.createObjectURL(new Blob([bytes.buffer], { type: "image/png" }));
-		setSource(url);
+		setPngUrl(url);
 		onCleanup(() => URL.revokeObjectURL(url));
 	});
+
 	return (
-		<Show
-			when={source()}
-			fallback={
-				<div {...stylex.props(styles.previewFailure)}>
-					<span>
-						{props.candidate.preview.status === "pending"
-							? "RENDERING PREVIEW"
-							: "PREVIEW UNAVAILABLE"}
-					</span>
-					<small>
-						{props.candidate.preview.status === "failed"
-							? props.candidate.preview.message
-							: "One bounded Unreal capture is in progress."}
-					</small>
-				</div>
-			}
-		>
-			{(url) => (
-				<img
-					src={url()}
-					alt={`${props.candidate.displayName} candidate preview`}
+		<>
+			<Show when={isLive()}>
+				<canvas
+					ref={setCanvasEl}
+					aria-label={`${props.candidate.displayName} live preview`}
 					{...stylex.props(styles.candidateImage)}
 				/>
-			)}
-		</Show>
+			</Show>
+			<Show when={isPng() ? pngUrl() : undefined}>
+				{(url) => (
+					<img
+						src={url()}
+						alt={`${props.candidate.displayName} candidate preview`}
+						{...stylex.props(styles.candidateImage)}
+					/>
+				)}
+			</Show>
+			{(() => {
+				const current = preview();
+				if (current.status === "ready") return null;
+				return (
+					<div {...stylex.props(styles.previewFailure)}>
+						<span>
+							{current.status === "pending" ? "RENDERING PREVIEW" : "PREVIEW UNAVAILABLE"}
+						</span>
+						<small>
+							{current.status === "failed" ? current.message : "Waiting for the first frame."}
+						</small>
+					</div>
+				);
+			})()}
+		</>
 	);
 }
 
@@ -89,11 +142,15 @@ export function MapReviewAuthoring(props: {
 	readonly onApproved: () => void;
 }) {
 	const generateAction = createEffectAction();
-	const previewAction = createEffectAction();
+	const previewSubscription = createEffectSubscription();
 	const approveAction = createEffectAction();
+	const resumeAction = createEffectAction();
+	const patchAction = createEffectAction();
 	const [state, setState] = createSignal<AuthoringState>({ status: "idle" });
-	const [selectedId, setSelectedId] = createSignal<string>();
-	const [discarded, setDiscarded] = createSignal<ReadonlySet<string>>(new Set<string>());
+	const [selectedId, setSelectedId] = createSignal<CandidateId>();
+	const [discarded, setDiscarded] = createSignal<ReadonlySet<CandidateId>>(
+		new Set<CandidateId>()
+	);
 	const [draftPose, setDraftPose] = createSignal<MapReviewPose>();
 	const [manualReason, setManualReason] = createSignal("");
 	const session = createMemo(() => {
@@ -110,84 +167,207 @@ export function MapReviewAuthoring(props: {
 	const selected = createMemo(
 		() => candidates().find((candidate) => candidate.id === selectedId()) ?? candidates()[0]
 	);
+	const authoringBlocked = createMemo(() => {
+		const durable = session()?.session;
+		if (durable && durable.lifecycle !== "active") return true;
+		return (
+			selected()?.diagnostics.some((diagnostic) => diagnostic.severity === "warning") ?? false
+		);
+	});
+	const activate = (result: ReadyAuthoring) => {
+		const durable = result.session;
+		setDiscarded(new Set(durable?.discardedCandidateIds ?? []));
+		setSelectedId(durable?.selectedCandidateId ?? result.candidates[0]?.id);
+		setDraftPose(durable?.draftPose ?? structuredClone(result.candidates[0]?.pose));
+		setManualReason(durable?.manualReason ?? "");
+		setState({ session: result, status: "ready" });
+		hydratePreviews(result);
+	};
+	const persist = (patch: AuthoringPatch, options: { readonly refreshPreviews?: boolean } = {}) => {
+		const durable = session()?.session;
+		if (!durable || durable.lifecycle !== "active") return;
+		patchAction.run(props.client.authoringPatch({ patch, sessionId: durable.id }), {
+			onFailure: () => undefined,
+			onSuccess: (result) => {
+				if (result.status !== "ready") return;
+				if (options.refreshPreviews) {
+					activate(result);
+					return;
+				}
+				const durableSession = result.session;
+				setDiscarded(new Set(durableSession?.discardedCandidateIds ?? []));
+				setSelectedId(durableSession?.selectedCandidateId ?? result.candidates[0]?.id);
+				setDraftPose(
+					durableSession?.draftPose ?? structuredClone(result.candidates[0]?.pose)
+				);
+				setManualReason(durableSession?.manualReason ?? "");
+				setState((current) => {
+					if (
+						current.status !== "ready" &&
+						current.status !== "saving" &&
+						current.status !== "approved"
+					) {
+						return { session: result, status: "ready" };
+					}
+					const previousPreviews = new Map(
+						current.session.candidates.map((candidate) => [
+							candidate.id,
+							candidate.preview
+						])
+					);
+					return {
+						session: {
+							...result,
+							candidates: result.candidates.map((candidate) => ({
+								...candidate,
+								preview: previousPreviews.get(candidate.id) ?? candidate.preview
+							}))
+						},
+						status: "ready"
+					};
+				});
+			}
+		});
+	};
+	const currentPatch = (
+		overrides: {
+			readonly discardedCandidateIds?: ReadonlyArray<CandidateId>;
+			readonly draftPose?: MapReviewPose;
+			readonly manualReason?: string;
+			readonly selectedCandidateId?: CandidateId;
+		} = {}
+	): AuthoringPatch => {
+		const nextDraftPose = overrides.draftPose ?? draftPose();
+		const nextSelectedId = overrides.selectedCandidateId ?? selectedId();
+		const discardedCandidateIds = (overrides.discardedCandidateIds ?? [
+			...discarded()
+		]) as AuthoringPatch["discardedCandidateIds"];
+		const selectedCandidateId = nextSelectedId as AuthoringPatch["selectedCandidateId"];
+		return {
+			discardedCandidateIds,
+			manualReason: overrides.manualReason ?? manualReason(),
+			...(nextDraftPose === undefined ? {} : { draftPose: nextDraftPose }),
+			...(selectedCandidateId === undefined ? {} : { selectedCandidateId })
+		};
+	};
 
 	const select = (candidate: MapReviewAuthoringCandidate) => {
 		setSelectedId(candidate.id);
 		setDraftPose(structuredClone(candidate.pose));
 		setManualReason("");
+		persist(
+			currentPatch({
+				draftPose: structuredClone(candidate.pose),
+				manualReason: "",
+				selectedCandidateId: candidate.id
+			})
+		);
+	};
+	const applyPreviewResult = (
+		candidateId: CandidateId,
+		result: MapReviewCandidatePreviewResult
+	) => {
+		setState((current) => {
+			if (
+				current.status !== "ready" &&
+				current.status !== "saving" &&
+				current.status !== "approved"
+			) {
+				return current;
+			}
+			return {
+				...current,
+				session: {
+					...current.session,
+					candidates: current.session.candidates.map((currentCandidate) =>
+						currentCandidate.id === candidateId
+							? {
+									...currentCandidate,
+									...(result.status === "ready" && result.diagnostics
+										? { diagnostics: result.diagnostics }
+										: {}),
+									preview:
+										result.status === "ready"
+											? {
+													bytes: result.bytes,
+													height: result.height,
+													...(result.pixelFormat === undefined
+														? {}
+														: { pixelFormat: result.pixelFormat }),
+													status: "ready" as const,
+													width: result.width
+												}
+											: {
+													message: result.error.message,
+													status: "failed" as const
+												}
+								}
+							: currentCandidate
+					)
+				}
+			};
+		});
 	};
 	const hydratePreviews = (initial: ReadyAuthoring) => {
-		previewAction.run(
-			Effect.forEach(initial.candidates, (candidate) =>
-				props.client
-					.previewCandidate(candidate.id)
-					.pipe(Effect.map((result) => ({ candidateId: candidate.id, result })))
+		previewSubscription.subscribe(
+			Stream.fromIterable(initial.candidates).pipe(
+				Stream.mapEffect(
+					(candidate) =>
+						(initial.session
+							? props.client.previewAuthoringCandidate({
+									candidateId: candidate.id,
+									sessionId: initial.session.id
+								})
+							: props.client.previewCandidate(candidate.id)
+						).pipe(Effect.map((result) => ({ candidateId: candidate.id, result }))),
+					{ concurrency: "unbounded", unordered: true }
+				)
 			),
 			{
 				onFailure: () => undefined,
-				onSuccess: (previews) => {
-					for (const { candidateId, result } of previews) {
-						setState((current) => {
-							if (
-								current.status !== "ready" &&
-								current.status !== "saving" &&
-								current.status !== "approved"
-							) {
-								return current;
-							}
-							return {
-								...current,
-								session: {
-									...current.session,
-									candidates: current.session.candidates.map((currentCandidate) =>
-										currentCandidate.id === candidateId
-											? {
-													...currentCandidate,
-													preview:
-														result.status === "ready"
-															? result
-															: {
-																	message: result.error.message,
-																	status: "failed" as const
-																}
-												}
-											: currentCandidate
-									)
-								}
-							};
-						});
-					}
+				onValue: ({ candidateId, result }) => {
+					applyPreviewResult(candidateId as CandidateId, result);
 				}
 			}
 		);
 	};
 	const generate = () => {
+		const durable = session()?.session;
 		setState({ status: "loading" });
-		generateAction.run(props.client.authorFromSelection(), {
-			onFailure: (cause) =>
-				setState({
-					message: Cause.pretty(cause),
-					recovery:
-						"Restart Workbench. If the problem persists, verify package versions.",
-					status: "failed"
-				}),
-			onSuccess: (result) => {
-				if (result.status === "failed") {
+		generateAction.run(
+			durable && durable.lifecycle !== "approved" && durable.lifecycle !== "discarded"
+				? props.client.authoringReframe({ sessionId: durable.id })
+				: props.client.authorFromSelection(),
+			{
+				onFailure: (cause) =>
 					setState({
-						message: result.error.message,
-						recovery: result.error.recovery,
+						message: Cause.pretty(cause),
+						recovery:
+							"Restart Workbench. If the problem persists, verify package versions.",
 						status: "failed"
-					});
-					return;
+					}),
+				onSuccess: (result) => {
+					if (result.status === "failed") {
+						setState({
+							message: result.error.message,
+							recovery: result.error.recovery,
+							status: "failed"
+						});
+						return;
+					}
+					activate(result);
 				}
-				setDiscarded(new Set<string>());
-				setState({ session: result, status: "ready" });
-				const first = result.candidates[0];
-				if (first) select(first);
-				hydratePreviews(result);
+			}
+		);
+	};
+	onMount(() => {
+		resumeAction.run(props.client.authoringResume(), {
+			onFailure: () => undefined,
+			onSuccess: (result) => {
+				if (result.status === "ready") activate(result);
 			}
 		});
-	};
+	});
 	let handledFocusGeneration = 0;
 	createEffect(() => {
 		const generation = props.focusGeneration ?? 0;
@@ -196,11 +376,13 @@ export function MapReviewAuthoring(props: {
 		generate();
 	});
 	const discard = (candidateId: string) => {
-		setDiscarded((current) => new Set([...current, candidateId]));
+		const nextDiscarded = new Set([...discarded(), candidateId]);
+		setDiscarded(nextDiscarded);
 		if (selectedId() === candidateId) {
 			const next = candidates().find((candidate) => candidate.id !== candidateId);
 			if (next) select(next);
 		}
+		persist(currentPatch({ discardedCandidateIds: [...nextDiscarded] }));
 	};
 	const updateNumber = (
 		section: "location" | "rotation" | "pose",
@@ -209,11 +391,14 @@ export function MapReviewAuthoring(props: {
 	) => {
 		const parsed = Number(value);
 		if (!Number.isFinite(parsed)) return;
-		setDraftPose((current) => {
-			if (!current) return current;
-			if (section === "pose") return { ...current, fieldOfViewDegrees: parsed };
-			return { ...current, [section]: { ...current[section], [field]: parsed } };
-		});
+		const current = draftPose();
+		if (!current) return;
+		const next =
+			section === "pose"
+				? { ...current, fieldOfViewDegrees: parsed }
+				: { ...current, [section]: { ...current[section], [field]: parsed } };
+		setDraftPose(next);
+		persist(currentPatch({ draftPose: next }));
 	};
 	const approve = () => {
 		const activeSession = session();
@@ -222,17 +407,23 @@ export function MapReviewAuthoring(props: {
 		if (!activeSession || !candidate || !pose) return;
 		setState({ session: activeSession, status: "saving" });
 		const adjusted = !samePose(candidate.pose, pose);
+		const durable = activeSession.session;
 		approveAction.run(
-			props.client.approveCandidate({
-				candidateId: candidate.id,
-				candidatePose: candidate.pose,
-				...(adjusted ? { manualPose: pose } : {}),
-				...(adjusted
-					? { manualReason: manualReason().trim() || "Adjusted in Map Review authoring" }
-					: {}),
-				sourceActorPath: activeSession.selection.actorPath,
-				viewId: activeSession.viewId
-			}),
+			durable
+				? props.client.approveAuthoring({ sessionId: durable.id })
+				: props.client.approveCandidate({
+						candidateId: candidate.id,
+						candidatePose: candidate.pose,
+						...(adjusted ? { manualPose: pose } : {}),
+						...(adjusted
+							? {
+									manualReason:
+										manualReason().trim() || "Adjusted in Map Review authoring"
+								}
+							: {}),
+						sourceActorPath: activeSession.selection.actorPath,
+						viewId: activeSession.viewId
+					}),
 			{
 				onFailure: (cause) =>
 					setState({
@@ -264,13 +455,21 @@ export function MapReviewAuthoring(props: {
 	return (
 		<section aria-label="Review View authoring" {...stylex.props(styles.authoringDesk)}>
 			<div {...stylex.props(styles.authoringHeader)}>
-				<div>
-					<p>SPATIAL AUTHORING / TRANSIENT CAMERA</p>
-					<h2>Frame what matters.</h2>
-					<span>
-						Selection and bounds come from Unreal. Approved views remain outside the
-						map.
-					</span>
+				<div {...stylex.props(styles.headerSubject)}>
+					<span {...stylex.props(styles.headerLabel)}>SUBJECT</span>
+					<Show
+						when={session()}
+						fallback={<strong>Select an actor, then reframe</strong>}
+					>
+						{(active) => (
+							<>
+								<strong>{active().selection.displayName}</strong>
+								<code {...stylex.props(styles.headerPath)}>
+									{active().selection.actorPath}
+								</code>
+							</>
+						)}
+					</Show>
 				</div>
 				<button
 					type="button"
@@ -282,15 +481,6 @@ export function MapReviewAuthoring(props: {
 				</button>
 			</div>
 
-			<Show when={state().status === "idle"}>
-				<div {...stylex.props(styles.emptyAuthoring)}>
-					<span>01</span>
-					<p>
-						Select an actor on the world map or in the Level Editor, then generate
-						bounded candidate views.
-					</p>
-				</div>
-			</Show>
 			<Show when={state().status === "failed"}>
 				{(() => {
 					const current = state();
@@ -304,13 +494,7 @@ export function MapReviewAuthoring(props: {
 				})()}
 			</Show>
 			<Show when={session()}>
-				{(activeSession) => (
-					<div {...stylex.props(styles.authoringBody)}>
-						<div {...stylex.props(styles.selectionLine)}>
-							<span>SELECTED SUBJECT</span>
-							<strong>{activeSession().selection.displayName}</strong>
-							<code>{activeSession().selection.actorPath}</code>
-						</div>
+				<div {...stylex.props(styles.authoringBody)}>
 						<div
 							aria-label="Framing candidates"
 							role="region"
@@ -404,18 +588,43 @@ export function MapReviewAuthoring(props: {
 											<input
 												value={manualReason()}
 												{...stylex.props(styles.poseInput)}
-												onInput={(event) =>
-													setManualReason(event.currentTarget.value)
-												}
+												onInput={(event) => {
+													const next = event.currentTarget.value;
+													setManualReason(next);
+													persist(currentPatch({ manualReason: next }));
+												}}
 												placeholder="Why did this framing need art direction?"
 											/>
 										</label>
 									</div>
 									<div {...stylex.props(styles.approveColumn)}>
-										<span>NO MAP ACTOR WILL BE CREATED</span>
+										<span>Keeps a Review View only — does not spawn a map actor</span>
+										<Show when={candidate().diagnostics.length > 0}>
+											<div
+												role="status"
+												{...stylex.props(styles.diagnosticList)}
+											>
+												<For each={candidate().diagnostics}>
+													{(diagnostic) => (
+														<span>
+															{diagnostic.severity.toUpperCase()} /{" "}
+															{diagnostic.message}
+														</span>
+													)}
+												</For>
+											</div>
+										</Show>
+										<Show when={authoringBlocked()}>
+											<small {...stylex.props(styles.reframeNotice)}>
+												Reframe before keeping this view. The persisted
+												subject or the framing evidence needs attention.
+											</small>
+										</Show>
 										<button
 											type="button"
-											disabled={state().status === "saving"}
+											disabled={
+												state().status === "saving" || authoringBlocked()
+											}
 											onClick={() => void approve()}
 											{...stylex.props(styles.keepButton)}
 										>
@@ -431,7 +640,6 @@ export function MapReviewAuthoring(props: {
 							)}
 						</Show>
 					</div>
-				)}
 			</Show>
 		</section>
 	);
@@ -439,53 +647,64 @@ export function MapReviewAuthoring(props: {
 
 const styles = stylex.create({
 	authoringDesk: {
-		marginTop: 14,
+		marginTop: 8,
 		border: "1px solid #39413c",
-		backgroundColor: "#101311",
-		boxShadow: "inset 4px 0 #b9f227"
+		backgroundColor: "#101311"
 	},
 	authoringHeader: {
 		display: "flex",
 		justifyContent: "space-between",
-		alignItems: "end",
-		gap: 24,
-		padding: "18px 20px",
+		alignItems: "center",
+		gap: 16,
+		padding: "8px 12px",
 		borderBottom: "1px solid #303632"
 	},
+	headerSubject: {
+		display: "flex",
+		alignItems: "center",
+		gap: 10,
+		minWidth: 0,
+		flex: 1,
+		color: "#c5cbc4",
+		fontSize: 12
+	},
+	headerLabel: {
+		flexShrink: 0,
+		color: "#7e8881",
+		fontSize: 9,
+		letterSpacing: ".1em"
+	},
+	headerPath: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: "#7e8881",
+		fontSize: 10
+	},
 	generateButton: {
+		flexShrink: 0,
 		border: "1px solid #899881",
 		backgroundColor: { default: "transparent", ":hover": "#20271f" },
 		color: "#d8ded7",
-		padding: "10px 14px",
+		padding: "8px 12px",
 		fontSize: 9,
 		fontWeight: 800,
 		letterSpacing: ".11em",
 		cursor: { default: "pointer", ":disabled": "wait" }
 	},
-	emptyAuthoring: { display: "flex", gap: 16, padding: 20, color: "#7e8881" },
 	authoringError: {
 		display: "flex",
 		flexDirection: "column",
 		gap: 6,
-		padding: 20,
+		padding: "10px 12px",
 		color: "#e9967b"
 	},
-	authoringBody: { padding: 14 },
-	selectionLine: {
-		display: "grid",
-		gridTemplateColumns: "150px 180px minmax(0, 1fr)",
-		gap: 12,
-		alignItems: "center",
-		padding: "9px 12px",
-		backgroundColor: "#181d19",
-		color: "#a4ada7",
-		fontSize: 9
-	},
+	authoringBody: { padding: 10 },
 	contactSheet: {
 		display: "grid",
 		gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-		gap: 8,
-		marginTop: 10
+		gap: 8
 	},
 	candidateCard: {
 		position: "relative",
@@ -559,6 +778,14 @@ const styles = stylex.create({
 		outline: { ":focus": "1px solid #b9f227" }
 	},
 	reasonField: { display: "grid", gap: 5, marginTop: 10 },
+	diagnosticList: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 4,
+		color: "#d3d9d2",
+		lineHeight: 1.35
+	},
+	reframeNotice: { color: "#e4aa79", lineHeight: 1.35 },
 	approveColumn: {
 		display: "flex",
 		flexDirection: "column",

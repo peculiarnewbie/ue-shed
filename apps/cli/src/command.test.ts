@@ -160,6 +160,33 @@ const commands: ReadonlyArray<readonly [readonly string[], string]> = [
 		["review", "framing", "approve", "set.json", "http://editor", "view", "candidate"],
 		"ReviewFramingApprove"
 	],
+	[
+		[
+			"review",
+			"authoring",
+			"start",
+			"project",
+			"set.json",
+			"http://editor",
+			"structure-context"
+		],
+		"ReviewAuthoringStart"
+	],
+	[["review", "authoring", "bootstrap", "project", "http://editor"], "ReviewAuthoringBootstrap"],
+	[["review", "authoring", "show", "project", "session-1"], "ReviewAuthoringShow"],
+	[
+		["review", "authoring", "resume", "project", "session-1", "http://editor"],
+		"ReviewAuthoringResume"
+	],
+	[["review", "authoring", "discard", "project", "session-1"], "ReviewAuthoringDiscard"],
+	[
+		["review", "authoring", "reframe", "project", "session-1", "http://editor"],
+		"ReviewAuthoringReframe"
+	],
+	[
+		["review", "authoring", "approve", "project", "session-1", "http://editor"],
+		"ReviewAuthoringApprove"
+	],
 	[["review", "capture", "project", "set.json", "http://editor"], "ReviewCapture"],
 	[["review", "history", "project"], "ReviewHistory"],
 	[["review", "show", "run.json"], "ReviewShow"]

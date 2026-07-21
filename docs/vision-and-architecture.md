@@ -1,4 +1,4 @@
-# UE Shed: vision, architecture, and first proving slice
+# UE Shed: vision, architecture, and sequencing
 
 ## The short version
 
@@ -89,6 +89,7 @@ Focused guidance lives under [`engineering/`](engineering/README.md).
 ```text
 apps/
   cli/                         # Headless entry point (`ue-shed`)
+  site/                        # Public showcase website (Cloudflare Workers static assets)
   workbench/                   # Showcase and dogfood desktop app
 crates/
   uasset-parser/               # Native read-only UAsset library and `uasset` CLI
@@ -124,9 +125,10 @@ fixtures/unreal-project/       # Generic, reproducible integration fixture
 docs/                          # Product, protocol, architecture, and contribution docs
 ```
 
-Only `packages/protocol` and `apps/cli` contain executable TypeScript in the initial scaffold. The
-remaining directories record ownership and dependency direction without pretending their APIs are
-known. A boundary becomes code when a vertical slice exercises it.
+Ownership directories become executable when a vertical slice exercises them. Data Authoring, Texture
+Audit, Game Text, Camera Load Lab, and Map Review already own real packages, extensions, CLI
+surfaces, and Unreal capabilities. Remaining roadmap directories still record dependency direction
+without pretending every API is frozen.
 
 ## Dependency direction
 
@@ -210,10 +212,10 @@ The suite is therefore separately enabled:
 | `UEShedCameras`     | Camera definition metadata, capture, and review artifacts                        |
 | `UEShedScenarios`   | Scenario discovery, parameterization, execution, and results                     |
 
-The first implementation establishes saved-package authoring inspection, then creates `UEShedCore`
-and the minimum `UEShedAuthoring` surface needed for live state and mutation. `UEShedObservatory`
-follows as the first data-plane plugin; the remaining plugin directories are roadmap boundaries.
-Features expose their actual authority and capabilities rather than hiding missing behavior.
+Saved-package authoring, `UEShedCore`, `UEShedAuthoring`, `UEShedObservatory`, and `UEShedCameras`
+are already exercised by shipped workflows. `UEShedScenarios` remains a roadmap boundary until a
+scenario slice earns it. Features expose their actual authority and capabilities rather than hiding
+missing behavior.
 
 ## Generic fixture policy
 
@@ -229,45 +231,64 @@ The fixture is part of the product contract, not a dumping ground for internal t
 Source-control integrations, including `p4client-ts`, belong in optional adapters or extensions.
 They are not fixture prerequisites.
 
-## First public spine
+## Proven spine and next sequencing
 
-Before building a broad UI, establish one thin end-to-end path:
+The first public spine is proven:
 
 1. Discover the generic fixture project and its saved DataTable packages.
 2. Inspect those packages through the versioned asset-reader contract and load authority-tagged typed
    snapshots without launching Unreal.
-3. Expose the same read-only authoring operations from TypeScript libraries and the CLI.
+3. Expose the same authoring operations from TypeScript libraries and the CLI.
 4. Discover a supported installed Unreal editor, then launch or attach without hardcoded paths.
 5. Query the `UEShedCore` capability manifest and distinguish saved package state from live editor
    state.
-6. Show a read-only default table view in Workbench using only public authoring APIs.
-7. Add the safe editing loop through `UEShedAuthoring`, then prove named-pipe hello/health before the
-   actor observatory.
+6. Carry drafts through review, live Apply, and Save through `UEShedAuthoring`.
+7. Embed the maintained Data Authoring UI in a trusted non-Workbench host through the adoption seam.
 
-This sequence proves install discovery, generic integration, capability negotiation, headless access,
-showcase parity, and a real domain workflow. The later named-pipe step proves the shared data path
-before the first real-time domain accumulates special cases.
+Live and review workflows have also earned their place on the same architecture:
 
-## Actor observatory MVP
+- Texture Asset Audit scans a saved corpus and optionally previews live texture authority.
+- Game Text searches player-facing language across saved packages without flattening identity.
+- Camera Load Lab measures a bounded live camera data plane.
+- Map Review authors Review Views, captures immutable runs, and uses Live World Scout
+  (`UEShedObservatory` snapshots) as the entry into spatial authoring.
 
-The first capable demo is deliberately more than a feasibility spike. It should be a credible
-vertical slice that earns investment while leaving a sound expansion path.
+What remains sequenced, not assumed:
+
+1. Close Map Review Slice 2 trust and recovery under plan 017, then Slice 3 capture-profile and
+   readiness work.
+2. Grow Data Authoring through remaining Plan 007 work (conflicts, rich types, composites, views)
+   on the Effect-native services and adoption seam.
+3. Prove a dedicated named-pipe hello/health path before the full actor-observatory time-indexed
+   projection accumulates special cases. Remote Control plus bounded polling is enough for the
+   current Live World Scout; the richer observatory MVP below still needs the shared data plane.
+4. Keep sparse camera observation and interactive scenarios as separately enabled domains rather
+   than folding them into Map Review or Observatory.
+
+## Actor observatory direction
+
+The durable observatory product remains a **queryable, time-indexed projection of the running
+world**. Live World Scout is a deliberately smaller foothold: bounded editor-world actor snapshots,
+an aspect-preserving XY canvas, search/filter/selection, and Focus / Follow actions that hand off to
+Map Review framing. It is not yet the full observatory MVP.
+
+The fuller direction still needs:
 
 ### Fixture content
 
-- Add a dedicated observatory map under `/Game/Fixture/Observatory`.
-- Add three actor classes with clearly different data and deterministic movement patterns: an orbit,
-  a ping-pong path, and a seeded wander within bounds.
-- Give each class a small mix of shared and class-specific observable properties.
-- Let the map place configurable populations procedurally from a fixed seed, with stable logical IDs
-  independent of spawn order.
-- Include enough actors to demonstrate filtering and update behavior without turning the MVP into a
-  stress benchmark.
+- A dedicated observatory map under `/Game/Fixture/Observatory`.
+- Three actor classes with clearly different data and deterministic movement patterns: an orbit, a
+  ping-pong path, and a seeded wander within bounds.
+- A small mix of shared and class-specific observable properties.
+- Configurable populations from a fixed seed, with stable logical IDs independent of spawn order.
+- Enough actors to demonstrate filtering and update behavior without turning the demo into a stress
+  benchmark.
 
 ### Engine capabilities
 
 - `UEShedCore` advertises versions, project/world identity, health, and editor selection/focus.
-- `UEShedObservatory` advertises actor discovery and subscription capabilities.
+- `UEShedObservatory` advertises actor discovery and subscription capabilities beyond snapshot
+  polling.
 - Actor records carry stable identity, class/type, display label, world, transform, selected
   properties, lifecycle, and observation timestamp.
 - Updates are subscriptions with requested cadence, bounded queues, coalescing, staleness, and
@@ -282,25 +303,27 @@ vertical slice that earns investment while leaving a sound expansion path.
   selected data, update age, and stale/disconnected states.
 - A **Focus in Unreal** action brings the corresponding editor forward and selects the actor.
 - Workbench uses the exact same public operations as the CLI.
-- Camera preview or remote camera observation is explicitly outside this MVP.
+- Continuous camera preview remains outside the observatory product boundary; Map Review and Camera
+  Load Lab own visual evidence.
 
-The focus implementation must be chosen by inspecting supported editor APIs during implementation;
-the public contract is the result (`focused`, `not-found`, `not-supported`, or an explicit error),
-not a guessed engine call.
+The focus implementation must be chosen by inspecting supported editor APIs; the public contract is
+the result (`focused`, `not-found`, `not-supported`, or an explicit error), not a guessed engine
+call.
 
-### Demo acceptance
+### Acceptance for the fuller MVP
 
-The MVP is demo-ready when a clean machine can follow the documented setup, launch the fixture,
-connect, observe all three moving actor families live, filter and inspect them, focus a selected actor
-in Unreal, survive an editor reconnect without a stuck UI, and produce useful diagnostics when a
-capability is missing. The same core flow must be scriptable without Workbench.
+The fuller observatory is demo-ready when a clean machine can follow the documented setup, launch the
+fixture, connect, observe all three moving actor families live, filter and inspect them, focus a
+selected actor in Unreal, survive an editor reconnect without a stuck UI, and produce useful
+diagnostics when a capability is missing. The same core flow must be scriptable without Workbench.
 
 ## Roadmap domains
 
-The wider suite contains four connected ideas:
+The wider suite still contains these connected running-world ideas:
 
-1. **Actor observatory:** live discovery and inspection of actors and their changing state.
-2. **Camera review:** durable camera definitions, captures, annotations, and review artifacts.
+1. **Actor observatory:** live discovery and inspection of actors and their changing state, beyond
+   the Live World Scout foothold.
+2. **Map review:** durable Review Views, captures, annotations, and review artifacts.
 3. **Sparse camera observation:** intentionally sampled live feeds where continuous video is
    unnecessary or too expensive.
 4. **Interactive scenarios:** discoverable, parameterized workflows that run in Unreal and emit
@@ -310,18 +333,16 @@ They share producer/world/session discovery, capability negotiation, stable iden
 streams, and an evidence model. Those shared concepts belong below the domains; actor-, camera-, and
 scenario-specific models should not be forced into one universal event type.
 
-Data authoring and Remote Control exploration are also useful suite extensions. Existing independent
-packages such as `unreal-rc`, `p4client-ts`, and `peculiar-sheets` remain independently versioned
-dependencies rather than being absorbed into the monorepo.
+Data Authoring remains the flagship authored-content product: a first-party, end-to-end track with a
+maintained default interface. Texture Audit and Game Text are additional saved-package proving
+slices. Trusted hosts may embed the authoring interface, but arbitrary custom authoring UI hosting is
+deferred. Remote Control exploration remains a useful suite extension. Existing independent packages
+such as `unreal-rc`, `p4client-ts`, and `peculiar-sheets` remain independently versioned dependencies
+rather than being absorbed into the monorepo.
 
 UTrace parsing is a separate product boundary from saved-package parsing. Its volume, capture
 lifecycle, analysis model, and UI concerns do not belong in the foundational UAsset crate and are
 deliberately excluded from this repository for now.
-
-Data authoring is intentionally stronger than the other reference extensions: it is a first-party,
-end-to-end product track with a maintained default interface. Trusted hosts may embed that interface,
-but arbitrary custom authoring UI hosting is deferred; it is not required for straightforward table
-editing.
 
 ## Relationship to internal Swag tooling
 
@@ -353,7 +374,7 @@ libraries and executable conformance tests are the reusable product.
 
 ## Deferred decisions
 
-These choices matter but should be made with evidence from the first spine rather than guessed now:
+These choices matter but should be made with evidence from shipped workflows rather than guessed:
 
 - exact supported Unreal versions and compatibility window;
 - JSON Schema, Protobuf, or another language-neutral schema authority;
@@ -362,5 +383,5 @@ These choices matter but should be made with evidence from the first spine rathe
 - package-by-package release cadence and final licenses;
 - whether third-party runtime extensions are ever worth the security and support cost.
 
-The architecture leaves seams for all of them without making the initial scaffold pay their full
+The architecture leaves seams for all of them without making every workflow pay their full
 complexity.

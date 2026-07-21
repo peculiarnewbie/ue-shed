@@ -13,6 +13,24 @@ AUEShedCameraSource::AUEShedCameraSource()
 	GetCaptureComponent2D()->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 }
 
+void AUEShedCameraSource::EnsureCaptureTarget()
+{
+	USceneCaptureComponent2D* Capture = GetCaptureComponent2D();
+	UTextureRenderTarget2D* RenderTarget = Capture->TextureTarget;
+	if (RenderTarget == nullptr)
+	{
+		RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+		RenderTarget->RenderTargetFormat = RTF_RGBA8_SRGB;
+		RenderTarget->ClearColor = FLinearColor::Black;
+		Capture->TextureTarget = RenderTarget;
+	}
+	if (RenderTarget->SizeX != CaptureWidth || RenderTarget->SizeY != CaptureHeight)
+	{
+		RenderTarget->InitAutoFormat(CaptureWidth, CaptureHeight);
+		RenderTarget->UpdateResourceImmediate(true);
+	}
+}
+
 void AUEShedCameraSource::BeginPlay()
 {
 	Super::BeginPlay();
@@ -20,13 +38,5 @@ void AUEShedCameraSource::BeginPlay()
 	{
 		CameraId = FGuid(0x55455348, 0x45444341, 0x4D000000 | CameraIndex, 0x00000001);
 	}
-	if (GetCaptureComponent2D()->TextureTarget == nullptr)
-	{
-		UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(this);
-		RenderTarget->RenderTargetFormat = RTF_RGBA8_SRGB;
-		RenderTarget->ClearColor = FLinearColor::Black;
-		RenderTarget->InitAutoFormat(CaptureWidth, CaptureHeight);
-		RenderTarget->UpdateResourceImmediate(true);
-		GetCaptureComponent2D()->TextureTarget = RenderTarget;
-	}
+	EnsureCaptureTarget();
 }

@@ -134,8 +134,19 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 					<div {...stylex.props(styles.centerState)}>
 						<strong>No review project is configured.</strong>
 						<span>
-							Set UE_SHED_PROJECT_ROOT to a project with a portable Review Set.
+							Set UE_SHED_PROJECT_ROOT to a project, then return here to create its
+							first portable Review Set.
 						</span>
+					</div>
+				</Match>
+				<Match when={state().status === "setup_required"}>
+					<div {...stylex.props(styles.setupWorkspace)}>
+						<MapReviewAuthoring
+							client={props.client}
+							focusedActor={focusedActor()}
+							focusGeneration={focusGeneration()}
+							onApproved={load}
+						/>
 					</div>
 				</Match>
 				<Match when={state().status === "failed"}>
@@ -200,12 +211,7 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 								when={selected()}
 								fallback={
 									<section {...stylex.props(styles.firstCapture)}>
-										<span {...stylex.props(styles.aperture)}>◉</span>
-										<h2>No visual history yet.</h2>
-										<p>
-											Capture the set to establish its first immutable
-											observation.
-										</p>
+										<p>No captures yet. Use Capture Set when you want PNG evidence.</p>
 									</section>
 								}
 							>
@@ -346,6 +352,7 @@ const styles = stylex.create({
 		color: "#e9967b"
 	},
 	workspace: { paddingTop: 14 },
+	setupWorkspace: { paddingTop: 8 },
 	statusStrip: {
 		display: "grid",
 		gridTemplateColumns: "1.3fr .45fr .45fr 1.4fr",
@@ -395,17 +402,13 @@ const styles = stylex.create({
 	},
 	runInspector: { border: "1px solid #373d39", backgroundColor: "#131614", padding: 18 },
 	firstCapture: {
-		minHeight: 430,
 		marginTop: 12,
 		border: "1px solid #353b37",
 		backgroundColor: "#111412",
-		display: "flex",
-		flexDirection: "column",
-		alignItems: "center",
-		justifyContent: "center",
-		color: "#8c958f"
+		padding: "14px 16px",
+		color: "#8c958f",
+		fontSize: 13
 	},
-	aperture: { color: "#b9f227", fontSize: 44 },
 	history: { marginTop: 12, border: "1px solid #343a36", backgroundColor: "#111412" },
 	historyHeading: {
 		display: "flex",

@@ -6,9 +6,7 @@ layer.
 
 ## Before changing code
 
-- Read `docs/vision-and-architecture.md` for product boundaries and sequencing.
-- Read `docs/engineering/README.md` before designing or implementing a package, then load only the
-  focused guides relevant to the work.
+- Start at [`docs/README.md`](docs/README.md) for the doc map and read order.
 - Keep the core usable from libraries and the CLI without the Workbench.
 - Do not introduce studio-project names, paths, assets, schemas, credentials, or assumptions.
 - Treat existing internal tooling as behavioral reference, not source code or architecture to copy.

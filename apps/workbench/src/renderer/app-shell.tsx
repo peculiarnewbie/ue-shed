@@ -33,7 +33,7 @@ const demos = [
 		kind: "HEADLESS · SAVED ASSETS",
 		title: "DataTable Authoring",
 		description:
-			"Inspect typed tables without opening Unreal, then carry the same draft through live apply and save.",
+			"Open typed DataTables without launching Unreal; draft cells, then apply and save live when connected.",
 		capabilities: ["versioned snapshots", "typed drafts", "apply + save"],
 		tone: "green" as const
 	},
@@ -42,7 +42,7 @@ const demos = [
 		kind: "WORKBENCH · SAVED ASSETS",
 		title: "Texture Asset Audit",
 		description:
-			"Scan a project corpus, retain evidence provenance, and move from distributions to individual findings.",
+			"Scan project textures for rule hits and open a finding with the asset evidence that triggered it.",
 		capabilities: ["editor-free scan", "rule evidence", "partial diagnostics"],
 		tone: "amber" as const
 	},
@@ -51,7 +51,7 @@ const demos = [
 		kind: "WORKBENCH · LIVE UNREAL",
 		title: "Camera Load Lab",
 		description:
-			"Drive 32 camera sources through a bounded data plane and see where scheduling, readback, or presentation bends.",
+			"Stress live camera feeds: change active count, resolution, and pipeline mode while watching latency.",
 		capabilities: ["bounded frames", "pipeline isolation", "live telemetry"],
 		tone: "blue" as const
 	},
@@ -60,7 +60,7 @@ const demos = [
 		kind: "HEADLESS · LANGUAGE CORPUS",
 		title: "Game Text Workbench",
 		description:
-			"Search player-facing language across saved DataTables, String Tables, and asset properties without flattening Unreal identity.",
+			"Search player-facing strings across DataTables, String Tables, and asset properties.",
 		capabilities: ["identity-aware search", "occurrence evidence", "coverage gaps"],
 		tone: "coral" as const
 	}

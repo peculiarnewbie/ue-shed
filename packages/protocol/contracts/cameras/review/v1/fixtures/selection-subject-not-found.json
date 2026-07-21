@@ -1,0 +1,11 @@
+{
+	"contract": {
+		"name": "ue-shed-review-selection",
+		"version": { "major": 1, "minor": 0 }
+	},
+	"status": "failed",
+	"code": "subject_not_found",
+	"message": "The persisted review subject was not found.",
+	"recovery": "Restore the subject or discard this authoring session.",
+	"retrySafe": true
+}

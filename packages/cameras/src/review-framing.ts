@@ -3,8 +3,11 @@ import {
 	FramingCandidate,
 	FramingCandidateId,
 	ReviewSet,
+	ReviewView,
 	type FramingDiagnostic,
 	type FramingPreset,
+	type ReviewSubjectProjection,
+	type CaptureProfileId,
 	type ReviewViewId,
 	type SubjectBounds
 } from "./review-schema.js";
@@ -217,20 +220,85 @@ export function framingDriftDiagnostics(args: {
 	];
 }
 
+/**
+ * Applies product framing policy to actual SceneCapture2D projection evidence. The engine reports
+ * geometry only; this keeps the requested-margin decision reviewable and shared by headless and
+ * maintained clients.
+ */
+export function realizationFramingDiagnostics(args: {
+	readonly projection: ReviewSubjectProjection;
+	readonly requestedMargin: number;
+}): readonly FramingDiagnostic[] {
+	if (args.projection.status === "unprojectable") {
+		return [
+			{
+				code:
+					args.projection.code === "behind_camera"
+						? "subject_behind_camera"
+						: "subject_near_plane_crossing",
+				message: args.projection.message,
+				severity: "warning"
+			}
+		];
+	}
+	if (args.projection.viewportStatus === "fully_outside_viewport") {
+		return [
+			{
+				code: "subject_fully_outside_viewport",
+				message:
+					"The realized subject lies entirely outside the transient capture viewport.",
+				severity: "warning"
+			}
+		];
+	}
+	if (args.projection.viewportStatus === "partially_outside_viewport") {
+		return [
+			{
+				code: "subject_partially_outside_viewport",
+				message: "The realized subject clips against the transient capture viewport.",
+				severity: "warning"
+			}
+		];
+	}
+	const smallestMargin = Math.min(
+		args.projection.margins.bottom,
+		args.projection.margins.left,
+		args.projection.margins.right,
+		args.projection.margins.top
+	);
+	if (smallestMargin < args.requestedMargin) {
+		return [
+			{
+				code: "subject_margin_below_requested",
+				message: `The realized subject margin is ${smallestMargin.toFixed(3)}, below the requested ${args.requestedMargin.toFixed(3)}.`,
+				severity: "warning"
+			}
+		];
+	}
+	return [
+		{
+			code: "subject_framing_within_margin",
+			message: "The realized subject is fully visible within the requested framing margin.",
+			severity: "info"
+		}
+	];
+}
+
 export type ApproveFramingCandidateResult =
 	| { readonly status: "approved"; readonly reviewSet: ReviewSet }
 	| { readonly status: "view_not_found"; readonly viewId: string };
 
-export function approveFramingCandidate(args: {
+export function createReviewViewFromCandidate(args: {
 	readonly candidate: typeof FramingCandidate.Type;
+	readonly captureProfileId: CaptureProfileId;
+	readonly displayName: string;
 	readonly manualPose?: typeof ApprovedPose.Type;
 	readonly manualReason?: string;
-	readonly reviewSet: ReviewSet;
-	readonly subject?: ReviewSet["views"][number]["subject"];
+	readonly purpose: string;
+	readonly subject: ReviewView["subject"];
+	readonly tags: readonly string[];
 	readonly viewId: ReviewViewId;
-}): ApproveFramingCandidateResult {
-	const index = args.reviewSet.views.findIndex((view) => view.id === args.viewId);
-	if (index === -1) return { status: "view_not_found", viewId: args.viewId };
+}): ReviewView {
 	const manuallyAdjusted = args.manualPose !== undefined;
 	const recipe = {
 		...args.candidate.recipe,
@@ -242,7 +310,7 @@ export function approveFramingCandidate(args: {
 				}
 			: {})
 	};
-	const diagnostics = [
+	const framingDiagnostics = [
 		...args.candidate.diagnostics,
 		...(manuallyAdjusted
 			? [
@@ -254,14 +322,42 @@ export function approveFramingCandidate(args: {
 				]
 			: [])
 	];
-	const views = [...args.reviewSet.views];
-	views[index] = {
-		...views[index]!,
+	return ReviewView.make({
 		approvedPose: args.manualPose ?? args.candidate.approvedPose,
-		framingDiagnostics: diagnostics,
+		captureProfileId: args.captureProfileId,
+		displayName: args.displayName,
+		framingDiagnostics,
 		framingRecipe: recipe,
-		subject: args.subject ?? views[index]!.subject
-	};
+		id: args.viewId,
+		purpose: args.purpose,
+		subject: args.subject,
+		tags: [...args.tags]
+	});
+}
+
+export function approveFramingCandidate(args: {
+	readonly candidate: typeof FramingCandidate.Type;
+	readonly manualPose?: typeof ApprovedPose.Type;
+	readonly manualReason?: string;
+	readonly reviewSet: ReviewSet;
+	readonly subject?: ReviewSet["views"][number]["subject"];
+	readonly viewId: ReviewViewId;
+}): ApproveFramingCandidateResult {
+	const index = args.reviewSet.views.findIndex((view) => view.id === args.viewId);
+	if (index === -1) return { status: "view_not_found", viewId: args.viewId };
+	const views = [...args.reviewSet.views];
+	const current = views[index]!;
+	views[index] = createReviewViewFromCandidate({
+		candidate: args.candidate,
+		captureProfileId: current.captureProfileId,
+		displayName: current.displayName,
+		...(args.manualPose === undefined ? {} : { manualPose: args.manualPose }),
+		...(args.manualReason === undefined ? {} : { manualReason: args.manualReason }),
+		purpose: current.purpose,
+		subject: args.subject ?? current.subject,
+		tags: current.tags,
+		viewId: current.id
+	});
 	return {
 		reviewSet: ReviewSet.make({ ...args.reviewSet, views }),
 		status: "approved"

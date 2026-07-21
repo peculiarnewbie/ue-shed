@@ -1,14 +1,18 @@
 # Showcase
 
-The showcase is the shortest path from a fresh clone to UE Shed's three implemented proving
-slices. It uses the committed generic fixture as its default project and keeps live Unreal an
-optional capability.
+The showcase is the shortest path from a fresh clone to UE Shed's implemented proving slices. It
+uses the committed generic fixture as its default project and keeps live Unreal an optional
+capability.
+
+Workbench currently surfaces Data Authoring, Texture Asset Audit, Game Text, Map Review, and
+Camera Load Lab. Saved-package demos open without Unreal; live texture preview, Map Review, and
+Camera Load Lab request a separately enabled editor only when needed.
 
 ## Open the Workbench
 
 Requirements are Node.js 22.14 or newer, pnpm 10, and Rust 1.85 or newer. Live actions additionally
 require Unreal Engine 5.7 and Visual Studio 2022 with the Unreal Engine C++ workload. The initial
-Workbench and saved-package audit do not require Unreal or Visual Studio. From the repository root:
+Workbench and saved-package demos do not require Unreal or Visual Studio. From the repository root:
 
 ```powershell
 pnpm install
@@ -17,9 +21,10 @@ pnpm showcase
 
 `showcase` incrementally builds the in-repo `uasset` reader and Workbench, configures the fixture
 project and texture-audit rules, and opens the catalog. It does not build or launch Unreal up front.
-Texture Audit and Camera Load Lab each expose a launch action when their optional live capability is
-needed. If another process occupies the default Remote Control port, the showcase reserves the next
-available port for its fixture.
+Texture Audit, Map Review, and Camera Load Lab each expose a launch or connect action when their
+optional live capability is needed. If an editor is already serving Remote Control on the usual
+local ports, `showcase` attaches to it. Otherwise it reserves the next free HTTP/WebSocket pair so a
+later in-app fixture launch can claim that endpoint.
 
 The source-checkout flow uses `target/debug/uasset.exe` (`target/debug/uasset` on other platforms).
 To exercise another compatible reader build instead, override it before launching:
@@ -73,10 +78,51 @@ launching Unreal. Selecting a texture requests an optional bounded live preview.
 Unreal for preview** to build and start the fixture only when that visual evidence is wanted. Preview
 authority is labeled separately because an editor can contain unsaved state.
 
-## Demo 3: Camera Load Lab
+## Demo 3: Game Text
 
-Camera Load Lab is the live slice. Open it and choose **Launch Camera Fixture**. Workbench then
-discovers Unreal Engine 5.7, incrementally builds the fixture editor target, launches
+Choose **Game Text** from the nav. Workbench searches player-facing language across saved
+DataTables, String Tables, and supported asset properties without flattening Unreal identity.
+Occurrence evidence and coverage gaps stay inspectable from the same corpus.
+
+```powershell
+pnpm ue-shed text scan fixtures\unreal-project
+pnpm ue-shed text search fixtures\unreal-project "Fixture"
+```
+
+## Demo 4: Map Review
+
+Map Review does not require fixture content or a pre-authored Review Set. Point Workbench or the CLI
+at the project root, then add the UE Shed plugin directory to that project's `.uproject` and enable
+`RemoteControl`, `UEShedCore`, and `UEShedCameras`. The generic fixture's
+[`UEShedFixture.uproject`](../fixtures/unreal-project/UEShedFixture.uproject) shows the required
+`AdditionalPluginDirectories` and plugin entries. Enable `UEShedObservatory` as well when using the
+live World Scout canvas.
+
+Launch the editor with rendering available (not `-NullRHI`) and configure the project and Remote
+Control endpoint:
+
+```powershell
+$env:UE_SHED_PROJECT_ROOT = "C:\path\to\Project"
+$env:UE_SHED_REMOTE_CONTROL_ENDPOINT = "http://127.0.0.1:30001"
+pnpm showcase
+```
+
+Open **Map Review**. With no `UE_SHED_REVIEW_SET`, the route enters first-run authoring. Select an
+actor, review a candidate, and keep it; only then does UE Shed write a deterministic map-scoped
+Review Set under `.ue-shed/review/sets`. Set `UE_SHED_REVIEW_SET` when you want to work with an
+explicit existing set. The headless equivalent is:
+
+```powershell
+pnpm ue-shed review authoring bootstrap "C:\path\to\Project" "http://127.0.0.1:30001"
+pnpm ue-shed review authoring approve "C:\path\to\Project" <session-id> "http://127.0.0.1:30001"
+```
+
+See [`products/map-review.md`](products/map-review.md) for the product contract.
+
+## Demo 5: Camera Load Lab
+
+Camera Load Lab is the live camera data-plane slice. Open it and choose **Launch Camera Fixture**.
+Workbench then discovers Unreal Engine 5.7, incrementally builds the fixture editor target, launches
 `/Game/Fixture/Cameras/L_CameraLoad` as a windowed Game world, and waits for the negotiated Remote
 Control endpoint.
 

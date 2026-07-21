@@ -5,7 +5,9 @@ import {
 	decodeMapReviewCaptureResult,
 	decodeMapReviewResult,
 	type MapReviewApprovalResult,
-	type MapReviewAuthoringResult,
+	type MapReviewAuthoringPatchIntent,
+	type MapReviewAuthoringPreviewIntent,
+	type MapReviewAuthoringSessionIntent,
 	type MapReviewCandidatePreviewResult,
 	type MapReviewCaptureIntent,
 	type MapReviewCaptureResult,
@@ -23,18 +25,9 @@ import {
 	type WorldScoutRefreshRate,
 	type WorldScoutResult
 } from "@ue-shed/observatory";
-import { Effect, Schedule, Schema, Stream } from "effect";
+import { Effect, Schedule, Stream } from "effect";
 
 const recovery = "Restart Workbench. If the problem persists, verify package versions.";
-const FixtureLaunchResult = Schema.Union([
-	Schema.Struct({ status: Schema.Literal("ready") }),
-	Schema.Struct({
-		message: Schema.String,
-		recovery: Schema.String,
-		status: Schema.Literal("failed")
-	})
-]);
-const decodeFixtureLaunchResult = Schema.decodeUnknownEffect(FixtureLaunchResult);
 
 const loadWorldSnapshot = (): Effect.Effect<WorldScoutResult, MapReviewClientError> =>
 	request({
@@ -60,21 +53,7 @@ function request<A>(args: {
 }
 
 export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
-	connectWorld: Effect.fn("MapReviewClient.connectWorld")(function* () {
-		const launch = yield* request({
-			decode: decodeFixtureLaunchResult,
-			invoke: () => window.ueShed.fixture.launchReview(),
-			operation: "fixture.launchReview"
-		});
-		if (launch.status === "failed") {
-			return {
-				message: launch.message,
-				recovery: launch.recovery,
-				status: "unavailable" as const
-			};
-		}
-		return yield* loadWorldSnapshot();
-	}),
+	connectWorld: Effect.fn("MapReviewClient.connectWorld")(() => loadWorldSnapshot()),
 	focusActor: Effect.fn("MapReviewClient.focusActor")((actorId: ActorId, bringToFront: boolean) =>
 		request({
 			decode: decodeWorldScoutFocusResult,
@@ -101,24 +80,60 @@ export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
 				operation: "mapReview.approveCandidate"
 			})
 	),
-	authorFromSelection: Effect.fn("MapReviewClient.authorFromSelection")(function* () {
-		const launch = yield* request({
-			decode: decodeFixtureLaunchResult,
-			invoke: () => window.ueShed.fixture.launchReview(),
-			operation: "fixture.launchReview"
-		});
-		if (launch.status === "failed") {
-			return {
-				error: { message: launch.message, recovery: launch.recovery },
-				status: "failed"
-			} satisfies MapReviewAuthoringResult;
-		}
-		return yield* request({
+	authorFromSelection: Effect.fn("MapReviewClient.authorFromSelection")(() =>
+		request({
 			decode: decodeMapReviewAuthoringResult,
 			invoke: () => window.ueShed.mapReview.authorFromSelection(),
 			operation: "mapReview.authorFromSelection"
-		});
-	}),
+		})
+	),
+	authoringResume: Effect.fn("MapReviewClient.authoringResume")(() =>
+		request({
+			decode: decodeMapReviewAuthoringResult,
+			invoke: () => window.ueShed.mapReview.authoringResume(),
+			operation: "mapReview.authoringResume"
+		})
+	),
+	authoringPatch: Effect.fn("MapReviewClient.authoringPatch")(
+		(intent: MapReviewAuthoringPatchIntent) =>
+			request({
+				decode: decodeMapReviewAuthoringResult,
+				invoke: () => window.ueShed.mapReview.authoringPatch(intent),
+				operation: "mapReview.authoringPatch"
+			})
+	),
+	authoringReframe: Effect.fn("MapReviewClient.authoringReframe")(
+		(intent: MapReviewAuthoringSessionIntent) =>
+			request({
+				decode: decodeMapReviewAuthoringResult,
+				invoke: () => window.ueShed.mapReview.authoringReframe(intent),
+				operation: "mapReview.authoringReframe"
+			})
+	),
+	discardAuthoring: Effect.fn("MapReviewClient.discardAuthoring")(
+		(intent: MapReviewAuthoringSessionIntent) =>
+			request({
+				decode: decodeMapReviewAuthoringResult,
+				invoke: () => window.ueShed.mapReview.discardAuthoring(intent),
+				operation: "mapReview.discardAuthoring"
+			})
+	),
+	previewAuthoringCandidate: Effect.fn("MapReviewClient.previewAuthoringCandidate")(
+		(intent: MapReviewAuthoringPreviewIntent) =>
+			request({
+				decode: decodeMapReviewCandidatePreviewResult,
+				invoke: () => window.ueShed.mapReview.previewAuthoringCandidate(intent),
+				operation: "mapReview.previewAuthoringCandidate"
+			})
+	),
+	approveAuthoring: Effect.fn("MapReviewClient.approveAuthoring")(
+		(intent: MapReviewAuthoringSessionIntent) =>
+			request({
+				decode: decodeMapReviewApprovalResult,
+				invoke: () => window.ueShed.mapReview.approveAuthoring(intent),
+				operation: "mapReview.approveAuthoring"
+			})
+	),
 	capture: Effect.fn("MapReviewClient.capture")(
 		(
 			intent: MapReviewCaptureIntent

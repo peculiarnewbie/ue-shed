@@ -1,6 +1,8 @@
 # Real-time actor observatory
 
-> Status: product vision with technical footholds; first UE Shed domain proving slice
+> Status: long-horizon product vision. Live World Scout in
+> [Map Review](../products/map-review.md) is the current foothold; the full time-indexed observatory
+> remains ahead of the named-pipe data-plane proof.
 
 ## Ambition
 

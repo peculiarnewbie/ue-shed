@@ -19,6 +19,8 @@ import {
 	generateFramingCandidates,
 	ReviewAuthoring,
 	ReviewAuthoringLive,
+	ReviewAuthoringSessions,
+	ReviewAuthoringSessionsLive,
 	ReviewCapture,
 	ReviewCaptureLive,
 	reviewCaptureRemotePortLayer,
@@ -540,6 +542,75 @@ export function executeCommand(
 					viewId: command.viewId
 				});
 			}
+			case "ReviewAuthoringStart":
+			case "ReviewAuthoringBootstrap":
+			case "ReviewAuthoringShow":
+			case "ReviewAuthoringResume":
+			case "ReviewAuthoringDiscard":
+			case "ReviewAuthoringReframe":
+			case "ReviewAuthoringApprove": {
+				const sessions = yield* ReviewAuthoringSessions;
+				if (command._tag === "ReviewAuthoringShow") {
+					return yield* sessions
+						.load({ projectRoot: command.projectRoot, sessionId: command.sessionId })
+						.pipe(Effect.flatMap(printJson));
+				}
+				if (command._tag === "ReviewAuthoringDiscard") {
+					return yield* sessions
+						.discard({ projectRoot: command.projectRoot, sessionId: command.sessionId })
+						.pipe(Effect.flatMap(printJson));
+				}
+				if (command._tag === "ReviewAuthoringResume") {
+					return yield* sessions
+						.resume({
+							endpoint: command.endpoint,
+							projectRoot: command.projectRoot,
+							sessionId: command.sessionId
+						})
+						.pipe(Effect.flatMap(printJson));
+				}
+				if (command._tag === "ReviewAuthoringApprove") {
+					return yield* sessions
+						.approve({
+							endpoint: command.endpoint,
+							projectRoot: command.projectRoot,
+							sessionId: command.sessionId
+						})
+						.pipe(Effect.flatMap(printJson));
+				}
+				const authoring = yield* ReviewAuthoring;
+				const selection = yield* authoring.inspectSelection(command.endpoint);
+				if (selection.status === "failed") {
+					return yield* Effect.fail(
+						new CliCommandError({
+							message: `${selection.message} ${selection.recovery}`
+						})
+					);
+				}
+				const candidates = generateFramingCandidates(selection);
+				const session =
+					command._tag === "ReviewAuthoringBootstrap"
+						? yield* sessions.start({
+								candidates,
+								projectRoot: command.projectRoot,
+								selection
+							})
+						: command._tag === "ReviewAuthoringStart"
+							? yield* sessions.create({
+									candidates,
+									projectRoot: command.projectRoot,
+									reviewSetPath: command.reviewSetPath,
+									selection,
+									viewId: command.viewId
+								})
+							: yield* sessions.reframe({
+									candidates,
+									projectRoot: command.projectRoot,
+									selection,
+									sessionId: command.sessionId
+								});
+				return yield* printJson(session);
+			}
 			case "ReviewCapture": {
 				const capture = yield* ReviewCapture;
 				const run = yield* capture.captureSet(command);
@@ -562,6 +633,9 @@ export function executeCommand(
 
 	const reader = "reader" in command ? command.reader : undefined;
 	const reviewAuthoring = ReviewAuthoringLive.pipe(Layer.provide(RemoteControlClientLive));
+	const reviewAuthoringSessions = ReviewAuthoringSessionsLive.pipe(
+		Layer.provide(Layer.mergeAll(ReviewRepositoryLive, reviewAuthoring))
+	);
 	const captureEndpoint = command._tag === "ReviewCapture" ? command.endpoint : "";
 	const captureDependencies = Layer.mergeAll(
 		ReviewRepositoryLive,
@@ -575,6 +649,7 @@ export function executeCommand(
 		Effect.provide(RemoteControlClientLive),
 		Effect.provide(ReviewRepositoryLive),
 		Effect.provide(reviewAuthoring),
+		Effect.provide(reviewAuthoringSessions),
 		Effect.provide(capture),
 		Effect.provide(editorPlaySession),
 		Effect.mapError((cause) =>

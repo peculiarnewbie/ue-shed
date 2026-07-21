@@ -1,6 +1,7 @@
 import { TextureAuditLive } from "@ue-shed/asset-audits";
 import {
 	ReviewAuthoringLive,
+	ReviewAuthoringSessionsLive,
 	ReviewCaptureLive,
 	ReviewIdGeneratorLive,
 	ReviewRepositoryLive,
@@ -93,6 +94,7 @@ function reviewAndFixtureLayer(hosts: WorkbenchHosts) {
 	);
 	return Layer.mergeAll(
 		ReviewAuthoringLive,
+		ReviewAuthoringSessionsLive.pipe(Layer.provide(ReviewAuthoringLive)),
 		ReviewCaptureLive.pipe(Layer.provide(reviewCapturePort)),
 		FixtureLauncherLive.pipe(Layer.provide(FixtureHealthLive))
 	).pipe(Layer.provideMerge(domainCatalogLayer(hosts)));

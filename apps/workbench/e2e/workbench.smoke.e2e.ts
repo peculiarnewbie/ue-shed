@@ -32,7 +32,7 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 		"Map review / Live world"
 	);
 	await expect(
-		workbench.page.getByRole("heading", { name: "The level is the index." })
+		workbench.page.getByRole("heading", { name: "Actors in the open level" })
 	).toBeVisible();
 	await expect(workbench.page.getByRole("button", { name: "CONNECT LIVE WORLD" })).toBeVisible();
 	await expect(workbench.page.getByRole("region", { name: "Review set status" })).toContainText(
@@ -40,7 +40,7 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	);
 	await expect(
 		workbench.page.getByRole("region", { name: "Review View authoring" })
-	).toContainText("Frame what matters.");
+	).toContainText("Select an actor, then reframe");
 	await expect(
 		workbench.page.getByRole("button", { name: "REFRAME SELECTED ACTOR" })
 	).toBeVisible();
@@ -50,7 +50,7 @@ test("launches the configured showcase and opens a saved DataTable", async ({
 	});
 	await workbench.page.getByRole("button", { name: "CAPTURE SET" }).click();
 	const captureWorkflow = workbench.page.getByRole("dialog", {
-		name: "Commit the view, deliberately."
+		name: "Capture review set"
 	});
 	await expect(captureWorkflow).toContainText("Editor World");
 	await captureWorkflow.getByRole("button", { name: "REVIEW CAPTURE PLAN →" }).click();

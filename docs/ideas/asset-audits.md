@@ -1,6 +1,7 @@
 # Asset audits
 
-> Status: product vision; a Workbench range for corpus-wide inspection and conformance
+> Status: product vision. Texture Asset Audit is the first shipped lens; other discipline lenses
+> remain ahead.
 
 ## Ambition
 

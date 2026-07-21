@@ -1,7 +1,10 @@
 import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
 	MapReviewAuthoringResult,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent,
 	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
@@ -18,8 +21,11 @@ import { Context, type Effect, Schema, type Stream } from "effect";
 export type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
 	MapReviewAuthoringCandidate,
 	MapReviewAuthoringResult,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent,
 	MapReviewCaptureCompletedJob,
 	MapReviewCaptureJobState,
@@ -56,6 +62,22 @@ export interface MapReviewClientShape {
 		MapReviewAuthoringResult,
 		MapReviewClientError
 	>;
+	readonly authoringResume: () => Effect.Effect<MapReviewAuthoringResult, MapReviewClientError>;
+	readonly authoringPatch: (
+		intent: MapReviewAuthoringPatchIntent
+	) => Effect.Effect<MapReviewAuthoringResult, MapReviewClientError>;
+	readonly authoringReframe: (
+		intent: MapReviewAuthoringSessionIntent
+	) => Effect.Effect<MapReviewAuthoringResult, MapReviewClientError>;
+	readonly discardAuthoring: (
+		intent: MapReviewAuthoringSessionIntent
+	) => Effect.Effect<MapReviewAuthoringResult, MapReviewClientError>;
+	readonly previewAuthoringCandidate: (
+		intent: MapReviewAuthoringPreviewIntent
+	) => Effect.Effect<MapReviewCandidatePreviewResult, MapReviewClientError>;
+	readonly approveAuthoring: (
+		intent: MapReviewAuthoringSessionIntent
+	) => Effect.Effect<MapReviewApprovalResult, MapReviewClientError>;
 	readonly capture: (
 		intent: MapReviewCaptureIntent
 	) => Effect.Effect<MapReviewCaptureResult, MapReviewClientError>;

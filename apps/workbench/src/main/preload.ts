@@ -2,7 +2,10 @@ import type { AuthoringSessionIntent } from "@ue-shed/authoring-sdk";
 import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
 	MapReviewAuthoringResult,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent,
 	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
@@ -101,6 +104,28 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("map-review:approve-candidate", intent),
 		authorFromSelection: (): Promise<MapReviewAuthoringResult> =>
 			ipcRenderer.invoke("map-review:author-from-selection"),
+		authoringResume: (): Promise<MapReviewAuthoringResult> =>
+			ipcRenderer.invoke("map-review:authoring-resume"),
+		authoringPatch: (
+			intent: MapReviewAuthoringPatchIntent
+		): Promise<MapReviewAuthoringResult> =>
+			ipcRenderer.invoke("map-review:authoring-patch", intent),
+		authoringReframe: (
+			intent: MapReviewAuthoringSessionIntent
+		): Promise<MapReviewAuthoringResult> =>
+			ipcRenderer.invoke("map-review:authoring-reframe", intent),
+		discardAuthoring: (
+			intent: MapReviewAuthoringSessionIntent
+		): Promise<MapReviewAuthoringResult> =>
+			ipcRenderer.invoke("map-review:authoring-discard", intent),
+		previewAuthoringCandidate: (
+			intent: MapReviewAuthoringPreviewIntent
+		): Promise<MapReviewCandidatePreviewResult> =>
+			ipcRenderer.invoke("map-review:preview-authoring-candidate", intent),
+		approveAuthoring: (
+			intent: MapReviewAuthoringSessionIntent
+		): Promise<MapReviewApprovalResult> =>
+			ipcRenderer.invoke("map-review:approve-authoring", intent),
 		previewCandidate: (candidateId: string): Promise<MapReviewCandidatePreviewResult> =>
 			ipcRenderer.invoke("map-review:preview-candidate", candidateId),
 		capture: (intent: MapReviewCaptureIntent): Promise<MapReviewCaptureResult> =>

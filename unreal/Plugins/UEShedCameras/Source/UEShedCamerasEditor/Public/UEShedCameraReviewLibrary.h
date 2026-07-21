@@ -13,5 +13,8 @@ public:
 	static void InspectReviewSelection(FString& ResultJson);
 
 	UFUNCTION(BlueprintCallable, Category = "UE Shed|Cameras|Review")
+	static void InspectReviewSubject(const FString& ActorPath, FString& ResultJson);
+
+	UFUNCTION(BlueprintCallable, Category = "UE Shed|Cameras|Review")
 	static void CaptureReviewView(const FString& RequestJson, FString& ResultJson);
 };

@@ -31,8 +31,30 @@
 				"height": { "type": "integer", "minimum": 1 },
 				"captureDurationMs": { "type": "number", "minimum": 0 },
 				"mapPackageDirtyBefore": { "type": "boolean" },
-				"mapPackageDirtyAfter": { "type": "boolean" }
+				"mapPackageDirtyAfter": { "type": "boolean" },
+				"subjectProjection": { "$ref": "#/$defs/subjectProjection" }
 			},
+			"allOf": [
+				{
+					"if": {
+						"required": ["contract"],
+						"properties": {
+							"contract": {
+								"required": ["version"],
+								"properties": {
+									"version": {
+										"required": ["minor"],
+										"properties": {
+											"minor": { "minimum": 1 }
+										}
+									}
+								}
+							}
+						}
+					},
+					"then": { "required": ["subjectProjection"] }
+				}
+			],
 			"additionalProperties": false
 		},
 		{
@@ -78,6 +100,59 @@
 				}
 			}
 		},
-		"safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+		"safeId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+		"projectedBounds": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["minX", "minY", "maxX", "maxY"],
+			"properties": {
+				"minX": { "type": "number" },
+				"minY": { "type": "number" },
+				"maxX": { "type": "number" },
+				"maxY": { "type": "number" }
+			}
+		},
+		"projectionMargins": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["left", "right", "top", "bottom"],
+			"properties": {
+				"left": { "type": "number" },
+				"right": { "type": "number" },
+				"top": { "type": "number" },
+				"bottom": { "type": "number" }
+			}
+		},
+		"subjectProjection": {
+			"oneOf": [
+				{
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["status", "viewportStatus", "normalizedBounds", "margins"],
+					"properties": {
+						"status": { "const": "projected" },
+						"viewportStatus": {
+							"enum": [
+								"fully_within_viewport",
+								"partially_outside_viewport",
+								"fully_outside_viewport"
+							]
+						},
+						"normalizedBounds": { "$ref": "#/$defs/projectedBounds" },
+						"margins": { "$ref": "#/$defs/projectionMargins" }
+					}
+				},
+				{
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["status", "code", "message"],
+					"properties": {
+						"status": { "const": "unprojectable" },
+						"code": { "enum": ["behind_camera", "near_plane_crossing"] },
+						"message": { "type": "string", "minLength": 1 }
+					}
+				}
+			]
+		}
 	}
 }

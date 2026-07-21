@@ -21,6 +21,10 @@ import {
 
 export const DEFAULT_REVIEW_ROOT = ".ue-shed/review";
 
+function hasErrorCode(cause: unknown, code: string): boolean {
+	return typeof cause === "object" && cause !== null && "code" in cause && cause.code === code;
+}
+
 export class ReviewStorageError extends Schema.TaggedErrorClass<ReviewStorageError>()(
 	"ReviewStorageError",
 	{
@@ -84,6 +88,34 @@ function loadReviewSetWithNode(path: string): Effect.Effect<ReviewSet, ReviewSto
 			)
 		),
 		Effect.withSpan("camera.review.set.load", { attributes: { path } })
+	);
+}
+
+function findReviewSetWithNode(
+	path: string
+): Effect.Effect<ReviewSet | undefined, ReviewStorageError> {
+	return Effect.tryPromise({
+		try: async () => {
+			try {
+				await stat(path);
+				return true;
+			} catch (cause) {
+				if (hasErrorCode(cause, "ENOENT")) return false;
+				throw cause;
+			}
+		},
+		catch: (cause) =>
+			new ReviewStorageError({
+				message: String(cause),
+				operation: "load_set",
+				path,
+				recovery: "Check that the Review Set directory is readable."
+			})
+	}).pipe(
+		Effect.flatMap((exists) =>
+			exists ? loadReviewSetWithNode(path) : Effect.succeed(undefined)
+		),
+		Effect.withSpan("camera.review.set.find", { attributes: { path } })
 	);
 }
 
@@ -226,6 +258,7 @@ export function runIdFromPath(path: string): string {
 
 export interface ReviewRepositoryShape {
 	readonly discardStaging: (stagingRoot: string) => Effect.Effect<void, ReviewStorageError>;
+	readonly findSet: (path: string) => Effect.Effect<ReviewSet | undefined, ReviewStorageError>;
 	readonly finalizeRun: (args: {
 		readonly finalRoot: string;
 		readonly run: CaptureRun;
@@ -349,6 +382,7 @@ const makeReviewRepository = (): ReviewRepositoryShape => {
 	});
 	return ReviewRepository.of({
 		discardStaging,
+		findSet: Effect.fn("ReviewRepository.findSet")(findReviewSetWithNode),
 		finalizeRun,
 		listRuns: Effect.fn("ReviewRepository.listRuns")(listCaptureRunsWithNode),
 		loadRun: Effect.fn("ReviewRepository.loadRun")(loadCaptureRunWithNode),
@@ -372,6 +406,12 @@ export function loadReviewSet(
 	path: string
 ): Effect.Effect<ReviewSet, ReviewStorageError, ReviewRepository> {
 	return Effect.flatMap(ReviewRepository, (repository) => repository.loadSet(path));
+}
+
+export function findReviewSet(
+	path: string
+): Effect.Effect<ReviewSet | undefined, ReviewStorageError, ReviewRepository> {
+	return Effect.flatMap(ReviewRepository, (repository) => repository.findSet(path));
 }
 
 export function saveReviewSet(args: {

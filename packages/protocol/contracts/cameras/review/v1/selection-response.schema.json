@@ -24,7 +24,15 @@
 			"properties": {
 				"contract": { "$ref": "#/$defs/contract" },
 				"status": { "const": "failed" },
-				"code": { "enum": ["no_selection", "multiple_selection", "editor_unavailable"] },
+				"code": {
+					"enum": [
+						"no_selection",
+						"multiple_selection",
+						"editor_unavailable",
+						"map_mismatch",
+						"subject_not_found"
+					]
+				},
 				"message": { "type": "string", "minLength": 1 },
 				"recovery": { "type": "string", "minLength": 1 },
 				"retrySafe": { "type": "boolean" }

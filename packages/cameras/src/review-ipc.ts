@@ -1,5 +1,11 @@
 import { Schema } from "effect";
 import { ReviewCaptureBlock } from "./review-session-policy.js";
+import {
+	FramingDiagnostic,
+	ReviewAuthoringSession,
+	ReviewAuthoringSessionPatch,
+	ReviewSubjectProjection
+} from "./review-schema.js";
 
 const IpcFailure = Schema.Struct({ message: Schema.String, recovery: Schema.String });
 const IpcPose = Schema.Struct({
@@ -50,6 +56,7 @@ const MapReviewReadyResult = Schema.Struct({
 
 export const MapReviewResult = Schema.Union([
 	Schema.Struct({ status: Schema.Literal("not_configured") }),
+	Schema.Struct({ status: Schema.Literal("setup_required") }),
 	Schema.Struct({ status: Schema.Literal("blocked"), policy: ReviewCaptureBlock }),
 	Schema.Struct({ status: Schema.Literal("failed"), error: IpcFailure }),
 	MapReviewReadyResult
@@ -111,13 +118,7 @@ export const MapReviewPose = IpcPose;
 export type MapReviewPose = Schema.Schema.Type<typeof MapReviewPose>;
 
 export const MapReviewAuthoringCandidate = Schema.Struct({
-	diagnostics: Schema.Array(
-		Schema.Struct({
-			code: Schema.String,
-			message: Schema.String,
-			severity: Schema.Literals(["info", "warning"])
-		})
-	),
+	diagnostics: Schema.Array(FramingDiagnostic),
 	displayName: Schema.String,
 	id: Schema.String,
 	pose: IpcPose,
@@ -127,6 +128,7 @@ export const MapReviewAuthoringCandidate = Schema.Struct({
 			status: Schema.Literal("ready"),
 			bytes: Schema.Uint8Array,
 			height: Schema.Int.check(Schema.isGreaterThan(0)),
+			pixelFormat: Schema.optional(Schema.Literals(["png", "bgra8"])),
 			width: Schema.Int.check(Schema.isGreaterThan(0))
 		}),
 		Schema.Struct({ status: Schema.Literal("pending") }),
@@ -140,6 +142,9 @@ export const MapReviewCandidatePreviewResult = Schema.Union([
 		status: Schema.Literal("ready"),
 		bytes: Schema.Uint8Array,
 		height: Schema.Int.check(Schema.isGreaterThan(0)),
+		diagnostics: Schema.optional(Schema.Array(FramingDiagnostic)),
+		pixelFormat: Schema.optional(Schema.Literals(["png", "bgra8"])),
+		projection: Schema.optional(ReviewSubjectProjection),
 		width: Schema.Int.check(Schema.isGreaterThan(0))
 	}),
 	Schema.Struct({ status: Schema.Literal("failed"), error: IpcFailure })
@@ -158,10 +163,34 @@ export const MapReviewAuthoringResult = Schema.Union([
 			displayName: Schema.String,
 			mapPath: Schema.String
 		}),
+		session: Schema.optional(ReviewAuthoringSession),
+		sessionId: Schema.optional(Schema.String),
+		recovery: Schema.optional(Schema.String),
 		viewId: Schema.String
 	})
 ]);
 export type MapReviewAuthoringResult = Schema.Schema.Type<typeof MapReviewAuthoringResult>;
+
+export const MapReviewAuthoringSessionIntent = Schema.Struct({ sessionId: Schema.NonEmptyString });
+export type MapReviewAuthoringSessionIntent = Schema.Schema.Type<
+	typeof MapReviewAuthoringSessionIntent
+>;
+
+export const MapReviewAuthoringPatchIntent = Schema.Struct({
+	patch: ReviewAuthoringSessionPatch,
+	sessionId: Schema.NonEmptyString
+});
+export type MapReviewAuthoringPatchIntent = Schema.Schema.Type<
+	typeof MapReviewAuthoringPatchIntent
+>;
+
+export const MapReviewAuthoringPreviewIntent = Schema.Struct({
+	candidateId: Schema.NonEmptyString,
+	sessionId: Schema.NonEmptyString
+});
+export type MapReviewAuthoringPreviewIntent = Schema.Schema.Type<
+	typeof MapReviewAuthoringPreviewIntent
+>;
 
 export const MapReviewApproveCandidateIntent = Schema.Struct({
 	candidateId: Schema.String,
@@ -184,6 +213,15 @@ export type MapReviewApprovalResult = Schema.Schema.Type<typeof MapReviewApprova
 export const decodeMapReviewResult = Schema.decodeUnknownEffect(MapReviewResult);
 export const decodeMapReviewCaptureResult = Schema.decodeUnknownEffect(MapReviewCaptureResult);
 export const decodeMapReviewAuthoringResult = Schema.decodeUnknownEffect(MapReviewAuthoringResult);
+export const decodeMapReviewAuthoringSessionIntent = Schema.decodeUnknownEffect(
+	MapReviewAuthoringSessionIntent
+);
+export const decodeMapReviewAuthoringPatchIntent = Schema.decodeUnknownEffect(
+	MapReviewAuthoringPatchIntent
+);
+export const decodeMapReviewAuthoringPreviewIntent = Schema.decodeUnknownEffect(
+	MapReviewAuthoringPreviewIntent
+);
 export const decodeMapReviewCandidatePreviewResult = Schema.decodeUnknownEffect(
 	MapReviewCandidatePreviewResult
 );

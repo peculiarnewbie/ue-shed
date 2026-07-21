@@ -1,6 +1,5 @@
 import { it } from "@effect/vitest";
 import { ConfigProvider, Effect, Exit, Layer } from "effect";
-import { join } from "node:path";
 import { expect } from "vitest";
 import {
 	WorkbenchConfiguration,
@@ -21,7 +20,7 @@ it.effect("defaults the remote control endpoint when unset", () =>
 	}).pipe(Effect.provide(workbenchConfigurationFromUnknown({})))
 );
 
-it.effect("derives the Review Set path only when a project root exists", () =>
+it.effect("makes Map Review ready for first-run authoring when a project root exists", () =>
 	Effect.gen(function* () {
 		const configuration = yield* WorkbenchConfiguration;
 		expect(configuration.project).toEqual({
@@ -29,15 +28,8 @@ it.effect("derives the Review Set path only when a project root exists", () =>
 			projectRoot: "C:/FixtureProject"
 		});
 		expect(configuration.review).toEqual({
-			status: "configured",
-			projectRoot: "C:/FixtureProject",
-			reviewSetPath: join(
-				"C:/FixtureProject",
-				".ue-shed",
-				"review",
-				"sets",
-				"fixture-structure.json"
-			)
+			status: "project_configured",
+			projectRoot: "C:/FixtureProject"
 		});
 	}).pipe(
 		Effect.provide(

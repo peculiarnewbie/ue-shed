@@ -1,7 +1,7 @@
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RemoteControlClient, RemoteControlClientLive } from "@ue-shed/unreal-connection";
+import { RemoteControlClientLive } from "@ue-shed/unreal-connection";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { inspectReviewSelection, previewReviewCandidate } from "./review-authoring-live.js";
@@ -27,17 +27,18 @@ async function editorActorCall(
 	functionName: string,
 	parameters: Readonly<Record<string, unknown>>
 ): Promise<void> {
-	await Effect.runPromise(
-		Effect.flatMap(RemoteControlClient, (client) =>
-			client.request({
-				endpoint: endpoint!,
-				functionName,
-				objectPath: "/Script/UnrealEd.Default__EditorActorSubsystem",
-				operation: "camera.review.test.editor_actor_call",
-				parameters
-			})
-		).pipe(Effect.provide(RemoteControlClientLive))
-	);
+	const response = await fetch(`${endpoint}/remote/object/call`, {
+		body: JSON.stringify({
+			functionName,
+			generateTransaction: false,
+			objectPath: "/Script/UnrealEd.Default__EditorActorSubsystem",
+			parameters
+		}),
+		headers: { "content-type": "application/json" },
+		method: "PUT",
+		signal: AbortSignal.timeout(10_000)
+	});
+	expect(response.ok).toBe(true);
 }
 
 describe.skipIf(!endpoint)("real Unreal Map Review capture", () => {

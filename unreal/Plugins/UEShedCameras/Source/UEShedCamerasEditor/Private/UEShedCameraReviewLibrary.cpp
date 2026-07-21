@@ -5,6 +5,7 @@
 #include "LevelEditorViewport.h"
 #include "Selection.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Camera/CameraTypes.h"
 #include "Engine/SceneCapture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
@@ -15,6 +16,7 @@
 #include "Serialization/BufferArchive.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Kismet/GameplayStatics.h"
 
 namespace
 {
@@ -116,6 +118,158 @@ AActor* FindActorByPath(UWorld* World, const FString& ActorPath)
 	}
 	return nullptr;
 }
+
+TSharedRef<FJsonObject> VectorJson(const FVector& Value)
+{
+	const TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
+	Json->SetNumberField(TEXT("x"), Value.X);
+	Json->SetNumberField(TEXT("y"), Value.Y);
+	Json->SetNumberField(TEXT("z"), Value.Z);
+	return Json;
+}
+
+TSharedRef<FJsonObject> RotationJson(const FRotator& Value)
+{
+	const TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
+	Json->SetNumberField(TEXT("pitch"), Value.Pitch);
+	Json->SetNumberField(TEXT("roll"), Value.Roll);
+	Json->SetNumberField(TEXT("yaw"), Value.Yaw);
+	return Json;
+}
+
+void AddSelectionResult(
+	const TSharedRef<FJsonObject>& Result,
+	AActor* Actor,
+	bool bIncludeEditorView)
+{
+	FVector Center;
+	FVector Extent;
+	Actor->GetActorBounds(false, Center, Extent, true);
+	const TSharedRef<FJsonObject> Bounds = MakeShared<FJsonObject>();
+	Bounds->SetObjectField(TEXT("center"), VectorJson(Center));
+	Bounds->SetObjectField(TEXT("extent"), VectorJson(Extent));
+	Bounds->SetObjectField(TEXT("rotation"), RotationJson(Actor->GetActorRotation()));
+	Result->SetStringField(TEXT("status"), TEXT("selected"));
+	Result->SetStringField(TEXT("actorPath"), Actor->GetPathName());
+	Result->SetStringField(TEXT("displayName"), Actor->GetActorNameOrLabel());
+	Result->SetStringField(TEXT("mapPath"), Actor->GetWorld()->GetOutermost()->GetName());
+	Result->SetObjectField(TEXT("bounds"), Bounds);
+	if (bIncludeEditorView && GCurrentLevelEditingViewportClient != nullptr
+		&& GCurrentLevelEditingViewportClient->IsPerspective())
+	{
+		const TSharedRef<FJsonObject> EditorView = MakeShared<FJsonObject>();
+		EditorView->SetStringField(TEXT("aspectRatio"), TEXT("16:9"));
+		EditorView->SetNumberField(
+			TEXT("fieldOfViewDegrees"), GCurrentLevelEditingViewportClient->ViewFOV);
+		EditorView->SetObjectField(
+			TEXT("location"), VectorJson(GCurrentLevelEditingViewportClient->GetViewLocation()));
+		EditorView->SetStringField(TEXT("projection"), TEXT("perspective"));
+		EditorView->SetObjectField(
+			TEXT("rotation"), RotationJson(GCurrentLevelEditingViewportClient->GetViewRotation()));
+		Result->SetObjectField(TEXT("editorView"), EditorView);
+	}
+}
+
+TSharedRef<FJsonObject> ProjectSubjectBounds(
+	AActor* SubjectActor,
+	USceneCaptureComponent2D* CaptureComponent)
+{
+	FVector Center;
+	FVector Extent;
+	SubjectActor->GetActorBounds(false, Center, Extent, true);
+	FMinimalViewInfo CaptureView;
+	CaptureComponent->GetCameraView(0.0f, CaptureView);
+	FMatrix ViewMatrix;
+	FMatrix ProjectionMatrix;
+	FMatrix ViewProjectionMatrix;
+	UGameplayStatics::GetViewProjectionMatrix(
+		CaptureView, ViewMatrix, ProjectionMatrix, ViewProjectionMatrix);
+	const float NearPlane = CaptureView.GetFinalPerspectiveNearClipPlane();
+	const FVector Corners[] = {
+		FVector(Center.X - Extent.X, Center.Y - Extent.Y, Center.Z - Extent.Z),
+		FVector(Center.X - Extent.X, Center.Y - Extent.Y, Center.Z + Extent.Z),
+		FVector(Center.X - Extent.X, Center.Y + Extent.Y, Center.Z - Extent.Z),
+		FVector(Center.X - Extent.X, Center.Y + Extent.Y, Center.Z + Extent.Z),
+		FVector(Center.X + Extent.X, Center.Y - Extent.Y, Center.Z - Extent.Z),
+		FVector(Center.X + Extent.X, Center.Y - Extent.Y, Center.Z + Extent.Z),
+		FVector(Center.X + Extent.X, Center.Y + Extent.Y, Center.Z - Extent.Z),
+		FVector(Center.X + Extent.X, Center.Y + Extent.Y, Center.Z + Extent.Z)
+	};
+	bool bBehindCamera = false;
+	bool bNearPlaneCrossing = false;
+	float MinimumX = TNumericLimits<float>::Max();
+	float MinimumY = TNumericLimits<float>::Max();
+	float MaximumX = TNumericLimits<float>::Lowest();
+	float MaximumY = TNumericLimits<float>::Lowest();
+	for (const FVector& Corner : Corners)
+	{
+		const FPlane Clip = ViewProjectionMatrix.TransformFVector4(FVector4(Corner, 1.0));
+		if (!FMath::IsFinite(Clip.X) || !FMath::IsFinite(Clip.Y) || !FMath::IsFinite(Clip.W))
+		{
+			bBehindCamera = true;
+			break;
+		}
+		if (Clip.W <= 0.0f)
+		{
+			bBehindCamera = true;
+			continue;
+		}
+		if (Clip.W <= NearPlane)
+		{
+			bNearPlaneCrossing = true;
+			continue;
+		}
+		const float NormalizedX = Clip.X / Clip.W * 0.5f + 0.5f;
+		const float NormalizedY = 0.5f - Clip.Y / Clip.W * 0.5f;
+		if (!FMath::IsFinite(NormalizedX) || !FMath::IsFinite(NormalizedY))
+		{
+			bBehindCamera = true;
+			break;
+		}
+		MinimumX = FMath::Min(MinimumX, NormalizedX);
+		MinimumY = FMath::Min(MinimumY, NormalizedY);
+		MaximumX = FMath::Max(MaximumX, NormalizedX);
+		MaximumY = FMath::Max(MaximumY, NormalizedY);
+	}
+
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	if (bBehindCamera || bNearPlaneCrossing)
+	{
+		Result->SetStringField(TEXT("status"), TEXT("unprojectable"));
+		Result->SetStringField(
+			TEXT("code"), bBehindCamera ? TEXT("behind_camera") : TEXT("near_plane_crossing"));
+		Result->SetStringField(
+			TEXT("message"),
+			bBehindCamera
+				? TEXT("At least one subject-bounds corner is behind the transient capture camera.")
+				: TEXT("At least one subject-bounds corner crosses the transient capture near plane."));
+		return Result;
+	}
+
+	const bool bFullyOutside = MaximumX < 0.0f || MinimumX > 1.0f
+		|| MaximumY < 0.0f || MinimumY > 1.0f;
+	const bool bFullyWithin = MinimumX >= 0.0f && MaximumX <= 1.0f
+		&& MinimumY >= 0.0f && MaximumY <= 1.0f;
+	const TSharedRef<FJsonObject> Bounds = MakeShared<FJsonObject>();
+	Bounds->SetNumberField(TEXT("minX"), MinimumX);
+	Bounds->SetNumberField(TEXT("minY"), MinimumY);
+	Bounds->SetNumberField(TEXT("maxX"), MaximumX);
+	Bounds->SetNumberField(TEXT("maxY"), MaximumY);
+	const TSharedRef<FJsonObject> Margins = MakeShared<FJsonObject>();
+	Margins->SetNumberField(TEXT("left"), MinimumX);
+	Margins->SetNumberField(TEXT("right"), 1.0f - MaximumX);
+	Margins->SetNumberField(TEXT("top"), MinimumY);
+	Margins->SetNumberField(TEXT("bottom"), 1.0f - MaximumY);
+	Result->SetStringField(TEXT("status"), TEXT("projected"));
+	Result->SetStringField(
+		TEXT("viewportStatus"),
+		bFullyWithin ? TEXT("fully_within_viewport")
+			: bFullyOutside ? TEXT("fully_outside_viewport")
+			: TEXT("partially_outside_viewport"));
+	Result->SetObjectField(TEXT("normalizedBounds"), Bounds);
+	Result->SetObjectField(TEXT("margins"), Margins);
+	return Result;
+}
 }
 
 void UUEShedCameraReviewLibrary::InspectReviewSelection(FString& ResultJson)
@@ -159,49 +313,52 @@ void UUEShedCameraReviewLibrary::InspectReviewSelection(FString& ResultJson)
 		return;
 	}
 	AActor* Actor = SelectedActors[0];
-	FVector Center;
-	FVector Extent;
-	Actor->GetActorBounds(false, Center, Extent, true);
-	const FRotator ActorRotation = Actor->GetActorRotation();
-	auto VectorJson = [](const FVector& Value)
+	AddSelectionResult(Result, Actor, true);
+	ResultJson = JsonString(Result);
+}
+
+void UUEShedCameraReviewLibrary::InspectReviewSubject(
+	const FString& ActorPath,
+	FString& ResultJson)
+{
+	const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+	const TSharedRef<FJsonObject> Contract = MakeShared<FJsonObject>();
+	Contract->SetStringField(TEXT("name"), TEXT("ue-shed-review-selection"));
+	const TSharedRef<FJsonObject> Version = MakeShared<FJsonObject>();
+	Version->SetNumberField(TEXT("major"), 1);
+	Version->SetNumberField(TEXT("minor"), 0);
+	Contract->SetObjectField(TEXT("version"), Version);
+	Result->SetObjectField(TEXT("contract"), Contract);
+	auto Fail = [&](const TCHAR* Code, const TCHAR* Message, const TCHAR* Recovery)
 	{
-		const TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-		Json->SetNumberField(TEXT("x"), Value.X);
-		Json->SetNumberField(TEXT("y"), Value.Y);
-		Json->SetNumberField(TEXT("z"), Value.Z);
-		return Json;
+		Result->SetStringField(TEXT("status"), TEXT("failed"));
+		Result->SetStringField(TEXT("code"), Code);
+		Result->SetStringField(TEXT("message"), Message);
+		Result->SetStringField(TEXT("recovery"), Recovery);
+		Result->SetBoolField(TEXT("retrySafe"), true);
+		ResultJson = JsonString(Result);
 	};
-	auto RotationJson = [](const FRotator& Value)
+	if (GEditor == nullptr)
 	{
-		const TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-		Json->SetNumberField(TEXT("pitch"), Value.Pitch);
-		Json->SetNumberField(TEXT("roll"), Value.Roll);
-		Json->SetNumberField(TEXT("yaw"), Value.Yaw);
-		return Json;
-	};
-	const TSharedRef<FJsonObject> Bounds = MakeShared<FJsonObject>();
-	Bounds->SetObjectField(TEXT("center"), VectorJson(Center));
-	Bounds->SetObjectField(TEXT("extent"), VectorJson(Extent));
-	Bounds->SetObjectField(TEXT("rotation"), RotationJson(ActorRotation));
-	Result->SetStringField(TEXT("status"), TEXT("selected"));
-	Result->SetStringField(TEXT("actorPath"), Actor->GetPathName());
-	Result->SetStringField(TEXT("displayName"), Actor->GetActorNameOrLabel());
-	Result->SetStringField(TEXT("mapPath"), Actor->GetWorld()->GetOutermost()->GetName());
-	Result->SetObjectField(TEXT("bounds"), Bounds);
-	if (GCurrentLevelEditingViewportClient != nullptr
-		&& GCurrentLevelEditingViewportClient->IsPerspective())
-	{
-		const TSharedRef<FJsonObject> EditorView = MakeShared<FJsonObject>();
-		EditorView->SetStringField(TEXT("aspectRatio"), TEXT("16:9"));
-		EditorView->SetNumberField(
-			TEXT("fieldOfViewDegrees"), GCurrentLevelEditingViewportClient->ViewFOV);
-		EditorView->SetObjectField(
-			TEXT("location"), VectorJson(GCurrentLevelEditingViewportClient->GetViewLocation()));
-		EditorView->SetStringField(TEXT("projection"), TEXT("perspective"));
-		EditorView->SetObjectField(
-			TEXT("rotation"), RotationJson(GCurrentLevelEditingViewportClient->GetViewRotation()));
-		Result->SetObjectField(TEXT("editorView"), EditorView);
+		Fail(TEXT("editor_unavailable"), TEXT("The Unreal editor is unavailable."),
+			TEXT("Run spatial authoring in an editor process."));
+		return;
 	}
+	UWorld* World = GEditor->GetEditorWorldContext().World();
+	if (World == nullptr)
+	{
+		Fail(TEXT("map_mismatch"), TEXT("No editor world is open."),
+			TEXT("Open the expected Review Set map and resume again."));
+		return;
+	}
+	AActor* Actor = FindActorByPath(World, ActorPath);
+	if (Actor == nullptr)
+	{
+		Fail(TEXT("subject_not_found"), TEXT("The persisted review subject was not found."),
+			TEXT("Restore the subject or discard this authoring session."));
+		return;
+	}
+	AddSelectionResult(Result, Actor, false);
 	ResultJson = JsonString(Result);
 }
 
@@ -235,6 +392,7 @@ void UUEShedCameraReviewLibrary::CaptureReviewView(
 	const TSharedPtr<FJsonObject>* Version;
 	FString ContractName;
 	double ContractMajor;
+	double RequestMinor = 0;
 	if (!Request->TryGetObjectField(TEXT("contract"), Contract)
 		|| !(*Contract)->TryGetStringField(TEXT("name"), ContractName)
 		|| ContractName != TEXT("ue-shed-review-capture")
@@ -246,6 +404,8 @@ void UUEShedCameraReviewLibrary::CaptureReviewView(
 			TEXT("Negotiate a supported UE Shed Cameras capability."), false);
 		return;
 	}
+	(*Version)->TryGetNumberField(TEXT("minor"), RequestMinor);
+	const bool bProjectionRequested = RequestMinor >= 1;
 	Request->TryGetStringField(TEXT("operationId"), OperationId);
 	Request->TryGetStringField(TEXT("viewId"), ViewId);
 	FGuid OperationGuid;
@@ -368,6 +528,11 @@ void UUEShedCameraReviewLibrary::CaptureReviewView(
 	CaptureComponent->FOVAngle = FieldOfView;
 	CaptureComponent->TextureTarget = RenderTarget;
 	CaptureComponent->CaptureScene();
+	TSharedPtr<FJsonObject> SubjectProjection;
+	if (bProjectionRequested)
+	{
+		SubjectProjection = ProjectSubjectBounds(SubjectActor, CaptureComponent);
+	}
 
 	FBufferArchive PngBytes;
 	const bool bExported = FImageUtils::ExportRenderTarget2DAsPNG(RenderTarget, PngBytes);
@@ -392,7 +557,7 @@ void UUEShedCameraReviewLibrary::CaptureReviewView(
 	ResultContract->SetStringField(TEXT("name"), TEXT("ue-shed-review-capture"));
 	const TSharedRef<FJsonObject> ResultVersion = MakeShared<FJsonObject>();
 	ResultVersion->SetNumberField(TEXT("major"), 1);
-	ResultVersion->SetNumberField(TEXT("minor"), 0);
+	ResultVersion->SetNumberField(TEXT("minor"), bProjectionRequested ? 1 : 0);
 	ResultContract->SetObjectField(TEXT("version"), ResultVersion);
 	Result->SetObjectField(TEXT("contract"), ResultContract);
 	Result->SetStringField(TEXT("status"), TEXT("captured"));
@@ -401,6 +566,7 @@ void UUEShedCameraReviewLibrary::CaptureReviewView(
 	Result->SetStringField(TEXT("actorPath"), SubjectActor->GetPathName());
 	Result->SetStringField(TEXT("mapPath"), World->GetOutermost()->GetName());
 	Result->SetStringField(TEXT("stagingPath"), FPaths::ConvertRelativePathToFull(CapturePath));
+	if (SubjectProjection.IsValid()) Result->SetObjectField(TEXT("subjectProjection"), SubjectProjection.ToSharedRef());
 	Result->SetNumberField(TEXT("width"), Width);
 	Result->SetNumberField(TEXT("height"), Height);
 	Result->SetNumberField(

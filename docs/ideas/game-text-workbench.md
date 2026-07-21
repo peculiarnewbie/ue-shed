@@ -1,6 +1,7 @@
 # Game text workbench
 
-> Status: product vision; one corpus for source text, localization, and text quality
+> Status: early Workbench and CLI corpus slice shipped (scan/search); localization editing, Apply,
+> and Save remain vision.
 
 ## Ambition
 

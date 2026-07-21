@@ -1,5 +1,4 @@
 import { Config, ConfigProvider, Context, Effect, Layer, Option, Schema } from "effect";
-import { join } from "node:path";
 
 export type ConfiguredPath =
 	| { readonly status: "configured"; readonly path: string }
@@ -15,6 +14,7 @@ export type ReviewConfiguration =
 			readonly projectRoot: string;
 			readonly reviewSetPath: string;
 	  }
+	| { readonly status: "project_configured"; readonly projectRoot: string }
 	| { readonly status: "not_configured" };
 
 export type ExpectedProjectConfiguration =
@@ -94,19 +94,17 @@ export function makeWorkbenchConfiguration(input: {
 
 	const review: ReviewConfiguration =
 		project.status === "configured"
-			? {
-					status: "configured",
-					projectRoot: project.projectRoot,
-					reviewSetPath: Option.getOrElse(input.reviewSet, () =>
-						join(
-							project.projectRoot,
-							".ue-shed",
-							"review",
-							"sets",
-							"fixture-structure.json"
-						)
-					)
-				}
+			? Option.match(input.reviewSet, {
+					onNone: () => ({
+						projectRoot: project.projectRoot,
+						status: "project_configured" as const
+					}),
+					onSome: (reviewSetPath) => ({
+						projectRoot: project.projectRoot,
+						reviewSetPath,
+						status: "configured" as const
+					})
+				})
 			: { status: "not_configured" };
 
 	const expectedProject: ExpectedProjectConfiguration = Option.match(input.expectedProjectName, {

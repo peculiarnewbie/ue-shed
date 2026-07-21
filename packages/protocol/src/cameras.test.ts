@@ -23,6 +23,10 @@ const config = {
 } as const;
 
 describe("camera schedule contract", () => {
+	it("accepts posed view mode for review preview banks", () => {
+		expect(decodeCameraScheduleConfig({ ...config, viewMode: "posed" }).viewMode).toBe("posed");
+	});
+
 	it("accepts a supported capture resolution", () => {
 		expect(decodeCameraScheduleConfig(config)).toEqual(config);
 	});

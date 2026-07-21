@@ -20,9 +20,34 @@ async function portAvailable(port) {
 	});
 }
 
-async function remoteControlEndpoint(environment) {
+async function remoteControlResponds(endpoint, fetchImplementation) {
+	try {
+		const response = await fetchImplementation(`${endpoint.replace(/\/+$/, "")}/remote/info`, {
+			signal: AbortSignal.timeout(1_500)
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Prefer an explicit endpoint, then a live Remote Control server already on the usual
+ * ports, then the first free HTTP/WS pair for a future fixture launch.
+ */
+export async function resolveRemoteControlEndpoint(
+	environment = process.env,
+	options = {}
+) {
 	if (environment.UE_SHED_REMOTE_CONTROL_ENDPOINT) {
 		return environment.UE_SHED_REMOTE_CONTROL_ENDPOINT;
+	}
+	const fetchImplementation = options.fetch ?? globalThis.fetch;
+	for (let port = 30_001; port <= 30_019; port += 2) {
+		const endpoint = `http://127.0.0.1:${port}`;
+		if (await remoteControlResponds(endpoint, fetchImplementation)) {
+			return endpoint;
+		}
 	}
 	for (let port = 30_001; port <= 30_019; port += 2) {
 		if ((await portAvailable(port)) && (await portAvailable(port + 1))) {
@@ -32,13 +57,13 @@ async function remoteControlEndpoint(environment) {
 	throw new Error("Could not reserve a Remote Control port between 30001 and 30020.");
 }
 
-export async function createWorkbenchEnvironment(environment = process.env) {
+export async function createWorkbenchEnvironment(environment = process.env, options = {}) {
 	return {
 		...environment,
 		UE_SHED_PROJECT_NAME: environment.UE_SHED_PROJECT_NAME ?? "UEShedFixture",
 		UE_SHED_PROJECT_ROOT: environment.UE_SHED_PROJECT_ROOT ?? fixtureRoot,
 		UE_SHED_AUTHORING_ASSET: environment.UE_SHED_AUTHORING_ASSET ?? authoringAsset,
-		UE_SHED_REMOTE_CONTROL_ENDPOINT: await remoteControlEndpoint(environment),
+		UE_SHED_REMOTE_CONTROL_ENDPOINT: await resolveRemoteControlEndpoint(environment, options),
 		UE_SHED_REPOSITORY_ROOT: repositoryRoot,
 		UE_SHED_TEXTURE_AUDIT_RULES: environment.UE_SHED_TEXTURE_AUDIT_RULES ?? textureRules,
 		UE_SHED_UASSET_EXECUTABLE: ensureUassetExecutable(environment)

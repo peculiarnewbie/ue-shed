@@ -1,6 +1,7 @@
 # Live Unreal camera feeds
 
-> Status: local 32-camera load slice implemented and measured
+> Status: local 32-camera load slice implemented and measured as Camera Load Lab; broader sparse
+> observation product remains vision.
 
 ## Ambition
 

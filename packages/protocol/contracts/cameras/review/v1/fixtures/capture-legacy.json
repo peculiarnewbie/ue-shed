@@ -1,0 +1,17 @@
+{
+	"contract": {
+		"name": "ue-shed-review-capture",
+		"version": { "major": 1, "minor": 0 }
+	},
+	"status": "captured",
+	"operationId": "capture-legacy",
+	"viewId": "structure-context",
+	"actorPath": "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad:PersistentLevel.ReviewSubject",
+	"mapPath": "/Game/Fixture/Cameras/L_CameraLoad",
+	"stagingPath": "C:/fixture/Saved/UEShed/ReviewStaging/capture-legacy/pure.png",
+	"width": 1280,
+	"height": 720,
+	"captureDurationMs": 9.5,
+	"mapPackageDirtyBefore": false,
+	"mapPackageDirtyAfter": false
+}

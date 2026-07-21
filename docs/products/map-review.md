@@ -31,7 +31,9 @@ headless camera domain deterministically generates Context three-quarter, Facade
 Cardinal orbit candidates, and an optional current-editor-view candidate. Workbench renders real
 transient previews as a contact sheet and supports discard, numeric pose/FOV adjustment, adjustment
 provenance, explicit Reframe, and Keep View persistence without creating a map actor. The CLI exposes
-the same selection, generation, and approval path.
+the same selection, generation, durable-session, and approval path. A project with no configured
+Review Set now starts in an honest first-run state: selection creates a pending map-scoped set in the
+authoring session, and only Keep View writes that portable set under `.ue-shed/review/sets`.
 
 The Live World Scout composition is also implemented as the primary Workbench entry into that flow.
 The separately enabled Observatory capability returns bounded editor-world actor snapshots with
@@ -49,10 +51,13 @@ Go to Actor selects that counterpart for the authoring workflow while focusing t
 position. Runtime-only PIE actors can still focus the level viewport, but they do not invent a
 durable editor selection or stable authoring subject.
 
-This is the beginning of Slice 2 rather than its completion. Post-realization projected-bounds
-diagnostics, richer orientation inputs, viewport manipulation, and restart-level authoring-session
-recovery remain. Layered identity, Clear captures, comparison, and review decisions remain later
-milestones in this plan.
+The proven Slice 2 scope now includes post-realization projected-bounds diagnostics and restart-level
+authoring-session recovery. Authoring contact-sheet previews use the live BGRA pipe while PLAY/SIM
+is active (transient posed camera bank at **320×180**, painted to canvas) and fall back to the same
+thumbnail size via PNG `CaptureReviewView` when the editor is stopped; Keep / Capture Set remain
+editor-world PNG evidence at the Review Set profile resolution. Richer orientation inputs and viewport
+manipulation, alongside layered identity, Clear captures, comparison, and review decisions, remain
+later milestones in this plan.
 
 ## User outcomes
 
@@ -441,25 +446,25 @@ filesystem paths to renderer code.
 
 ## CLI product
 
-Exact syntax may evolve with the CLI parser, but the first product must cover these actions:
+The implemented CLI surface covers these current actions:
 
 ```text
-ue-shed review sets list <project-root>
-ue-shed review sets validate <set-or-project>
-ue-shed review subjects selected <endpoint>
-ue-shed review views generate <set> --preset <preset> --endpoint <endpoint>
-ue-shed review capture plan <set> --endpoint <endpoint>
-ue-shed review capture run <set> --endpoint <endpoint> [--output <root>]
-ue-shed review capture cancel <run-id>
-ue-shed review runs list <project-root>
-ue-shed review runs show <run-id>
-ue-shed review compare <left-run> <right-run> --format json
-ue-shed review baseline promote <run-id>
-ue-shed review doctor <project-root> [--endpoint <endpoint>]
+ue-shed review sets validate <review-set>
+ue-shed review framing candidates <endpoint>
+ue-shed review framing approve <review-set> <endpoint> <view-id> <candidate-id>
+ue-shed review authoring bootstrap <project-root> <endpoint>
+ue-shed review authoring start <project-root> <review-set> <endpoint> <view-id>
+ue-shed review authoring show|discard <project-root> <session-id>
+ue-shed review authoring resume|reframe|approve <project-root> <session-id> <endpoint>
+ue-shed review capture <project-root> <review-set> <endpoint>
+ue-shed review history <project-root>
+ue-shed review show <run-json>
 ```
 
-Commands print validated structured output when requested, report partial View Result failures, use
-stable exit semantics, and never treat a completed-with-failures run as fully successful.
+`authoring bootstrap` holds the first map-scoped Review Set in a durable session; `authoring approve`
+writes it only after the author accepts a candidate. Commands print validated structured output,
+report partial View Result failures, use stable exit semantics, and never treat a
+completed-with-failures run as fully successful.
 
 ## Workbench experience
 

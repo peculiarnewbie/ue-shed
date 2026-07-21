@@ -144,6 +144,23 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 	"map-review:focus-actor": ["/Game/Fixture.Map:PersistentLevel.Actor", true],
 	"map-review:capture": [{ viewIds: ["view-1"] }],
 	"map-review:author-from-selection": [],
+	"map-review:authoring-resume": [],
+	"map-review:authoring-patch": [
+		{
+			patch: {
+				discardedCandidateIds: [],
+				manualReason: "",
+				selectedCandidateId: "candidate-1"
+			},
+			sessionId: "session-1"
+		}
+	],
+	"map-review:authoring-reframe": [{ sessionId: "session-1" }],
+	"map-review:authoring-discard": [{ sessionId: "session-1" }],
+	"map-review:preview-authoring-candidate": [
+		{ candidateId: "candidate-1", sessionId: "session-1" }
+	],
+	"map-review:approve-authoring": [{ sessionId: "session-1" }],
 	"map-review:preview-candidate": ["candidate-1"],
 	"map-review:approve-candidate": [approveIntent]
 };
@@ -216,6 +233,30 @@ const validResultByChannel: Record<InvokeChannel, unknown> = {
 		status: "failed",
 		error: { message: "missing", recovery: "select an actor" }
 	},
+	"map-review:authoring-resume": {
+		status: "failed",
+		error: { message: "missing", recovery: "select an actor" }
+	},
+	"map-review:authoring-patch": {
+		status: "failed",
+		error: { message: "missing", recovery: "select an actor" }
+	},
+	"map-review:authoring-reframe": {
+		status: "failed",
+		error: { message: "missing", recovery: "select an actor" }
+	},
+	"map-review:authoring-discard": {
+		status: "failed",
+		error: { message: "missing", recovery: "select an actor" }
+	},
+	"map-review:preview-authoring-candidate": {
+		status: "failed",
+		error: { message: "missing", recovery: "reframe" }
+	},
+	"map-review:approve-authoring": {
+		status: "failed",
+		error: { message: "missing", recovery: "reframe" }
+	},
 	"map-review:preview-candidate": {
 		status: "failed",
 		error: { message: "missing", recovery: "reframe" }
@@ -239,13 +280,18 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"camera:presentation-budget": [Number.NaN],
 	"camera:configure": [{ paused: true }],
 	"map-review:preview-candidate": [""],
+	"map-review:authoring-patch": [{ patch: {}, sessionId: "" }],
+	"map-review:authoring-reframe": [{ sessionId: "" }],
+	"map-review:authoring-discard": [{ sessionId: "" }],
+	"map-review:preview-authoring-candidate": [{ candidateId: "", sessionId: "" }],
+	"map-review:approve-authoring": [{ sessionId: "" }],
 	"map-review:capture": [{ viewIds: [] }],
 	"map-review:approve-candidate": [{ candidateId: "only" }]
 };
 
-it("registers exactly 36 invoke channels plus the camera:frame event", () => {
-	expect(invokeChannelNames).toHaveLength(36);
-	expect(new Set(invokeChannelNames).size).toBe(36);
+it("registers exactly 42 invoke channels plus the camera:frame event", () => {
+	expect(invokeChannelNames).toHaveLength(42);
+	expect(new Set(invokeChannelNames).size).toBe(42);
 	expect(cameraFrameEvent.channel).toBe("camera:frame");
 });
 

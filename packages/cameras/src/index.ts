@@ -10,11 +10,15 @@ import { createServer, type Server, type Socket } from "node:net";
 
 export * from "./review-capture.js";
 export * from "./review-authoring-live.js";
+export * from "./review-authoring-session.js";
+export * from "./review-bootstrap.js";
 export * from "./review-framing.js";
 export * from "./review-live.js";
+export * from "./review-preview-live.js";
 export * from "./review-repository.js";
 export * from "./review-schema.js";
 export * from "./review-session-policy.js";
+
 
 export const CAMERA_PIPE_NAME = "\\\\.\\pipe\\ue-shed-cameras-v1";
 export const CAMERA_FRAME_HEADER_BYTES = 128;

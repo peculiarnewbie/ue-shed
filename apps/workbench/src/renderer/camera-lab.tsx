@@ -432,8 +432,8 @@ export function CameraLab() {
 				</section>
 
 				<aside {...stylex.props(styles.controls)}>
-					<p {...stylex.props(styles.panelLabel)}>LOAD ENVELOPE</p>
-					<h2 {...stylex.props(styles.panelTitle)}>Tune until it bends.</h2>
+					<p {...stylex.props(styles.panelLabel)}>CONTROLS</p>
+					<h2 {...stylex.props(styles.panelTitle)}>Camera load</h2>
 					<Slider
 						label="ACTIVE CAMERAS"
 						value={config().activeCameraCount}

@@ -88,6 +88,18 @@ export const CliCommand = Schema.TaggedUnion({
 		reviewSetPath: Schema.String,
 		viewId: Schema.String
 	},
+	ReviewAuthoringStart: {
+		endpoint: Schema.String,
+		projectRoot: Schema.String,
+		reviewSetPath: Schema.String,
+		viewId: Schema.String
+	},
+	ReviewAuthoringBootstrap: { endpoint: Schema.String, ...Project },
+	ReviewAuthoringShow: { ...SessionProject },
+	ReviewAuthoringResume: { ...SessionProject, endpoint: Schema.String },
+	ReviewAuthoringDiscard: { ...SessionProject },
+	ReviewAuthoringReframe: { ...SessionProject, endpoint: Schema.String },
+	ReviewAuthoringApprove: { ...SessionProject, endpoint: Schema.String },
 	ReviewCapture: { endpoint: Schema.String, ...Project, reviewSetPath: Schema.String },
 	ReviewHistory: { ...Project },
 	ReviewShow: { runPath: Schema.String }
@@ -125,9 +137,13 @@ Usage:
   ue-shed text scan <project-root> [--reader <path>]
   ue-shed text search <project-root> <query> [--reader <path>]
   ue-shed review sets validate <review-set>
-  ue-shed review framing candidates <endpoint>
-  ue-shed review framing approve <review-set> <endpoint> <view-id> <candidate-id>
-  ue-shed review capture <project-root> <review-set> <endpoint>
+	ue-shed review framing candidates <endpoint>
+	ue-shed review framing approve <review-set> <endpoint> <view-id> <candidate-id>
+	ue-shed review authoring bootstrap <project-root> <endpoint>
+	ue-shed review authoring start <project-root> <review-set> <endpoint> <view-id>
+	ue-shed review authoring show|discard <project-root> <session-id>
+	ue-shed review authoring resume|reframe|approve <project-root> <session-id> <endpoint>
+	ue-shed review capture <project-root> <review-set> <endpoint>
   ue-shed review history <project-root>
   ue-shed review show <run-json>
   ue-shed editor play status|start|simulate|pause|resume|stop <endpoint>
@@ -575,6 +591,61 @@ export function parseCliCommand(args: readonly string[]): Effect.Effect<CliComma
 					reviewSetPath: present(reviewSetPath),
 					viewId: present(viewId)
 				});
+			}
+			if (area === "authoring" && action === "start") {
+				const [projectRoot, reviewSetPath, endpoint, viewId] = yield* exact(
+					values,
+					4,
+					"review authoring start requires project root, Review Set, endpoint, and Review View ID"
+				);
+				return CliCommand.cases.ReviewAuthoringStart.make({
+					endpoint: present(endpoint),
+					projectRoot: present(projectRoot),
+					reviewSetPath: present(reviewSetPath),
+					viewId: present(viewId)
+				});
+			}
+			if (area === "authoring" && action === "bootstrap") {
+				const [projectRoot, endpoint] = yield* exact(
+					values,
+					2,
+					"review authoring bootstrap requires project root and Remote Control endpoint"
+				);
+				return CliCommand.cases.ReviewAuthoringBootstrap.make({
+					endpoint: present(endpoint),
+					projectRoot: present(projectRoot)
+				});
+			}
+			if (area === "authoring" && (action === "show" || action === "discard")) {
+				const [projectRoot, sessionId] = yield* exact(
+					values,
+					2,
+					`review authoring ${action} requires project root and session ID`
+				);
+				const fields = { projectRoot: present(projectRoot), sessionId: present(sessionId) };
+				return action === "show"
+					? CliCommand.cases.ReviewAuthoringShow.make(fields)
+					: CliCommand.cases.ReviewAuthoringDiscard.make(fields);
+			}
+			if (
+				area === "authoring" &&
+				(action === "resume" || action === "reframe" || action === "approve")
+			) {
+				const [projectRoot, sessionId, endpoint] = yield* exact(
+					values,
+					3,
+					`review authoring ${action} requires project root, session ID, and endpoint`
+				);
+				const fields = {
+					endpoint: present(endpoint),
+					projectRoot: present(projectRoot),
+					sessionId: present(sessionId)
+				};
+				return action === "resume"
+					? CliCommand.cases.ReviewAuthoringResume.make(fields)
+					: action === "reframe"
+						? CliCommand.cases.ReviewAuthoringReframe.make(fields)
+						: CliCommand.cases.ReviewAuthoringApprove.make(fields);
 			}
 			if (area === "capture") {
 				const [projectRoot, reviewSetPath, endpoint] = yield* exact(

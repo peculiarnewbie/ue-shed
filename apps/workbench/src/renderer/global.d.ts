@@ -10,7 +10,10 @@ import type { AuthoringSessionIntent } from "@ue-shed/authoring-sdk";
 import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
+	MapReviewAuthoringPatchIntent,
+	MapReviewAuthoringPreviewIntent,
 	MapReviewAuthoringResult,
+	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent,
 	MapReviewCaptureResult,
 	MapReviewCandidatePreviewResult,
@@ -75,6 +78,22 @@ declare global {
 					intent: MapReviewApproveCandidateIntent
 				) => Promise<MapReviewApprovalResult>;
 				readonly authorFromSelection: () => Promise<MapReviewAuthoringResult>;
+				readonly authoringResume: () => Promise<MapReviewAuthoringResult>;
+				readonly authoringPatch: (
+					intent: MapReviewAuthoringPatchIntent
+				) => Promise<MapReviewAuthoringResult>;
+				readonly authoringReframe: (
+					intent: MapReviewAuthoringSessionIntent
+				) => Promise<MapReviewAuthoringResult>;
+				readonly discardAuthoring: (
+					intent: MapReviewAuthoringSessionIntent
+				) => Promise<MapReviewAuthoringResult>;
+				readonly previewAuthoringCandidate: (
+					intent: MapReviewAuthoringPreviewIntent
+				) => Promise<MapReviewCandidatePreviewResult>;
+				readonly approveAuthoring: (
+					intent: MapReviewAuthoringSessionIntent
+				) => Promise<MapReviewApprovalResult>;
 				readonly previewCandidate: (
 					candidateId: string
 				) => Promise<MapReviewCandidatePreviewResult>;
