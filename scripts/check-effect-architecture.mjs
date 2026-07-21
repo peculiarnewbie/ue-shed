@@ -28,7 +28,9 @@ const approvedRuntimeExits = new Set([
 	"extensions/data-authoring/adoption/consumer/server/src/index.ts",
 	// Node's socket callback is a foreign runtime boundary. The fork is attached to the layer's
 	// scope with Effect.forkIn; camera decoding itself remains the measured synchronous hot path.
-	"packages/cameras/src/index.ts"
+	"packages/cameras/src/index.ts",
+	// Same pattern for the actor transform feed's per-socket decode-and-publish fork.
+	"packages/observatory/src/actor-feed.ts"
 ]);
 const approvedPromiseAdapters = new Set([
 	"apps/workbench/src/main/adapters/electron-app.ts",
@@ -44,6 +46,7 @@ const approvedPromiseAdapters = new Set([
 	"packages/cameras/src/index.ts",
 	"packages/cameras/src/review-repository.ts",
 	"packages/authoring-sdk/src/index.ts",
+	"packages/observatory/src/actor-feed.ts",
 	"packages/unreal-assets/src/index.ts"
 ]);
 const approvedEnvironmentAdapters = new Set([
@@ -67,6 +70,8 @@ const approvedResourceAdapters = new Set([
 	"extensions/data-authoring/adoption/consumer/app/src/index.tsx",
 	"extensions/data-authoring/adoption/consumer/server/src/index.ts",
 	"packages/cameras/src/index.ts",
+	// The actor feed owns its named-pipe server and per-connection sockets through Effect.acquireRelease.
+	"packages/observatory/src/actor-feed.ts",
 	// The saved-asset adapter owns and cancels the bounded native catalog child process.
 	"packages/unreal-assets/src/index.ts"
 ]);

@@ -1,11 +1,18 @@
 import { RemoteControlClient, RemoteControlClientError } from "@ue-shed/unreal-connection";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema, type Stream } from "effect";
 import {
 	ActorId,
 	WorldActorSnapshot,
 	type ActorId as ActorIdType,
 	type ObservedActor as ObservedActorType
 } from "./actor-models.js";
+import {
+	ActorObservationRecoveryExhaustedError,
+	ActorObservationSessionError,
+	observeActorFeed,
+	type ObserveActorFeedOptions
+} from "./actor-feed.js";
+import type { WorldObservationState } from "./world-observation.js";
 
 export * from "./actor-models.js";
 
@@ -72,6 +79,18 @@ export interface ObservatoryShape {
 		actorId: ActorIdType,
 		bringToFront: boolean
 	) => Effect.Effect<WorldScoutFocusResult, ObservatoryConnectionError>;
+	/**
+	 * Own the demand-driven actor observation lifecycle: negotiate a bounded transform stream,
+	 * install/reacquire catalogs, apply packets into `WorldObservationState`, and fall back to
+	 * bounded snapshot polling when the connected editor does not support streaming.
+	 */
+	readonly observe: (
+		endpoint: string,
+		options: ObserveActorFeedOptions
+	) => Stream.Stream<
+		WorldObservationState,
+		ActorObservationSessionError | ActorObservationRecoveryExhaustedError
+	>;
 	readonly snapshot: (
 		endpoint: string
 	) => Effect.Effect<WorldActorSnapshot, ObservatoryConnectionError>;
@@ -146,7 +165,10 @@ export const ObservatoryLive = Layer.effect(
 			);
 		});
 
-		return Observatory.of({ focus, snapshot });
+		const observe = (endpoint: string, options: ObserveActorFeedOptions) =>
+			observeActorFeed(remote, endpoint, options);
+
+		return Observatory.of({ focus, observe, snapshot });
 	})
 );
 
@@ -247,6 +269,7 @@ export {
 	CatalogRevision,
 	catalogEntryAt,
 	catalogFromSnapshot,
+	catalogFromWireEntries,
 	connectingState,
 	materializeObservedActor,
 	ObservationSessionId,
@@ -267,3 +290,21 @@ export type {
 	WorldObservationState,
 	WorldTransformStore
 } from "./world-observation.js";
+
+export {
+	ActorFeed,
+	ActorFeedError,
+	ActorObservationControlError,
+	ActorObservationRecoveryExhaustedError,
+	ActorObservationSessionError,
+	actorFeedLayer,
+	acquireActorFeedScoped,
+	makeActorFeedTestLayer,
+	observeActorFeed
+} from "./actor-feed.js";
+export type {
+	ActorFeedMetrics,
+	ActorFeedOptions,
+	ActorFeedShape,
+	ObserveActorFeedOptions
+} from "./actor-feed.js";

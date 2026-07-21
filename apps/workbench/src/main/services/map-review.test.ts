@@ -14,7 +14,7 @@ import { it } from "@effect/vitest";
 import { Observatory } from "@ue-shed/observatory";
 import { makeEditorPlaySessionTestLayer } from "@ue-shed/engine-discovery";
 import { makeRemoteControlClientTestLayer } from "@ue-shed/unreal-connection";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Stream } from "effect";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { makeLocalFilesTestLayer } from "../adapters/local-files.js";
@@ -153,6 +153,7 @@ const WorkbenchMapReviewTestLive = WorkbenchMapReviewLive.pipe(
 				Observatory,
 				Observatory.of({
 					focus: () => Effect.die("not used"),
+					observe: () => Stream.die("not used"),
 					snapshot: () => Effect.die("not used")
 				})
 			),
@@ -595,6 +596,7 @@ it.effect(
 								Observatory,
 								Observatory.of({
 									focus: () => Effect.die("not used"),
+									observe: () => Stream.die("not used"),
 									snapshot: () => Effect.die("not used")
 								})
 							),

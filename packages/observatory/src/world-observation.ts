@@ -4,7 +4,8 @@ import {
 	ObservedActor,
 	WorldVector,
 	type ObservedActor as ObservedActorType,
-	type WorldActorSnapshot as WorldActorSnapshotType
+	type WorldActorSnapshot as WorldActorSnapshotType,
+	type WorldVector as WorldVectorType
 } from "./actor-models.js";
 
 /** Session-local alias into a catalog; never durable actor identity. */
@@ -446,4 +447,69 @@ export function catalogEntryAt(
 	streamIndex: StreamActorIndex
 ): WorldActorCatalogEntry | undefined {
 	return catalog.entries[streamIndex];
+}
+
+export interface CatalogWireActor {
+	readonly bounds: { readonly center: WorldVectorType; readonly extent: WorldVectorType };
+	readonly className: string;
+	readonly displayName: string;
+	readonly id: string;
+	readonly location: WorldVectorType;
+	readonly path: string;
+	readonly rotation: WorldVectorType;
+	readonly streamIndex: number;
+}
+
+/**
+ * Build a catalog and its initial transforms from the `StartActorObservation` wire catalog, which
+ * already carries dense session-local stream indices assigned by the Unreal producer.
+ */
+export function catalogFromWireEntries(args: {
+	readonly actors: ReadonlyArray<CatalogWireActor>;
+	readonly capturedAt: string;
+	readonly mapPath: string;
+	readonly revision: CatalogRevision;
+	readonly sessionId: ObservationSessionId;
+	readonly worldKind: "editor" | "pie";
+	readonly worldSeconds: number;
+}): {
+	readonly catalog: WorldActorCatalog;
+	readonly transforms: ReadonlyArray<WorldIndexedTransform>;
+} {
+	const entries: Array<WorldActorCatalogEntry> = [];
+	const transforms: Array<WorldIndexedTransform> = [];
+	for (const actor of args.actors) {
+		const streamIndex = StreamActorIndex.make(actor.streamIndex);
+		entries.push(
+			WorldActorCatalogEntry.make({
+				bounds: actor.bounds,
+				className: actor.className,
+				displayName: actor.displayName,
+				id: ActorId.make(actor.id),
+				path: actor.path,
+				streamIndex
+			})
+		);
+		transforms.push(
+			WorldIndexedTransform.make({
+				streamIndex,
+				transform: WorldTransform.make({
+					location: actor.location,
+					rotation: actor.rotation
+				})
+			})
+		);
+	}
+	return {
+		catalog: WorldActorCatalog.make({
+			capturedAt: args.capturedAt,
+			entries,
+			mapPath: args.mapPath,
+			revision: args.revision,
+			sessionId: args.sessionId,
+			worldKind: args.worldKind,
+			worldSeconds: args.worldSeconds
+		}),
+		transforms
+	};
 }
