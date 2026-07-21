@@ -1,7 +1,24 @@
 # UEShedObservatory
 
-The separately enabled editor capability for bounded actor snapshots and focus. It reports stable
-object paths, class, label, transform, bounds, map identity, world kind, and observation time through
-validated JSON. Focus accepts editor and PIE actors; PIE actors select their editor counterpart when
-one exists and still move the level viewport when they are runtime-only. It does not mirror arbitrary
-UObject properties or retain history.
+The separately enabled editor capability for bounded actor discovery, spatial snapshots, editor focus,
+and demand-driven actor transform streaming.
+
+## Remote Control surface
+
+- `GetActorSnapshot` — bounded JSON snapshot of filtered world actors (compatibility/fallback path).
+- `FocusActor` — select and frame an actor in the editor or PIE world.
+- `StartActorObservation` — validate cadence (1–60 Hz), build a catalog with dense stream indices,
+  return session metadata and pipe name, then begin transform sampling.
+- `StopActorObservation` — idempotently stop sampling and the pipe writer.
+- `GetActorObservationStatus` — bounded counters and connection health without actor arrays.
+
+## Transform stream
+
+On Windows the producer connects as a named-pipe client to
+`\\.\pipe\ue-shed-observatory-v1-<pid>` and emits USOT v1 binary packets documented in
+`packages/protocol/contracts/observatory/v1/README.md`. Catalog bounds are computed once at catalog
+creation or invalidation; transform samples call only validity checks and `GetActorTransform()`.
+Sampling and packet encoding run on the editor game thread; a writer thread holds at most one latest
+packet.
+
+Non-Windows editors return `not_supported` with guidance to use bounded snapshot polling at ≤10 Hz.

@@ -3,7 +3,7 @@
 	"Version": 1,
 	"VersionName": "0.1.0",
 	"FriendlyName": "UE Shed Observatory",
-	"Description": "Bounded actor discovery, spatial snapshots, and editor focus.",
+	"Description": "Bounded actor discovery, spatial snapshots, editor focus, and demand-driven transform streaming.",
 	"Category": "UE Shed",
 	"EnabledByDefault": false,
 	"CanContainContent": false,

@@ -13,5 +13,14 @@ public:
 	static void GetActorSnapshot(FString& ResultJson);
 
 	UFUNCTION(BlueprintCallable, Category = "UE Shed|Observatory")
+	static void StartActorObservation(const FString& RequestJson, FString& ResultJson);
+
+	UFUNCTION(BlueprintCallable, Category = "UE Shed|Observatory")
+	static void StopActorObservation(FString& ResultJson);
+
+	UFUNCTION(BlueprintCallable, Category = "UE Shed|Observatory")
+	static void GetActorObservationStatus(FString& ResultJson);
+
+	UFUNCTION(BlueprintCallable, Category = "UE Shed|Observatory")
 	static void FocusActor(const FString& ActorId, bool BringToFront, FString& ResultJson);
 };

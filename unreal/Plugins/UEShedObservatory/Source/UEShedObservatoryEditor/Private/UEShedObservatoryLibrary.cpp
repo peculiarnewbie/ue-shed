@@ -8,6 +8,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Subsystems/EditorActorSubsystem.h"
+#include "UEShedObservatoryStream.h"
 #include "Widgets/SWindow.h"
 
 namespace
@@ -112,6 +113,23 @@ void UUEShedObservatoryLibrary::GetActorSnapshot(FString& ResultJson)
 	Root->SetStringField(TEXT("status"), TEXT("ready"));
 	Root->SetObjectField(TEXT("snapshot"), Snapshot);
 	SerializeJson(Root, ResultJson);
+}
+
+void UUEShedObservatoryLibrary::StartActorObservation(
+	const FString& RequestJson,
+	FString& ResultJson)
+{
+	GetObservatoryStreamService().StartActorObservation(RequestJson, ResultJson);
+}
+
+void UUEShedObservatoryLibrary::StopActorObservation(FString& ResultJson)
+{
+	GetObservatoryStreamService().StopActorObservation(ResultJson);
+}
+
+void UUEShedObservatoryLibrary::GetActorObservationStatus(FString& ResultJson)
+{
+	GetObservatoryStreamService().GetActorObservationStatus(ResultJson);
 }
 
 void UUEShedObservatoryLibrary::FocusActor(
