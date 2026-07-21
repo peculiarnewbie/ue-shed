@@ -223,6 +223,25 @@ export function remapObservedActorId(
 }
 
 export {
+	ACTOR_STREAM_FLAG_RESET,
+	ACTOR_STREAM_HEADER_BYTES,
+	ACTOR_STREAM_MAGIC,
+	ACTOR_STREAM_MAX_BUFFERED_BYTES,
+	ACTOR_STREAM_MAX_PAYLOAD_BYTES,
+	ACTOR_STREAM_MAX_RECORDS,
+	ACTOR_STREAM_RECORD_BYTES,
+	ACTOR_STREAM_VERSION,
+	ActorStreamDecoder,
+	actorStreamPacketToTransformBatch,
+	encodeActorStreamPacket
+} from "./actor-stream-protocol.js";
+export type {
+	ActorStreamPacket,
+	ActorStreamRecord,
+	EncodeActorStreamPacketInput
+} from "./actor-stream-protocol.js";
+
+export {
 	applyTransformBatch,
 	applyWorldObservationEvent,
 	CatalogRevision,
