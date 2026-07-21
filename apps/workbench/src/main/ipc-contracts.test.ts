@@ -162,7 +162,8 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 	],
 	"map-review:approve-authoring": [{ sessionId: "session-1" }],
 	"map-review:preview-candidate": ["candidate-1"],
-	"map-review:approve-candidate": [approveIntent]
+	"map-review:approve-candidate": [approveIntent],
+	"map-review:set-live-preview-fps": [5]
 };
 
 const validResultByChannel: Record<InvokeChannel, unknown> = {
@@ -261,7 +262,8 @@ const validResultByChannel: Record<InvokeChannel, unknown> = {
 		status: "failed",
 		error: { message: "missing", recovery: "reframe" }
 	},
-	"map-review:approve-candidate": { status: "approved", candidateId: "candidate-1" }
+	"map-review:approve-candidate": { status: "approved", candidateId: "candidate-1" },
+	"map-review:set-live-preview-fps": 5
 };
 
 const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
@@ -286,12 +288,13 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"map-review:preview-authoring-candidate": [{ candidateId: "", sessionId: "" }],
 	"map-review:approve-authoring": [{ sessionId: "" }],
 	"map-review:capture": [{ viewIds: [] }],
-	"map-review:approve-candidate": [{ candidateId: "only" }]
+	"map-review:approve-candidate": [{ candidateId: "only" }],
+	"map-review:set-live-preview-fps": ["fast"]
 };
 
-it("registers exactly 42 invoke channels plus the camera:frame event", () => {
-	expect(invokeChannelNames).toHaveLength(42);
-	expect(new Set(invokeChannelNames).size).toBe(42);
+it("registers exactly 43 invoke channels plus the camera:frame event", () => {
+	expect(invokeChannelNames).toHaveLength(43);
+	expect(new Set(invokeChannelNames).size).toBe(43);
 	expect(cameraFrameEvent.channel).toBe("camera:frame");
 });
 

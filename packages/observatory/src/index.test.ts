@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { ActorId, type ObservedActor, WorldScoutRefreshRate, projectActors } from "./index.js";
+import {
+	ActorId,
+	actorInstanceKey,
+	type ObservedActor,
+	WorldScoutRefreshRate,
+	projectActors,
+	remapObservedActorId
+} from "./index.js";
 
-function actor(id: string, x: number, y: number): ObservedActor {
+function actor(id: string, x: number, y: number, path = `/Game/Fixture.${id}`): ObservedActor {
 	return {
 		bounds: { center: { x, y, z: 0 }, extent: { x: 10, y: 10, z: 10 } },
 		className: "FixtureMover",
 		displayName: id,
 		id: ActorId.make(id),
 		location: { x, y, z: 0 },
-		path: `/Game/Fixture.${id}`,
+		path,
 		rotation: { x: 0, y: 0, z: 0 }
 	};
 }
@@ -32,6 +39,37 @@ describe("actor spatial projection", () => {
 		expect(projection.points[0]?.yPercent).toBeCloseTo(50);
 		expect(projection.width).toBeGreaterThan(0);
 		expect(projection.height).toBeGreaterThan(0);
+	});
+});
+
+describe("actor instance identity", () => {
+	it("matches the same placed actor across editor and PIE path prefixes", () => {
+		const editor = actor(
+			"editor",
+			0,
+			0,
+			"/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad:PersistentLevel.UEShedFixtureMover_57"
+		);
+		const pie = actor(
+			"pie",
+			0,
+			0,
+			"/Game/Fixture/Cameras/UEDPIE_0_L_CameraLoad.L_CameraLoad:PersistentLevel.UEShedFixtureMover_57"
+		);
+		expect(actorInstanceKey(editor)).toBe(actorInstanceKey(pie));
+	});
+
+	it("remaps a scout selection when PLAY swaps actor ids", () => {
+		const editorId = ActorId.make("editor-path");
+		const pieId = ActorId.make("pie-path");
+		const editorActors = [
+			actor("editor-path", 0, 0, "/Game/Map.Map:PersistentLevel.Flying_03")
+		];
+		const pieActors = [
+			actor("pie-path", 10, 10, "/Game/UEDPIE_0_Map.Map:PersistentLevel.Flying_03")
+		];
+		expect(remapObservedActorId(editorId, editorActors, pieActors)).toBe(pieId);
+		expect(remapObservedActorId(pieId, pieActors, editorActors)).toBe(editorId);
 	});
 });
 

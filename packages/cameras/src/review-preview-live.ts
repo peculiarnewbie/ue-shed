@@ -69,7 +69,8 @@ function livePreviewError(
 
 export function ensureReviewPreviewSources(
 	endpoint: string,
-	sources: ReadonlyArray<ReviewPreviewSourceSpec>
+	sources: ReadonlyArray<ReviewPreviewSourceSpec>,
+	options: { readonly previewFps?: number } = {}
 ): Effect.Effect<
 	ReadonlyArray<ReviewPreviewCameraBinding>,
 	ReviewLivePreviewError,
@@ -77,6 +78,7 @@ export function ensureReviewPreviewSources(
 > {
 	return Effect.gen(function* () {
 		const client = yield* RemoteControlClient;
+		const previewFps = Math.min(10, Math.max(1, Math.round(options.previewFps ?? 5)));
 		const value = yield* client
 			.request({
 				endpoint,
@@ -85,6 +87,7 @@ export function ensureReviewPreviewSources(
 				operation: "camera.review.preview.ensure_sources",
 				parameters: {
 					RequestJson: JSON.stringify({
+						previewFps,
 						sources: sources.map((source) => ({
 							candidateId: source.candidateId,
 							fieldOfViewDegrees: source.fieldOfViewDegrees,

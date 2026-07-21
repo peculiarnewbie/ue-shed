@@ -25,7 +25,7 @@ import {
 	type WorldScoutRefreshRate,
 	type WorldScoutResult
 } from "@ue-shed/observatory";
-import { Effect, Schedule, Stream } from "effect";
+import { Effect, Queue, Schedule, Stream } from "effect";
 
 const recovery = "Restart Workbench. If the problem persists, verify package versions.";
 
@@ -72,6 +72,33 @@ export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
 			),
 			Schedule.spaced(`${1_000 / refreshRate} millis`)
 		),
+	liveFrames: Stream.callback(
+		(queue) =>
+			Effect.acquireRelease(
+				Effect.sync(() =>
+					window.ueShed.onFrame((frame) =>
+						Queue.offerUnsafe(queue, {
+							cameraIndex: frame.cameraIndex,
+							height: frame.height,
+							pixels: frame.pixels,
+							width: frame.width
+						})
+					)
+				),
+				(unsubscribe) => Effect.sync(unsubscribe)
+			),
+		{ bufferSize: 32, strategy: "sliding" }
+	),
+	setLivePreviewFps: Effect.fn("MapReviewClient.setLivePreviewFps")((fps) =>
+		request({
+			decode: (value) =>
+				typeof value === "number"
+					? Effect.succeed(value)
+					: Effect.fail(new Error("Expected a numeric live preview FPS.")),
+			invoke: () => window.ueShed.mapReview.setLivePreviewFps(fps),
+			operation: "mapReview.setLivePreviewFps"
+		})
+	),
 	approveCandidate: Effect.fn("MapReviewClient.approveCandidate")(
 		(intent): Effect.Effect<MapReviewApprovalResult, MapReviewClientError> =>
 			request({

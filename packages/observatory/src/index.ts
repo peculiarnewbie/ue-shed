@@ -224,3 +224,26 @@ export function projectActors(
 		width
 	};
 }
+
+/** Stable key across editor ↔ PIE path prefixes for the same placed instance. */
+export function actorInstanceKey(actor: Pick<ObservedActor, "className" | "path">): string {
+	const leaf = actor.path.split(".").at(-1) ?? actor.path;
+	const persistent = leaf.includes("PersistentLevel.")
+		? leaf.slice(leaf.indexOf("PersistentLevel.") + "PersistentLevel.".length)
+		: leaf.replace(/^UEDPIE_\d+_/, "");
+	return `${actor.className}:${persistent}`;
+}
+
+/** Keep a scout selection when snapshot actor ids change (PLAY start/stop). */
+export function remapObservedActorId(
+	previousId: ActorId | undefined,
+	previousActors: ReadonlyArray<ObservedActor>,
+	nextActors: ReadonlyArray<ObservedActor>
+): ActorId | undefined {
+	if (previousId === undefined) return undefined;
+	if (nextActors.some((actor) => actor.id === previousId)) return previousId;
+	const prior = previousActors.find((actor) => actor.id === previousId);
+	if (prior === undefined) return undefined;
+	const key = actorInstanceKey(prior);
+	return nextActors.find((actor) => actorInstanceKey(actor) === key)?.id;
+}

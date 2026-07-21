@@ -85,6 +85,15 @@ export interface MapReviewClientShape {
 	readonly previewCandidate: (
 		candidateId: string
 	) => Effect.Effect<MapReviewCandidatePreviewResult, MapReviewClientError>;
+	readonly liveFrames: Stream.Stream<MapReviewLiveFrame>;
+	readonly setLivePreviewFps: (fps: number) => Effect.Effect<number, MapReviewClientError>;
+}
+
+export interface MapReviewLiveFrame {
+	readonly cameraIndex: number;
+	readonly height: number;
+	readonly pixels: Uint8Array;
+	readonly width: number;
 }
 
 export class MapReviewClient extends Context.Service<MapReviewClient, MapReviewClientShape>()(

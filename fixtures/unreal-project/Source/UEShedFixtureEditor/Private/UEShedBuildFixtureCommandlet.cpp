@@ -3,14 +3,21 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/CompositeDataTable.h"
 #include "Engine/DataTable.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/ExponentialHeightFog.h"
 #include "Engine/SkyLight.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "Components/StaticMeshComponent.h"
 #include "Factories/WorldFactory.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "HAL/FileManager.h"
 #include "Internationalization/StringTable.h"
 #include "Internationalization/StringTableCore.h"
@@ -827,6 +834,63 @@ bool WriteConformanceEvidence(const FString& OutputDirectory)
 		&& WriteTextureEvidence(OutputDirectory);
 }
 
+void ApplySolidColor(UStaticMeshComponent* Mesh, const FLinearColor& Color)
+{
+	if (Mesh == nullptr) return;
+	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (Parent == nullptr) return;
+	UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Parent, Mesh);
+	if (Mid == nullptr) return;
+	Mid->SetVectorParameterValue(TEXT("Color"), Color);
+	Mesh->SetMaterial(0, Mid);
+}
+
+UStaticMeshComponent* AddChildShape(AStaticMeshActor* Owner, const TCHAR* Name,
+	const TCHAR* MeshPath, const FVector& RelativeLocation, const FVector& RelativeScale,
+	const FLinearColor& Color)
+{
+	if (Owner == nullptr) return nullptr;
+	UStaticMeshComponent* Child = NewObject<UStaticMeshComponent>(Owner, Name);
+	Child->SetupAttachment(Owner->GetRootComponent());
+	Child->SetMobility(EComponentMobility::Static);
+	Child->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, MeshPath));
+	Child->SetRelativeLocation(RelativeLocation);
+	Child->SetRelativeScale3D(RelativeScale);
+	Child->RegisterComponent();
+	Owner->AddInstanceComponent(Child);
+	ApplySolidColor(Child, Color);
+	return Child;
+}
+
+const TCHAR* MotionFamilyLabel(const EUEShedFixtureMotion Motion)
+{
+	switch (Motion)
+	{
+	case EUEShedFixtureMotion::Flying:
+		return TEXT("Flying");
+	case EUEShedFixtureMotion::Intermittent:
+		return TEXT("Intermittent");
+	case EUEShedFixtureMotion::Stationary:
+	default:
+		return TEXT("Stationary");
+	}
+}
+
+float MotionBaseHeight(const EUEShedFixtureMotion Motion)
+{
+	switch (Motion)
+	{
+	case EUEShedFixtureMotion::Flying:
+		return 380.0f;
+	case EUEShedFixtureMotion::Intermittent:
+		return 160.0f;
+	case EUEShedFixtureMotion::Stationary:
+	default:
+		return 40.0f;
+	}
+}
+
 bool GenerateCameraMap()
 {
 	static const TCHAR* PackageName = TEXT("/Game/Fixture/Cameras/L_CameraLoad");
@@ -848,24 +912,34 @@ bool GenerateCameraMap()
 	{
 		int32 ExistingMovers = 0;
 		int32 ExistingCameras = 0;
+		int32 StationaryMovers = 0;
+		int32 FlyingMovers = 0;
+		int32 IntermittentMovers = 0;
 		bool bHasReviewSubject = false;
-		for (AActor* Actor : World->PersistentLevel->Actors)
-		{
-			if (Actor == nullptr) continue;
-			ExistingMovers += Actor->IsA<AUEShedFixtureMover>() ? 1 : 0;
-			ExistingCameras += Actor->IsA<AUEShedCameraSource>() ? 1 : 0;
-			bHasReviewSubject = bHasReviewSubject || Actor->GetFName() == TEXT("ReviewSubject");
-		}
+		bool bHasAtmosphere = false;
 		bool bAllCamerasBound = true;
 		for (AActor* Actor : World->PersistentLevel->Actors)
 		{
+			if (Actor == nullptr) continue;
+			bHasAtmosphere = bHasAtmosphere || Actor->IsA<ASkyAtmosphere>();
+			bHasReviewSubject = bHasReviewSubject || Actor->GetFName() == TEXT("ReviewSubject");
+			if (const AUEShedFixtureMover* Mover = Cast<AUEShedFixtureMover>(Actor))
+			{
+				++ExistingMovers;
+				StationaryMovers += Mover->Motion == EUEShedFixtureMotion::Stationary ? 1 : 0;
+				FlyingMovers += Mover->Motion == EUEShedFixtureMotion::Flying ? 1 : 0;
+				IntermittentMovers += Mover->Motion == EUEShedFixtureMotion::Intermittent ? 1 : 0;
+			}
 			if (const AUEShedCameraSource* Camera = Cast<AUEShedCameraSource>(Actor))
 			{
+				++ExistingCameras;
 				bAllCamerasBound = bAllCamerasBound && Camera->ObservationTarget != nullptr;
 			}
 		}
+		const bool bFamiliesBalanced = StationaryMovers > 0 && FlyingMovers > 0
+			&& IntermittentMovers > 0;
 		if (ExistingMovers == CameraFixtureCount && ExistingCameras == CameraFixtureCount
-			&& bAllCamerasBound && bHasReviewSubject)
+			&& bAllCamerasBound && bHasReviewSubject && bHasAtmosphere && bFamiliesBalanced)
 		{
 			UE_LOG(LogTemp, Display, TEXT("Camera fixture map already matches its contract"));
 			return true;
@@ -875,53 +949,122 @@ bool GenerateCameraMap()
 	TArray<AActor*> Existing;
 	for (AActor* Actor : World->PersistentLevel->Actors)
 	{
-		if (Actor != nullptr && (Actor->ActorHasTag(TEXT("UEShedCameraFixture"))
-			|| Actor->IsA<AUEShedFixtureMover>() || Actor->IsA<AUEShedCameraSource>()))
+		if (Actor == nullptr) continue;
+		if (Actor->ActorHasTag(TEXT("UEShedCameraFixture"))
+			|| Actor->IsA<AUEShedFixtureMover>()
+			|| Actor->IsA<AUEShedCameraSource>()
+			|| Actor->IsA<ASkyAtmosphere>()
+			|| Actor->IsA<AExponentialHeightFog>()
+			|| Actor->IsA<ADirectionalLight>()
+			|| Actor->IsA<ASkyLight>()
+			|| Actor->GetFName() == TEXT("ReviewSubject")
+			|| Actor->ActorHasTag(TEXT("UEShedReviewSubject")))
+		{
 			Existing.Add(Actor);
+		}
 	}
-	for (AActor* Actor : Existing) World->EditorDestroyActor(Actor, true);
+	for (AActor* Actor : Existing)
+	{
+		Actor->Rename(nullptr, Actor->GetOuter(),
+			REN_ForceNoResetLoaders | REN_DontCreateRedirectors | REN_NonTransactional);
+		World->EditorDestroyActor(Actor, true);
+	}
 
 	AStaticMeshActor* Floor = World->SpawnActor<AStaticMeshActor>(FVector(0, 0, -80), FRotator::ZeroRotator);
 	Floor->Tags.Add(TEXT("UEShedCameraFixture"));
 	Floor->SetActorLabel(TEXT("Observation Floor"));
 	Floor->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,
 		TEXT("/Engine/BasicShapes/Plane.Plane")));
-	Floor->SetActorScale3D(FVector(45, 45, 1));
+	Floor->SetActorScale3D(FVector(55, 55, 1));
+	ApplySolidColor(Floor->GetStaticMeshComponent(), FLinearColor(0.18f, 0.22f, 0.17f, 1.0f));
 
 	ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector::ZeroVector,
-		FRotator(-45, -25, 0));
+		FRotator(-48, -35, 0));
 	Sun->Tags.Add(TEXT("UEShedCameraFixture"));
 	Sun->SetActorLabel(TEXT("Fixture Sun"));
+	if (UDirectionalLightComponent* SunLight = Cast<UDirectionalLightComponent>(Sun->GetLightComponent()))
+	{
+		SunLight->SetAtmosphereSunLight(true);
+		SunLight->SetIntensity(8.0f);
+		SunLight->SetLightColor(FLinearColor(1.0f, 0.96f, 0.90f));
+	}
+
+	ASkyAtmosphere* Atmosphere = World->SpawnActor<ASkyAtmosphere>();
+	Atmosphere->Tags.Add(TEXT("UEShedCameraFixture"));
+	Atmosphere->SetActorLabel(TEXT("Fixture Atmosphere"));
+
 	ASkyLight* Sky = World->SpawnActor<ASkyLight>();
 	Sky->Tags.Add(TEXT("UEShedCameraFixture"));
 	Sky->SetActorLabel(TEXT("Fixture Sky"));
+	if (USkyLightComponent* SkyLight = Sky->GetLightComponent())
+	{
+		SkyLight->bRealTimeCapture = true;
+		SkyLight->SetIntensity(1.0f);
+		SkyLight->RecaptureSky();
+	}
+
+	AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>(
+		FVector(0, 0, -80), FRotator::ZeroRotator);
+	Fog->Tags.Add(TEXT("UEShedCameraFixture"));
+	Fog->SetActorLabel(TEXT("Fixture Fog"));
+	if (UExponentialHeightFogComponent* FogComponent = Fog->GetComponent())
+	{
+		FogComponent->SetFogDensity(0.018f);
+		FogComponent->SetFogHeightFalloff(0.18f);
+		FogComponent->SetFogInscatteringColor(FLinearColor(0.45f, 0.58f, 0.78f));
+	}
 
 	FActorSpawnParameters ReviewSubjectSpawn;
 	ReviewSubjectSpawn.Name = TEXT("ReviewSubject");
 	ReviewSubjectSpawn.NameMode = FActorSpawnParameters::ESpawnActorNameMode::Required_ErrorAndReturnNull;
 	AStaticMeshActor* ReviewSubject = World->SpawnActor<AStaticMeshActor>(
-		FVector(0, 0, 220), FRotator::ZeroRotator, ReviewSubjectSpawn);
+		FVector(0, 0, 140), FRotator::ZeroRotator, ReviewSubjectSpawn);
 	if (ReviewSubject == nullptr) return false;
 	ReviewSubject->Tags.Add(TEXT("UEShedCameraFixture"));
 	ReviewSubject->Tags.Add(TEXT("UEShedReviewSubject"));
 	ReviewSubject->SetActorLabel(TEXT("Review Subject"));
 	ReviewSubject->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,
 		TEXT("/Engine/BasicShapes/Cube.Cube")));
-	ReviewSubject->SetActorScale3D(FVector(5.0, 3.0, 4.5));
+	ReviewSubject->SetActorScale3D(FVector(4.5, 2.8, 3.6));
+	ApplySolidColor(ReviewSubject->GetStaticMeshComponent(),
+		FLinearColor(0.62f, 0.56f, 0.48f, 1.0f));
+	AddChildShape(ReviewSubject, TEXT("Roof"), TEXT("/Engine/BasicShapes/Cube.Cube"),
+		FVector(0, 0, 70), FVector(1.15, 1.2, 0.22), FLinearColor(0.32f, 0.28f, 0.26f, 1.0f));
+	AddChildShape(ReviewSubject, TEXT("FacadeWing"), TEXT("/Engine/BasicShapes/Cube.Cube"),
+		FVector(70, 0, -10), FVector(0.55, 0.9, 0.7), FLinearColor(0.72f, 0.64f, 0.52f, 1.0f));
+	AddChildShape(ReviewSubject, TEXT("Tower"), TEXT("/Engine/BasicShapes/Cylinder.Cylinder"),
+		FVector(-55, 35, 35), FVector(0.45, 0.45, 1.1), FLinearColor(0.48f, 0.52f, 0.58f, 1.0f));
+
+	AStaticMeshActor* Occluder = World->SpawnActor<AStaticMeshActor>(
+		FVector(420, -280, 80), FRotator(0, 25, 0));
+	Occluder->Tags.Add(TEXT("UEShedCameraFixture"));
+	Occluder->SetActorLabel(TEXT("Review Occluder"));
+	Occluder->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,
+		TEXT("/Engine/BasicShapes/Cube.Cube")));
+	Occluder->SetActorScale3D(FVector(1.8, 6.0, 3.2));
+	ApplySolidColor(Occluder->GetStaticMeshComponent(), FLinearColor(0.22f, 0.24f, 0.26f, 1.0f));
 
 	for (int32 Index = 0; Index < CameraFixtureCount; ++Index)
 	{
+		const EUEShedFixtureMotion Motion = static_cast<EUEShedFixtureMotion>(Index % 3);
 		const double Angle = UE_TWO_PI * Index / CameraFixtureCount;
 		const double RingRadius = 850.0 + (Index % 4) * 260.0;
 		const FVector Origin(FMath::Cos(Angle) * RingRadius,
-			FMath::Sin(Angle) * RingRadius, 120.0);
+			FMath::Sin(Angle) * RingRadius, MotionBaseHeight(Motion));
 		AUEShedFixtureMover* Mover = World->SpawnActor<AUEShedFixtureMover>(Origin, FRotator::ZeroRotator);
 		Mover->Tags.Add(TEXT("UEShedCameraFixture"));
 		Mover->LogicalIndex = Index;
-		Mover->Motion = static_cast<EUEShedFixtureMotion>(Index % 3);
-		Mover->Radius = 180.0f + Index * 18.0f;
-		Mover->Speed = 0.45f + Index * 0.055f;
-		Mover->SetActorLabel(FString::Printf(TEXT("Mover %02d"), Index + 1));
+		Mover->Motion = Motion;
+		Mover->Radius = Motion == EUEShedFixtureMotion::Flying
+			? 220.0f + Index * 12.0f
+			: 180.0f + Index * 18.0f;
+		Mover->Speed = Motion == EUEShedFixtureMotion::Flying
+			? 0.35f + Index * 0.04f
+			: 0.45f + Index * 0.055f;
+		Mover->IntermittentPeriod = 2.6f + (Index % 5) * 0.35f;
+		Mover->IntermittentDutyCycle = 0.45f + (Index % 4) * 0.08f;
+		Mover->ApplyVisualIdentity();
+		Mover->SetActorLabel(FString::Printf(TEXT("%s %02d"), MotionFamilyLabel(Motion), Index + 1));
 
 		const FVector CameraLocation(FMath::Cos(Angle) * 2600.0,
 			FMath::Sin(Angle) * 2600.0, 1150.0 + (Index % 2) * 250.0);
@@ -952,23 +1095,36 @@ bool VerifyCameraMap()
 	int32 Movers = 0;
 	int32 Cameras = 0;
 	int32 BoundCameras = 0;
+	int32 StationaryMovers = 0;
+	int32 FlyingMovers = 0;
+	int32 IntermittentMovers = 0;
 	bool bHasReviewSubject = false;
+	bool bHasAtmosphere = false;
 	for (AActor* Actor : World->PersistentLevel->Actors)
 	{
 		if (Actor == nullptr) continue;
-		Movers += Actor->IsA<AUEShedFixtureMover>() ? 1 : 0;
-		Cameras += Actor->IsA<AUEShedCameraSource>() ? 1 : 0;
+		bHasAtmosphere = bHasAtmosphere || Actor->IsA<ASkyAtmosphere>();
 		bHasReviewSubject = bHasReviewSubject || Actor->GetFName() == TEXT("ReviewSubject");
+		if (const AUEShedFixtureMover* Mover = Cast<AUEShedFixtureMover>(Actor))
+		{
+			++Movers;
+			StationaryMovers += Mover->Motion == EUEShedFixtureMotion::Stationary ? 1 : 0;
+			FlyingMovers += Mover->Motion == EUEShedFixtureMotion::Flying ? 1 : 0;
+			IntermittentMovers += Mover->Motion == EUEShedFixtureMotion::Intermittent ? 1 : 0;
+		}
 		if (const AUEShedCameraSource* Camera = Cast<AUEShedCameraSource>(Actor))
 		{
+			++Cameras;
 			BoundCameras += Camera->ObservationTarget != nullptr ? 1 : 0;
 		}
 	}
 	UE_LOG(LogTemp, Display,
-		TEXT("Camera fixture verification found %d movers, %d cameras, and %d POV bindings"),
-		Movers, Cameras, BoundCameras);
+		TEXT("Camera fixture verification found %d movers (%d stationary / %d flying / %d intermittent), %d cameras, atmosphere=%s"),
+		Movers, StationaryMovers, FlyingMovers, IntermittentMovers, Cameras,
+		bHasAtmosphere ? TEXT("yes") : TEXT("no"));
 	return Movers == CameraFixtureCount && Cameras == CameraFixtureCount
-		&& BoundCameras == CameraFixtureCount && bHasReviewSubject;
+		&& BoundCameras == CameraFixtureCount && bHasReviewSubject && bHasAtmosphere
+		&& StationaryMovers > 0 && FlyingMovers > 0 && IntermittentMovers > 0;
 }
 }
 

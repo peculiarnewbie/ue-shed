@@ -1,9 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import {
-	ActorId,
+	actorInstanceKey,
 	projectActors,
 	type ObservedActor,
 	WorldScoutRefreshRate,
+	type WorldActorSnapshot,
 	type WorldScoutResult
 } from "@ue-shed/observatory";
 import { createEffectAction, createEffectSubscription } from "@ue-shed/ui";
@@ -11,6 +12,8 @@ import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import type { MapReviewClientShape } from "./map-review-client.js";
 
 const classColors = ["#b9f227", "#61d5df", "#f4a261", "#e76f8a", "#9a8cff", "#e9c46a"];
+/** Max pick distance in SVG viewBox percent units (~6% of the map). */
+const mapPickRadiusPercent = 6;
 
 function colorForClass(className: string): string {
 	let hash = 0;
@@ -30,18 +33,20 @@ export function WorldScout(props: {
 	const connectAction = createEffectAction();
 	const focusAction = createEffectAction();
 	const followAction = createEffectAction();
-	const [result, setResult] = createSignal<WorldScoutResult>();
-	const [lastSnapshot, setLastSnapshot] =
-		createSignal<Extract<WorldScoutResult, { readonly status: "ready" }>["snapshot"]>();
+	/** Latest transport result — may be ready or unavailable. */
+	const [latest, setLatest] = createSignal<WorldScoutResult>();
+	/** Last ready snapshot kept for reconnect UI; updated only on ready. */
+	const [snapshot, setSnapshot] = createSignal<WorldActorSnapshot>();
 	const [refreshRate, setRefreshRate] = createSignal(WorldScoutRefreshRate.make(5));
 	const [query, setQuery] = createSignal("");
 	const [hiddenClasses, setHiddenClasses] = createSignal<ReadonlySet<string>>(new Set());
-	const [selectedId, setSelectedId] = createSignal<ActorId>();
+	/** Stable across editor↔PIE path changes; resolve against the current snapshot. */
+	const [selectedKey, setSelectedKey] = createSignal<string>();
 	const [following, setFollowing] = createSignal(false);
 	const [navigationStatus, setNavigationStatus] = createSignal("SELECTED FOR REVIEW");
-	const snapshot = createMemo(() => lastSnapshot());
+
 	const connectionLabel = createMemo(() => {
-		const current = result();
+		const current = latest();
 		if (current?.status === "ready") return current.snapshot.worldKind;
 		return snapshot() === undefined ? "OFFLINE" : "RECONNECTING";
 	});
@@ -68,27 +73,41 @@ export function WorldScout(props: {
 		);
 	});
 	const projection = createMemo(() => projectActors(visibleActors()));
-	const selected = createMemo(() =>
-		snapshot()?.actors.find((actor) => actor.id === selectedId())
-	);
+	const selected = createMemo(() => {
+		const key = selectedKey();
+		if (key === undefined) return undefined;
+		return snapshot()?.actors.find((actor) => actorInstanceKey(actor) === key);
+	});
+	/**
+	 * Stable string keys for `<For>` — point objects are new every snapshot, so For-by-reference
+	 * remounts DOM between mousedown and click and drops selection updates.
+	 */
+	const mapPointKeys = createMemo(() => {
+		const keys = projection().points.map((point) => actorInstanceKey(point.actor));
+		const current = selectedKey();
+		if (current === undefined || !keys.includes(current)) return keys;
+		return [...keys.filter((key) => key !== current), current];
+	});
+	const pointForKey = (key: string) =>
+		projection().points.find((point) => actorInstanceKey(point.actor) === key);
+
 	const acceptResult = (current: WorldScoutResult) => {
-		setResult(current);
-		if (current.status === "ready") setLastSnapshot(current.snapshot);
+		setLatest(current);
+		if (current.status === "ready") setSnapshot(current.snapshot);
 	};
 
 	const subscribe = (rate: WorldScoutRefreshRate) => {
 		subscription.subscribe(props.client.worldSnapshots(rate), {
 			onValue: (current) => {
 				acceptResult(current);
-				if (!following() || current.status !== "ready") return;
-				const actor = current.snapshot.actors.find(
-					(candidate) => candidate.id === selectedId()
-				);
-				if (!actor) {
+				if (!following()) return;
+				const actor = selected();
+				if (actor === undefined) {
 					setFollowing(false);
 					setNavigationStatus("ACTOR LEFT THE OBSERVED WORLD");
 					return;
 				}
+				if (current.status !== "ready") return;
 				followAction.run(props.client.focusActor(actor.id, false), {
 					onSuccess: (focus) => {
 						if (focus.status !== "focused") {
@@ -120,9 +139,25 @@ export function WorldScout(props: {
 			return next;
 		});
 	const selectActor = (actor: ObservedActor) => {
-		setSelectedId(actor.id);
+		setSelectedKey(actorInstanceKey(actor));
 		setFollowing(false);
 		setNavigationStatus("SELECTED FOR REVIEW");
+	};
+	const pickNearestActor = (event: PointerEvent & { currentTarget: SVGSVGElement }) => {
+		if (event.button !== 0) return;
+		const rect = event.currentTarget.getBoundingClientRect();
+		if (rect.width <= 0 || rect.height <= 0) return;
+		const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+		const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+		let nearest: { readonly actor: ObservedActor; readonly distance: number } | undefined;
+		for (const point of projection().points) {
+			const distance = Math.hypot(point.xPercent - xPercent, point.yPercent - yPercent);
+			if (distance > mapPickRadiusPercent) continue;
+			if (nearest === undefined || distance < nearest.distance) {
+				nearest = { actor: point.actor, distance };
+			}
+		}
+		if (nearest) selectActor(nearest.actor);
 	};
 	const goToActor = (actor: ObservedActor, follow: boolean) => {
 		focusAction.run(props.client.focusActor(actor.id, true), {
@@ -187,9 +222,9 @@ export function WorldScout(props: {
 						>
 							CONNECT LIVE WORLD
 						</button>
-						<Show when={result()?.status === "unavailable"}>
+						<Show when={latest()?.status === "unavailable"}>
 							{(() => {
-								const current = result();
+								const current = latest();
 								return current?.status === "unavailable" ? (
 									<small>{current.message}</small>
 								) : null;
@@ -259,38 +294,55 @@ export function WorldScout(props: {
 						<svg
 							viewBox="0 0 100 100"
 							preserveAspectRatio="xMidYMid meet"
+							role="img"
+							aria-label="Top-down actor map"
+							onPointerDown={pickNearestActor}
 							{...stylex.props(styles.map)}
 						>
-							<For each={projection().points}>
-								{(point) => (
-									<g
-										role="button"
-										tabindex="0"
-										aria-label={`Select ${point.actor.displayName}`}
-										onClick={() => selectActor(point.actor)}
-										onKeyDown={(event) => {
-											if (event.key === "Enter" || event.key === " ")
-												selectActor(point.actor);
-										}}
-										{...stylex.props(styles.actorPoint)}
-									>
-										<circle
-											cx={point.xPercent}
-											cy={point.yPercent}
-											r={selectedId() === point.actor.id ? 2.15 : 1.25}
-											fill={colorForClass(point.actor.className)}
-											stroke={
-												selectedId() === point.actor.id
-													? "#ffffff"
-													: "#0a0d0b"
-											}
-											stroke-width={
-												selectedId() === point.actor.id ? 0.65 : 0.35
-											}
-											vector-effect="non-scaling-stroke"
-										/>
-									</g>
-								)}
+							<For each={mapPointKeys()}>
+								{(key) => {
+									const point = createMemo(() => pointForKey(key));
+									const isSelected = () => selectedKey() === key;
+									return (
+										<Show when={point()}>
+											{(current) => (
+												<g
+													role="button"
+													tabIndex={0}
+													aria-label={`Select ${current().actor.displayName}`}
+													onPointerDown={(event) => {
+														if (event.button !== 0) return;
+														event.stopPropagation();
+														selectActor(current().actor);
+													}}
+													onKeyDown={(event) => {
+														if (event.key === "Enter" || event.key === " ") {
+															event.preventDefault();
+															selectActor(current().actor);
+														}
+													}}
+													{...stylex.props(styles.actorPoint)}
+												>
+													<circle
+														cx={current().xPercent}
+														cy={current().yPercent}
+														r={4.5}
+														fill="transparent"
+													/>
+													<circle
+														cx={current().xPercent}
+														cy={current().yPercent}
+														r={isSelected() ? 2.15 : 1.25}
+														fill={colorForClass(current().actor.className)}
+														stroke={isSelected() ? "#ffffff" : "#0a0d0b"}
+														stroke-width={isSelected() ? 0.65 : 0.35}
+														vector-effect="non-scaling-stroke"
+													/>
+												</g>
+											)}
+										</Show>
+									);
+								}}
 							</For>
 						</svg>
 						<div {...stylex.props(styles.axisX)}>WORLD X →</div>

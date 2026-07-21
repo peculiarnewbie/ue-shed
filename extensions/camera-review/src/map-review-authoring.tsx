@@ -7,6 +7,7 @@ import type {
 	MapReviewAuthoringResult,
 	MapReviewCandidatePreviewResult,
 	MapReviewClientShape,
+	MapReviewLiveFrame,
 	MapReviewPose
 } from "./map-review-client.js";
 import type { ObservedActor } from "@ue-shed/observatory";
@@ -26,6 +27,10 @@ type AuthoringState =
 type ReadyAuthoring = Extract<MapReviewAuthoringResult, { status: "ready" }>;
 type CandidateId = MapReviewAuthoringCandidate["id"];
 type AuthoringPatch = Parameters<MapReviewClientShape["authoringPatch"]>[0]["patch"];
+
+function clampPreviewFps(fps: number): number {
+	return Math.min(10, Math.max(1, Math.round(fps)));
+}
 
 function CandidateImage(props: { readonly candidate: MapReviewAuthoringCandidate }) {
 	const [canvasEl, setCanvasEl] = createSignal<HTMLCanvasElement>();
@@ -137,12 +142,18 @@ function poseFieldValue(
 
 export function MapReviewAuthoring(props: {
 	readonly client: MapReviewClientShape;
-	readonly focusedActor?: ObservedActor | undefined;
-	readonly focusGeneration?: number;
+	readonly focusRequest?:
+		| {
+				readonly actor: ObservedActor;
+				readonly nonce: number;
+		  }
+		| undefined;
 	readonly onApproved: () => void;
 }) {
 	const generateAction = createEffectAction();
 	const previewSubscription = createEffectSubscription();
+	const liveFrameSubscription = createEffectSubscription();
+	const fpsAction = createEffectAction();
 	const approveAction = createEffectAction();
 	const resumeAction = createEffectAction();
 	const patchAction = createEffectAction();
@@ -153,6 +164,8 @@ export function MapReviewAuthoring(props: {
 	);
 	const [draftPose, setDraftPose] = createSignal<MapReviewPose>();
 	const [manualReason, setManualReason] = createSignal("");
+	const [liveFps, setLiveFps] = createSignal(5);
+	const [liveBindings, setLiveBindings] = createSignal<ReadonlyMap<string, number>>(new Map());
 	const session = createMemo(() => {
 		const current = state();
 		return current.status === "ready" ||
@@ -167,6 +180,7 @@ export function MapReviewAuthoring(props: {
 	const selected = createMemo(
 		() => candidates().find((candidate) => candidate.id === selectedId()) ?? candidates()[0]
 	);
+	const liveStreaming = createMemo(() => liveBindings().size > 0);
 	const authoringBlocked = createMemo(() => {
 		const durable = session()?.session;
 		if (durable && durable.lifecycle !== "active") return true;
@@ -180,6 +194,7 @@ export function MapReviewAuthoring(props: {
 		setSelectedId(durable?.selectedCandidateId ?? result.candidates[0]?.id);
 		setDraftPose(durable?.draftPose ?? structuredClone(result.candidates[0]?.pose));
 		setManualReason(durable?.manualReason ?? "");
+		setLiveBindings(new Map());
 		setState({ session: result, status: "ready" });
 		hydratePreviews(result);
 	};
@@ -267,6 +282,24 @@ export function MapReviewAuthoring(props: {
 		candidateId: CandidateId,
 		result: MapReviewCandidatePreviewResult
 	) => {
+		if (
+			result.status === "ready" &&
+			result.pixelFormat === "bgra8" &&
+			result.cameraIndex !== undefined
+		) {
+			setLiveBindings((current) => {
+				const next = new Map(current);
+				next.set(candidateId, result.cameraIndex as number);
+				return next;
+			});
+		} else {
+			setLiveBindings((current) => {
+				if (!current.has(candidateId)) return current;
+				const next = new Map(current);
+				next.delete(candidateId);
+				return next;
+			});
+		}
 		setState((current) => {
 			if (
 				current.status !== "ready" &&
@@ -291,6 +324,9 @@ export function MapReviewAuthoring(props: {
 											? {
 													bytes: result.bytes,
 													height: result.height,
+													...(result.cameraIndex === undefined
+														? {}
+														: { cameraIndex: result.cameraIndex }),
 													...(result.pixelFormat === undefined
 														? {}
 														: { pixelFormat: result.pixelFormat }),
@@ -304,6 +340,46 @@ export function MapReviewAuthoring(props: {
 								}
 							: currentCandidate
 					)
+				}
+			};
+		});
+	};
+	const applyLiveFrames = (frames: ReadonlyMap<number, MapReviewLiveFrame>) => {
+		const bindings = liveBindings();
+		if (bindings.size === 0 || frames.size === 0) return;
+		setState((current) => {
+			if (
+				current.status !== "ready" &&
+				current.status !== "saving" &&
+				current.status !== "approved"
+			) {
+				return current;
+			}
+			let changed = false;
+			const candidatesNext = current.session.candidates.map((candidate) => {
+				const cameraIndex = bindings.get(candidate.id);
+				if (cameraIndex === undefined) return candidate;
+				const frame = frames.get(cameraIndex);
+				if (frame === undefined) return candidate;
+				changed = true;
+				return {
+					...candidate,
+					preview: {
+						bytes: frame.pixels,
+						cameraIndex,
+						height: frame.height,
+						pixelFormat: "bgra8" as const,
+						status: "ready" as const,
+						width: frame.width
+					}
+				};
+			});
+			if (!changed) return current;
+			return {
+				...current,
+				session: {
+					...current.session,
+					candidates: candidatesNext
 				}
 			};
 		});
@@ -330,6 +406,38 @@ export function MapReviewAuthoring(props: {
 				}
 			}
 		);
+	};
+	createEffect(() => {
+		const bindings = liveBindings();
+		const fps = liveFps();
+		liveFrameSubscription.cancel();
+		if (bindings.size === 0) return;
+		const intervalMs = 1_000 / fps;
+		let lastPaint = 0;
+		const pending = new Map<number, MapReviewLiveFrame>();
+		liveFrameSubscription.subscribe(props.client.liveFrames, {
+			onFailure: () => undefined,
+			onValue: (frame) => {
+				const bound = [...bindings.values()].includes(frame.cameraIndex);
+				if (!bound) return;
+				pending.set(frame.cameraIndex, frame);
+				const now = performance.now();
+				if (now - lastPaint < intervalMs) return;
+				lastPaint = now;
+				const batch = new Map(pending);
+				pending.clear();
+				applyLiveFrames(batch);
+			}
+		});
+		onCleanup(() => liveFrameSubscription.cancel());
+	});
+	const updateLiveFps = (value: number) => {
+		const next = clampPreviewFps(value);
+		setLiveFps(next);
+		fpsAction.run(props.client.setLivePreviewFps(next), {
+			onFailure: () => undefined,
+			onSuccess: (applied) => setLiveFps(applied)
+		});
 	};
 	const generate = () => {
 		const durable = session()?.session;
@@ -368,11 +476,11 @@ export function MapReviewAuthoring(props: {
 			}
 		});
 	});
-	let handledFocusGeneration = 0;
+	let handledFocusNonce = 0;
 	createEffect(() => {
-		const generation = props.focusGeneration ?? 0;
-		if (generation <= handledFocusGeneration || !props.focusedActor) return;
-		handledFocusGeneration = generation;
+		const request = props.focusRequest;
+		if (request === undefined || request.nonce <= handledFocusNonce) return;
+		handledFocusNonce = request.nonce;
 		generate();
 	});
 	const discard = (candidateId: string) => {
@@ -471,14 +579,34 @@ export function MapReviewAuthoring(props: {
 						)}
 					</Show>
 				</div>
-				<button
-					type="button"
-					disabled={state().status === "loading" || state().status === "saving"}
-					onClick={() => void generate()}
-					{...stylex.props(styles.generateButton)}
-				>
-					{state().status === "loading" ? "GENERATING…" : "REFRAME SELECTED ACTOR"}
-				</button>
+				<div {...stylex.props(styles.headerActions)}>
+					<button
+						type="button"
+						disabled={state().status === "loading" || state().status === "saving"}
+						onClick={() => void generate()}
+						{...stylex.props(styles.generateButton)}
+					>
+						{state().status === "loading" ? "GENERATING…" : "REFRAME SELECTED ACTOR"}
+					</button>
+					<Show when={liveStreaming()}>
+						<label {...stylex.props(styles.fpsControl)}>
+							<span>LIVE {liveFps()} FPS</span>
+							<input
+								type="range"
+								min={1}
+								max={10}
+								step={1}
+								value={liveFps()}
+								aria-label="Live preview frame rate"
+								onInput={(event) =>
+									updateLiveFps(
+										Number((event.currentTarget as HTMLInputElement).value)
+									)
+								}
+							/>
+						</label>
+					</Show>
+				</div>
 			</div>
 
 			<Show when={state().status === "failed"}>
@@ -682,6 +810,12 @@ const styles = stylex.create({
 		color: "#7e8881",
 		fontSize: 10
 	},
+	headerActions: {
+		display: "flex",
+		alignItems: "center",
+		gap: 12,
+		flexShrink: 0
+	},
 	generateButton: {
 		flexShrink: 0,
 		border: "1px solid #899881",
@@ -692,6 +826,16 @@ const styles = stylex.create({
 		fontWeight: 800,
 		letterSpacing: ".11em",
 		cursor: { default: "pointer", ":disabled": "wait" }
+	},
+	fpsControl: {
+		display: "grid",
+		gap: 4,
+		alignItems: "center",
+		minWidth: 140,
+		color: "#9aa59a",
+		fontSize: 8,
+		fontWeight: 700,
+		letterSpacing: ".1em"
 	},
 	authoringError: {
 		display: "flex",

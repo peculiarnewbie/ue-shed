@@ -98,7 +98,9 @@ const unavailableDurableAuthoring = {
 		Effect.succeed({
 			error: { message: "No saved session", recovery: "Select an actor" },
 			status: "failed" as const
-		})
+		}),
+	liveFrames: Stream.empty,
+	setLivePreviewFps: (fps) => Effect.succeed(fps)
 } satisfies Pick<
 	MapReviewClientShape,
 	| "approveAuthoring"
@@ -106,7 +108,9 @@ const unavailableDurableAuthoring = {
 	| "authoringReframe"
 	| "authoringResume"
 	| "discardAuthoring"
+	| "liveFrames"
 	| "previewAuthoringCandidate"
+	| "setLivePreviewFps"
 >;
 
 function renderRoute(client: MapReviewClientShape) {

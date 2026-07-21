@@ -62,6 +62,28 @@ type FixtureContract = {
 		readonly map: string;
 		readonly movingActors: number;
 		readonly cameraSources: number;
+		readonly actorFamilies: {
+			readonly stationary: {
+				readonly shape: string;
+				readonly materialColor: string;
+				readonly behavior: string;
+			};
+			readonly flying: {
+				readonly shape: string;
+				readonly materialColor: string;
+				readonly behavior: string;
+			};
+			readonly intermittent: {
+				readonly shape: string;
+				readonly materialColor: string;
+				readonly behavior: string;
+			};
+		};
+		readonly environment: {
+			readonly skyAtmosphere: boolean;
+			readonly skyLightRealtimeCapture: boolean;
+			readonly exponentialHeightFog: boolean;
+		};
 		readonly capture: {
 			readonly width: number;
 			readonly height: number;
@@ -170,6 +192,28 @@ describe("generic Unreal fixture contract", () => {
 			map: "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad",
 			movingActors: 32,
 			cameraSources: 32,
+			actorFamilies: {
+				stationary: {
+					shape: "cube",
+					materialColor: "slate",
+					behavior: "fixed-pose"
+				},
+				flying: {
+					shape: "sphere",
+					materialColor: "cyan",
+					behavior: "airborne-orbit"
+				},
+				intermittent: {
+					shape: "cylinder",
+					materialColor: "amber",
+					behavior: "visibility-cycle"
+				}
+			},
+			environment: {
+				skyAtmosphere: true,
+				skyLightRealtimeCapture: true,
+				exponentialHeightFog: true
+			},
 			capture: { width: 320, height: 180, pixelFormat: "BGRA8" }
 		});
 		expect(existsSync(join(fixtureRoot, "Content/Fixture/Cameras/L_CameraLoad.umap"))).toBe(

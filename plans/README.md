@@ -13,6 +13,7 @@ the status row when done.
 | [007](007-conflicts-rich-types-and-views.md)      | Complete conflicts, rich Unreal types, composites, and views         | P1       | XL     | 006, 015   | IN PROGRESS — demo cutoff  |
 | [017](017-map-review-realization-and-recovery.md) | Verify realized framing and recover in-progress Map Review authoring | P0       | L      | —          | TODO                       |
 | [018](018-pie-live-review-previews.md)            | PIE live cameras for Map Review authoring previews                   | P0       | L      | —          | IN PROGRESS                |
+| [019](019-stream-world-scout-transforms.md)       | Stream actor transforms and render World Scout on Canvas             | P1       | XL     | 018        | TODO                       |
 
 Status values: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED` with a one-line reason, or `REJECTED` with a
 one-line rationale. When a plan is `DONE`, move it into [`archive/`](archive/) and update both this
@@ -23,6 +24,9 @@ table and the archive index.
 - Plan 018 unlocks live BGRA authoring previews while PLAY is active by registering transient posed
   camera sources in PIE. Editor-stopped Keep/Capture stays on PNG. It complements 017 and must not
   break Camera Lab’s placed-camera path.
+- Plan 019 replaces high-rate full-world JSON polling with a bounded Observatory transform stream
+  and retained Canvas renderer. It waits for 018 because both touch the Workbench Map Review service
+  and IPC surface; 019 must begin from 018's committed result rather than overwrite active work.
 - Plan 017 completes the remaining Map Review Slice 2 trust and recovery work before Slice 3 adds
   capture-profile, readiness, cancellation, and restoration policy. Leave its status as TODO until
   the manual review gate passes.

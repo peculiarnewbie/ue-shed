@@ -61,4 +61,8 @@ export const register = Effect.gen(function* () {
 		const [intent] = args as [MapReviewApproveCandidateIntent];
 		return mapReview.approveCandidate(intent);
 	});
+	yield* ipc.register(invokeContracts["map-review:set-live-preview-fps"], (...args) => {
+		const [fps] = args as [number];
+		return mapReview.setLivePreviewFps(fps);
+	});
 }).pipe(Effect.withSpan("Workbench.Ipc.registerMapReview"));

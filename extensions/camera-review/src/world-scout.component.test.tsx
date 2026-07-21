@@ -168,4 +168,100 @@ describe("WorldScout", () => {
 		expect(await screen.findByText("FOCUSED RUNTIME ACTOR")).toBeDefined();
 		expect(authoringRequests).toBe(0);
 	});
+
+	it("keeps selection when PLAY remaps the actor path", async () => {
+		const editor = {
+			status: "ready" as const,
+			snapshot: {
+				actors: [observed],
+				capturedAt: "2026-07-18T10:00:00.000Z",
+				mapPath: "/Game/Fixture/Observatory",
+				sequence: 7,
+				worldKind: "editor" as const,
+				worldSeconds: 15
+			}
+		};
+		const pieActor: ObservedActor = {
+			...observed,
+			id: ActorId.make("/Game/UEDPIE_0_Fixture.Map:PersistentLevel.Orbit_07"),
+			path: "/Game/UEDPIE_0_Fixture.Map:PersistentLevel.Orbit_07",
+			location: { x: 140, y: -60, z: 30 }
+		};
+		const pie = {
+			status: "ready" as const,
+			snapshot: {
+				actors: [pieActor],
+				capturedAt: "2026-07-18T10:00:01.000Z",
+				mapPath: "/Game/Fixture/Observatory",
+				sequence: 8,
+				worldKind: "pie" as const,
+				worldSeconds: 16
+			}
+		};
+		const focused: Array<string> = [];
+		const client = {
+			connectWorld: () => Effect.succeed(editor),
+			focusActor: (actorId) =>
+				Effect.sync(() => {
+					focused.push(actorId);
+					return {
+						actorId,
+						authoringSubject: "selected" as const,
+						status: "focused" as const
+					};
+				}),
+			worldSnapshots: () => Stream.make(editor, pie)
+		} satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
+
+		render(() => (
+			<EffectRuntimeProvider runtime={runtime}>
+				<WorldScout client={client} onActorFocused={() => undefined} />
+			</EffectRuntimeProvider>
+		));
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole("button", { name: "Select Orbit 07" }));
+		expect(await screen.findByText("+140")).toBeDefined();
+		await user.click(screen.getByRole("button", { name: "GO TO ACTOR ↗" }));
+		expect(focused).toEqual([pieActor.id]);
+	});
+
+	it("selects while live snapshots keep replacing projection points", async () => {
+		const frames = Array.from({ length: 40 }, (_, sequence) => ({
+			status: "ready" as const,
+			snapshot: {
+				actors: [
+					{
+						...observed,
+						location: { x: 120 + sequence, y: -80, z: 30 }
+					}
+				],
+				capturedAt: new Date(Date.UTC(2026, 6, 18, 10, 0, sequence)).toISOString(),
+				mapPath: "/Game/Fixture/Observatory",
+				sequence,
+				worldKind: "editor" as const,
+				worldSeconds: sequence
+			}
+		}));
+		const client = {
+			connectWorld: () => Effect.succeed(frames[0]!),
+			focusActor: (actorId) =>
+				Effect.succeed({
+					actorId,
+					authoringSubject: "selected" as const,
+					status: "focused" as const
+				}),
+			worldSnapshots: () => Stream.fromIterable(frames)
+		} satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
+
+		render(() => (
+			<EffectRuntimeProvider runtime={runtime}>
+				<WorldScout client={client} onActorFocused={() => undefined} />
+			</EffectRuntimeProvider>
+		));
+		const user = userEvent.setup();
+		const marker = await screen.findByRole("button", { name: "Select Orbit 07" });
+		await user.click(marker);
+		expect(screen.getByText("SELECTED FOR REVIEW")).toBeDefined();
+		expect(screen.getByRole("heading", { name: "Orbit 07" })).toBeDefined();
+	});
 });

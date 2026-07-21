@@ -63,9 +63,11 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 	const action = createEffectAction();
 	const [state, setState] = createSignal<ViewState>({ status: "loading" });
 	const [selectedRunId, setSelectedRunId] = createSignal<string>();
-	const [focusedActor, setFocusedActor] = createSignal<ObservedActor>();
+	const [focusRequest, setFocusRequest] = createSignal<{
+		readonly actor: ObservedActor;
+		readonly nonce: number;
+	}>();
 	const [captureOpen, setCaptureOpen] = createSignal(false);
-	const [focusGeneration, setFocusGeneration] = createSignal(0);
 	const ready = createMemo(() => {
 		const current = state();
 		if (current.status === "ready") return current;
@@ -121,8 +123,10 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 			<WorldScout
 				client={props.client}
 				onActorFocused={(actor) => {
-					setFocusedActor(actor);
-					setFocusGeneration((current) => current + 1);
+					setFocusRequest((current) => ({
+						actor,
+						nonce: (current?.nonce ?? 0) + 1
+					}));
 				}}
 			/>
 
@@ -143,8 +147,7 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 					<div {...stylex.props(styles.setupWorkspace)}>
 						<MapReviewAuthoring
 							client={props.client}
-							focusedActor={focusedActor()}
-							focusGeneration={focusGeneration()}
+							focusRequest={focusRequest()}
 							onApproved={load}
 						/>
 					</div>
@@ -202,8 +205,7 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 							</section>
 							<MapReviewAuthoring
 								client={props.client}
-								focusedActor={focusedActor()}
-								focusGeneration={focusGeneration()}
+								focusRequest={focusRequest()}
 								onApproved={load}
 							/>
 

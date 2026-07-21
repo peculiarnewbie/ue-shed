@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"fixtureVersion": "1.1.0",
+	"fixtureVersion": "1.2.0",
 	"engine": {
 		"major": 5,
 		"minor": 7
@@ -28,6 +28,28 @@
 		"map": "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad",
 		"movingActors": 32,
 		"cameraSources": 32,
+		"actorFamilies": {
+			"stationary": {
+				"shape": "cube",
+				"materialColor": "slate",
+				"behavior": "fixed-pose"
+			},
+			"flying": {
+				"shape": "sphere",
+				"materialColor": "cyan",
+				"behavior": "airborne-orbit"
+			},
+			"intermittent": {
+				"shape": "cylinder",
+				"materialColor": "amber",
+				"behavior": "visibility-cycle"
+			}
+		},
+		"environment": {
+			"skyAtmosphere": true,
+			"skyLightRealtimeCapture": true,
+			"exponentialHeightFog": true
+		},
 		"capture": {
 			"width": 320,
 			"height": 180,

@@ -135,14 +135,19 @@ void UUEShedCameraLibrary::EnsureReviewPreviewSources(
 		ResultJson = ErrorJson(*Error);
 		return;
 	}
+	double PreviewFps = 10.0;
+	Root->TryGetNumberField(TEXT("previewFps"), PreviewFps);
+	const int32 ClampedFps = FMath::Clamp(FMath::RoundToInt(PreviewFps), 1, 10);
 	FString ConfigureError;
 	const FString ConfigJson = FString::Printf(
-		TEXT("{\"activeCameraCount\":%d,\"backgroundFps\":8,\"captureBudgetPerTick\":%d,")
-		TEXT("\"focusedCameraIndex\":0,\"focusedFps\":15,\"paused\":false,")
+		TEXT("{\"activeCameraCount\":%d,\"backgroundFps\":%d,\"captureBudgetPerTick\":%d,")
+		TEXT("\"focusedCameraIndex\":0,\"focusedFps\":%d,\"paused\":false,")
 		TEXT("\"pipelineMode\":\"full_pipeline\",\"renderProfile\":\"observation\",")
 		TEXT("\"resolution\":\"%dx%d\",\"viewMode\":\"posed\"}"),
 		Specs.Num(),
+		ClampedFps,
 		FMath::Clamp(Specs.Num(), 1, 8),
+		ClampedFps,
 		Specs[0].Width,
 		Specs[0].Height);
 	if (!Subsystem->ApplyConfigJson(ConfigJson, ConfigureError))

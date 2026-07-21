@@ -127,6 +127,7 @@ export const MapReviewAuthoringCandidate = Schema.Struct({
 		Schema.Struct({
 			status: Schema.Literal("ready"),
 			bytes: Schema.Uint8Array,
+			cameraIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 			height: Schema.Int.check(Schema.isGreaterThan(0)),
 			pixelFormat: Schema.optional(Schema.Literals(["png", "bgra8"])),
 			width: Schema.Int.check(Schema.isGreaterThan(0))
@@ -141,6 +142,7 @@ export const MapReviewCandidatePreviewResult = Schema.Union([
 	Schema.Struct({
 		status: Schema.Literal("ready"),
 		bytes: Schema.Uint8Array,
+		cameraIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 		height: Schema.Int.check(Schema.isGreaterThan(0)),
 		diagnostics: Schema.optional(Schema.Array(FramingDiagnostic)),
 		pixelFormat: Schema.optional(Schema.Literals(["png", "bgra8"])),

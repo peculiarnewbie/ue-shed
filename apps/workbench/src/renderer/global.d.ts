@@ -101,6 +101,7 @@ declare global {
 					intent: MapReviewCaptureIntent
 				) => Promise<MapReviewCaptureResult>;
 				readonly load: () => Promise<MapReviewResult>;
+				readonly setLivePreviewFps: (fps: number) => Promise<number>;
 			};
 			readonly configure: (config: CameraScheduleConfig) => Promise<CameraStatus>;
 			readonly getMetrics: () => Promise<WorkbenchCameraMetrics>;

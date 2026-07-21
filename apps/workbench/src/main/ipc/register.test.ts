@@ -254,7 +254,9 @@ function buildRegistrationLayer(recorder: Recorder) {
 				.record("mapReview.previewAuthoringCandidate")
 				.pipe(
 					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
-				)
+				),
+		setLivePreviewFps: (fps) =>
+			recorder.record(`mapReview.setLivePreviewFps:${fps}`).pipe(Effect.as(fps))
 	});
 
 	const fixtureLauncher = makeFixtureLauncherTestLayer({
@@ -367,13 +369,13 @@ function runRegistered<A>(
 	}).pipe(Effect.scoped);
 }
 
-it.effect("registers exactly the 42 contract channels", () =>
+it.effect("registers exactly the 43 contract channels", () =>
 	Effect.gen(function* () {
 		const { result } = yield* runRegistered((ipc) => ipc.handlers());
 		expect(result.map((entry) => entry.channel).toSorted()).toEqual(
 			[...invokeChannelNames].toSorted()
 		);
-		expect(result).toHaveLength(42);
+		expect(result).toHaveLength(43);
 	})
 );
 

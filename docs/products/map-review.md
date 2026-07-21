@@ -52,12 +52,12 @@ position. Runtime-only PIE actors can still focus the level viewport, but they d
 durable editor selection or stable authoring subject.
 
 The proven Slice 2 scope now includes post-realization projected-bounds diagnostics and restart-level
-authoring-session recovery. Authoring contact-sheet previews use the live BGRA pipe while PLAY/SIM
-is active (transient posed camera bank at **320×180**, painted to canvas) and fall back to the same
-thumbnail size via PNG `CaptureReviewView` when the editor is stopped; Keep / Capture Set remain
-editor-world PNG evidence at the Review Set profile resolution. Richer orientation inputs and viewport
-manipulation, alongside layered identity, Clear captures, comparison, and review decisions, remain
-later milestones in this plan.
+authoring-session recovery. Authoring contact-sheet previews stream live BGRA while PLAY/SIM is active (transient posed camera
+bank at **320×180**, painted continuously to canvas at a user-selected **1–10 FPS**) and fall back to
+the same thumbnail size via PNG `CaptureReviewView` when the editor is stopped; Keep / Capture Set
+remain editor-world PNG evidence at the Review Set profile resolution. Richer orientation inputs and
+viewport manipulation, alongside layered identity, Clear captures, comparison, and review decisions,
+remain later milestones in this plan.
 
 ## User outcomes
 

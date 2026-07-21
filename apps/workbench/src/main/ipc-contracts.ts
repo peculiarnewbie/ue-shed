@@ -350,6 +350,11 @@ export const invokeContracts = {
 		channel: "map-review:approve-candidate",
 		args: Schema.Tuple([MapReviewApproveCandidateIntent]),
 		result: MapReviewApprovalResult
+	}),
+	"map-review:set-live-preview-fps": invoke({
+		channel: "map-review:set-live-preview-fps",
+		args: Schema.Tuple([Schema.Number]),
+		result: Schema.Number
 	})
 } as const;
 

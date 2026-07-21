@@ -2,6 +2,7 @@ import {
 	approveFramingCandidate,
 	awaitReviewPreviewFrame,
 	CameraFeed,
+	configureCameras,
 	ensureReviewPreviewSources,
 	generateFramingCandidates,
 	ReviewAuthoring,
@@ -43,6 +44,35 @@ import { makeUnrealOperationCoordinator } from "./unreal-operation-coordinator.j
 
 const artifactReadConcurrency = 4;
 
+function clampLivePreviewFps(fps: number): number {
+	return Math.min(10, Math.max(1, Math.round(fps)));
+}
+
+function livePreviewPoseFingerprint(
+	candidates: ReadonlyArray<{
+		readonly approvedPose: {
+			readonly fieldOfViewDegrees: number;
+			readonly location: { readonly x: number; readonly y: number; readonly z: number };
+			readonly rotation: { readonly pitch: number; readonly yaw: number };
+		};
+		readonly id: string;
+	}>
+): string {
+	return candidates
+		.map((candidate) =>
+			[
+				candidate.id,
+				candidate.approvedPose.location.x.toFixed(2),
+				candidate.approvedPose.location.y.toFixed(2),
+				candidate.approvedPose.location.z.toFixed(2),
+				candidate.approvedPose.rotation.pitch.toFixed(2),
+				candidate.approvedPose.rotation.yaw.toFixed(2),
+				candidate.approvedPose.fieldOfViewDegrees.toFixed(2)
+			].join(":")
+		)
+		.join("|");
+}
+
 interface ReviewFailure {
 	readonly error: { readonly message: string; readonly recovery: string };
 	readonly status: "failed";
@@ -81,6 +111,7 @@ export interface WorkbenchMapReviewShape {
 	readonly previewAuthoringCandidate: (
 		intent: MapReviewAuthoringPreviewIntent
 	) => Effect.Effect<MapReviewCandidatePreviewResult>;
+	readonly setLivePreviewFps: (fps: number) => Effect.Effect<number>;
 }
 
 export class WorkbenchMapReview extends Context.Service<
@@ -171,13 +202,61 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					readonly candidateId: string;
 					readonly index: number;
 				}>;
+				readonly poseFingerprint: string;
 				readonly sessionId: string;
 			}>
 		>(Option.none());
+		const livePreviewFps = yield* Ref.make(5);
 		const playActiveCache = yield* Ref.make<
 			Option.Option<{ readonly active: boolean; readonly checkedAtMs: number }>
 		>(Option.none());
 		const liveEnsureGate = yield* Semaphore.make(1);
+
+		const invalidateLivePreviewBank = Effect.fn(
+			"Workbench.WorkbenchMapReview.invalidateLivePreviewBank"
+		)(function* () {
+			yield* Ref.set(livePreviewBindings, Option.none());
+		});
+
+		const applyLivePreviewSchedule = Effect.fn(
+			"Workbench.WorkbenchMapReview.applyLivePreviewSchedule"
+		)(function* (cameraCount: number, fps: number) {
+			const clamped = clampLivePreviewFps(fps);
+			yield* Ref.set(livePreviewFps, clamped);
+			if (cameraCount <= 0) return clamped;
+			yield* configureCameras(configuration.remoteControlEndpoint, {
+				activeCameraCount: cameraCount,
+				backgroundFps: clamped,
+				captureBudgetPerTick: Math.min(8, cameraCount),
+				focusedCameraIndex: 0,
+				focusedFps: clamped,
+				paused: false,
+				pipelineMode: "full_pipeline",
+				renderProfile: "observation",
+				resolution: "320x180",
+				viewMode: "posed"
+			}).pipe(Effect.provideService(RemoteControlClient, remoteControl));
+			return clamped;
+		});
+
+		const setLivePreviewFps = Effect.fn("Workbench.WorkbenchMapReview.setLivePreviewFps")(
+			function* (fps: number) {
+				const bindings = yield* Ref.get(livePreviewBindings);
+				const cameraCount = Option.isSome(bindings) ? bindings.value.bindings.length : 0;
+				return yield* applyLivePreviewSchedule(cameraCount, fps).pipe(
+					Effect.catch((cause) =>
+						Effect.gen(function* () {
+							const clamped = clampLivePreviewFps(fps);
+							yield* Ref.set(livePreviewFps, clamped);
+							yield* Effect.logWarning(
+								`Live preview FPS stored as ${clamped}; schedule update failed: ${String(cause)}`
+							);
+							return clamped;
+						})
+					)
+				);
+			}
+		);
 
 		const reviewProject =
 			configuration.review.status === "not_configured"
@@ -381,6 +460,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 				const { projectRoot } = reviewProject;
 				return yield* coordinator.exclusive(
 					Effect.gen(function* () {
+						yield* invalidateLivePreviewBank();
 						const selection = yield* authoring.inspectSelection(
 							configuration.remoteControlEndpoint
 						);
@@ -488,12 +568,14 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 				}
 				const projectRoot = reviewProject.projectRoot;
-				return yield* authoringSessions
-					.discard({ projectRoot, sessionId: intent.sessionId })
-					.pipe(
-						Effect.map(authoringResult),
-						Effect.catch((cause) => Effect.succeed(mapReviewAuthoringFailure(cause)))
-					);
+				return yield* Effect.gen(function* () {
+					yield* invalidateLivePreviewBank();
+					const session = yield* authoringSessions.discard({
+						projectRoot,
+						sessionId: intent.sessionId
+					});
+					return authoringResult(session);
+				}).pipe(Effect.catch((cause) => Effect.succeed(mapReviewAuthoringFailure(cause))));
 			}
 		);
 
@@ -507,6 +589,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 				const { projectRoot } = reviewProject;
 				return yield* coordinator.exclusive(
 					Effect.gen(function* () {
+						yield* invalidateLivePreviewBank();
 						const selection = yield* authoring.inspectSelection(
 							configuration.remoteControlEndpoint
 						);
@@ -541,35 +624,6 @@ export const WorkbenchMapReviewLive = Layer.effect(
 				}
 				const projectRoot = reviewProject.projectRoot;
 
-				// Warm live path: skip session I/O when the preview bank is already up.
-				const warmBindings = yield* Ref.get(livePreviewBindings);
-				const warmPlay = yield* Ref.get(playActiveCache);
-				if (
-					Option.isSome(warmBindings) &&
-					warmBindings.value.sessionId === intent.sessionId &&
-					Option.isSome(warmPlay) &&
-					warmPlay.value.active
-				) {
-					const binding = warmBindings.value.bindings.find(
-						(item) => item.candidateId === intent.candidateId
-					);
-					if (binding !== undefined) {
-						const frame = yield* awaitReviewPreviewFrame({
-							cameraIndex: binding.index,
-							latestFrames: cameraFeed.latestFrames,
-							timeout: "3 seconds"
-						});
-						return {
-							bytes: frame.pixels,
-							diagnostics: [],
-							height: frame.height,
-							pixelFormat: "bgra8" as const,
-							status: "ready" as const,
-							width: frame.width
-						};
-					}
-				}
-
 				const session = yield* authoringSessions.load({
 					projectRoot,
 					sessionId: intent.sessionId
@@ -590,6 +644,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 						message: `Candidate ${intent.candidateId} is no longer available.`
 					});
 				}
+				const poseFingerprint = livePreviewPoseFingerprint(session.candidates);
 
 				const nowMs = yield* Clock.currentTimeMillis;
 				const cachedPlay = yield* Ref.get(playActiveCache);
@@ -634,36 +689,43 @@ export const WorkbenchMapReviewLive = Layer.effect(
 							const cached = yield* Ref.get(livePreviewBindings);
 							if (
 								Option.isSome(cached) &&
-								cached.value.sessionId === intent.sessionId
+								cached.value.sessionId === intent.sessionId &&
+								cached.value.poseFingerprint === poseFingerprint
 							) {
 								return cached.value.bindings;
 							}
 							return yield* coordinator.exclusive(
-								ensureReviewPreviewSources(
-									configuration.remoteControlEndpoint,
-									session.candidates.map((item) => ({
-										candidateId: item.id,
-										fieldOfViewDegrees: item.approvedPose.fieldOfViewDegrees,
-										height: 180,
-										location: item.approvedPose.location,
-										rotation: item.approvedPose.rotation,
-										width: 320
-									}))
-								).pipe(
-									Effect.provideService(RemoteControlClient, remoteControl),
-									Effect.tap((next) =>
-										Ref.set(
-											livePreviewBindings,
-											Option.some({
-												bindings: next.map((item) => ({
-													candidateId: item.candidateId,
-													index: item.index
-												})),
-												sessionId: intent.sessionId
-											})
-										)
-									)
-								)
+								Effect.gen(function* () {
+									const fps = yield* Ref.get(livePreviewFps);
+									const next = yield* ensureReviewPreviewSources(
+										configuration.remoteControlEndpoint,
+										session.candidates.map((item) => ({
+											candidateId: item.id,
+											fieldOfViewDegrees:
+												item.approvedPose.fieldOfViewDegrees,
+											height: 180,
+											location: item.approvedPose.location,
+											rotation: item.approvedPose.rotation,
+											width: 320
+										})),
+										{ previewFps: fps }
+									).pipe(Effect.provideService(RemoteControlClient, remoteControl));
+									yield* Ref.set(
+										livePreviewBindings,
+										Option.some({
+											bindings: next.map((item) => ({
+												candidateId: item.candidateId,
+												index: item.index
+											})),
+											poseFingerprint,
+											sessionId: intent.sessionId
+										})
+									);
+									return next.map((item) => ({
+										candidateId: item.candidateId,
+										index: item.index
+									}));
+								})
 							);
 						})
 					);
@@ -681,6 +743,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 					return {
 						bytes: frame.pixels,
+						cameraIndex: binding.index,
 						diagnostics: [],
 						height: frame.height,
 						pixelFormat: "bgra8" as const,
@@ -947,6 +1010,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			load,
 			previewAuthoringCandidate,
 			previewCandidate,
+			setLivePreviewFps,
 			worldSnapshot
 		});
 	})

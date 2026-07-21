@@ -130,7 +130,9 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("map-review:preview-candidate", candidateId),
 		capture: (intent: MapReviewCaptureIntent): Promise<MapReviewCaptureResult> =>
 			ipcRenderer.invoke("map-review:capture", intent),
-		load: (): Promise<MapReviewResult> => ipcRenderer.invoke("map-review:load")
+		load: (): Promise<MapReviewResult> => ipcRenderer.invoke("map-review:load"),
+		setLivePreviewFps: (fps: number): Promise<number> =>
+			ipcRenderer.invoke("map-review:set-live-preview-fps", fps)
 	},
 	configure: (config: CameraScheduleConfig): Promise<CameraStatus> =>
 		ipcRenderer.invoke("camera:configure", config),
