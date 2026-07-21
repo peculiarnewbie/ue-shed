@@ -1,105 +1,303 @@
 import * as stylex from "@stylexjs/stylex";
+import { recordObservatoryPaintDuration } from "@ue-shed/observability";
 import {
-	actorInstanceKey,
-	projectActors,
 	type ObservedActor,
 	WorldScoutRefreshRate,
-	type WorldActorSnapshot,
+	type WorldObservationState,
 	type WorldScoutResult
 } from "@ue-shed/observatory";
 import { createEffectAction, createEffectSubscription } from "@ue-shed/ui";
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
-import type { MapReviewClientShape } from "./map-review-client.js";
+import { Effect } from "effect";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { MapReviewClientShape, MapReviewWorldObservation } from "./map-review-client.js";
+import {
+	collectVisibleIndices,
+	colorForClass,
+	contentBounds,
+	createWorldScoutPaintGate,
+	formatCoordinate,
+	hitTestVisibleActors,
+	nearestVisibleActor,
+	paintWorldScout,
+	panViewportBy,
+	projectVisibleActors,
+	resizeCanvasForDisplay,
+	stabilizeViewport,
+	WorldScoutRetainedStore,
+	zoomViewportAt,
+	type WorldScoutPaintGate
+} from "./world-scout-canvas.js";
 
-const classColors = ["#b9f227", "#61d5df", "#f4a261", "#e76f8a", "#9a8cff", "#e9c46a"];
-/** Max pick distance in SVG viewBox percent units (~6% of the map). */
-const mapPickRadiusPercent = 6;
+const streamMaxHz = 60;
+const pollingFallbackMaxHz = 10;
+export const worldScoutFollowIntervalMs = 200;
+export const worldScoutPaintedEvent = "ue-shed:world-scout-painted";
 
-function colorForClass(className: string): string {
-	let hash = 0;
-	for (const character of className) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-	return classColors[Math.abs(hash) % classColors.length] ?? "#b9f227";
+export interface WorldScoutPaintDetail {
+	readonly actorsChanged: number;
+	readonly actorsObserved: number;
+	readonly durationMs: number;
+	readonly sequence: string;
 }
 
-function formatCoordinate(value: number): string {
-	return `${value >= 0 ? "+" : "−"}${Math.abs(Math.round(value)).toLocaleString()}`;
+export function shouldRequestFollowUpdate(lastRequestMs: number, nowMs: number): boolean {
+	return nowMs - lastRequestMs >= worldScoutFollowIntervalMs;
+}
+
+function observationConnectionLabel(state: WorldObservationState | undefined): string {
+	if (state === undefined) return "OFFLINE";
+	switch (state.status) {
+		case "live":
+			return state.sample.catalog.worldKind;
+		case "stale":
+			return "RECONNECTING";
+		case "polling_fallback":
+			return state.snapshot.worldKind;
+		case "connecting":
+			return "CONNECTING";
+		case "unavailable":
+			return state.sample === undefined ? "OFFLINE" : "RECONNECTING";
+	}
+}
+
+function maxRefreshRateFor(state: WorldObservationState | undefined): number {
+	return state?.status === "polling_fallback" ? pollingFallbackMaxHz : streamMaxHz;
 }
 
 export function WorldScout(props: {
-	readonly client: Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
+	readonly client: Pick<
+		MapReviewClientShape,
+		"connectWorld" | "focusActor" | "setWorldObservationRate" | "worldObservations"
+	>;
 	readonly onActorFocused: (actor: ObservedActor) => void;
+	/** Test seam: override paint scheduling to assert animation-frame coalescing. */
+	readonly paintScheduler?: {
+		readonly schedule: (callback: () => void) => number;
+		readonly cancel: (handle: number) => void;
+	};
+	/** Test seam: reports the sparse transform count handed to the retained renderer. */
+	readonly onTransformBatchApplied?: (count: number) => void;
 }) {
 	const subscription = createEffectSubscription();
 	const connectAction = createEffectAction();
 	const focusAction = createEffectAction();
 	const followAction = createEffectAction();
-	/** Latest transport result — may be ready or unavailable. */
-	const [latest, setLatest] = createSignal<WorldScoutResult>();
-	/** Last ready snapshot kept for reconnect UI; updated only on ready. */
-	const [snapshot, setSnapshot] = createSignal<WorldActorSnapshot>();
-	const [refreshRate, setRefreshRate] = createSignal(WorldScoutRefreshRate.make(5));
+	const rateAction = createEffectAction();
+	const store = new WorldScoutRetainedStore();
+	let canvasRef: HTMLCanvasElement | undefined;
+	let paintGate: WorldScoutPaintGate | undefined;
+	let cssWidth = 0;
+	let cssHeight = 0;
+	let viewLocked = false;
+	let lastFollowRequestMs = Number.NEGATIVE_INFINITY;
+	let resizeObserver: ResizeObserver | undefined;
+	let pointerDrag:
+		| {
+				pointerId: number;
+				startX: number;
+				startY: number;
+				moved: boolean;
+		  }
+		| undefined;
+
+	const [latest, setLatest] = createSignal<WorldObservationState>();
+	const [hasWorld, setHasWorld] = createSignal(false);
+	const [refreshRate, setRefreshRate] = createSignal(WorldScoutRefreshRate.make(30));
 	const [query, setQuery] = createSignal("");
 	const [hiddenClasses, setHiddenClasses] = createSignal<ReadonlySet<string>>(new Set());
-	/** Stable across editor↔PIE path changes; resolve against the current snapshot. */
 	const [selectedKey, setSelectedKey] = createSignal<string>();
+	const [selectedStreamIndex, setSelectedStreamIndex] = createSignal<number>();
 	const [following, setFollowing] = createSignal(false);
 	const [navigationStatus, setNavigationStatus] = createSignal("SELECTED FOR REVIEW");
+	const [catalogRevision, setCatalogRevision] = createSignal(0);
+	const [presentationRevision, setPresentationRevision] = createSignal(0);
+	const [selectionRevision, setSelectionRevision] = createSignal(0);
+	const [liveRegion, setLiveRegion] = createSignal("");
 
 	const connectionLabel = createMemo(() => {
-		const current = latest();
-		if (current?.status === "ready") return current.snapshot.worldKind;
-		return snapshot() === undefined ? "OFFLINE" : "RECONNECTING";
+		const label = observationConnectionLabel(latest());
+		if (label === "OFFLINE" && hasWorld()) return "RECONNECTING";
+		return label;
 	});
 	const sampleAge = createMemo(() => {
-		const capturedAt = snapshot()?.capturedAt;
+		presentationRevision();
+		const capturedAt = store.capturedAt;
 		if (capturedAt === undefined) return undefined;
 		return Math.max(0, Date.now() - Date.parse(capturedAt));
 	});
 	const classes = createMemo(() => {
-		const counts = new Map<string, number>();
-		for (const actor of snapshot()?.actors ?? []) {
-			counts.set(actor.className, (counts.get(actor.className) ?? 0) + 1);
-		}
-		return [...counts].toSorted(([left], [right]) => left.localeCompare(right));
+		catalogRevision();
+		return store.classCounts();
 	});
-	const visibleActors = createMemo(() => {
-		const normalized = query().trim().toLocaleLowerCase();
-		return (snapshot()?.actors ?? []).filter(
-			(actor) =>
-				!hiddenClasses().has(actor.className) &&
-				(!normalized ||
-					actor.displayName.toLocaleLowerCase().includes(normalized) ||
-					actor.className.toLocaleLowerCase().includes(normalized))
-		);
+	const visibleCount = createMemo(() => {
+		presentationRevision();
+		return store.visibleIndices.length;
 	});
-	const projection = createMemo(() => projectActors(visibleActors()));
+	const observedCount = createMemo(() => {
+		catalogRevision();
+		return store.count;
+	});
+	const extentLabel = createMemo(() => {
+		presentationRevision();
+		const viewport = store.viewport;
+		if (viewport === undefined) return "—";
+		return `${Math.round(viewport.size).toLocaleString()} × ${Math.round(viewport.size).toLocaleString()} UU`;
+	});
 	const selected = createMemo(() => {
-		const key = selectedKey();
-		if (key === undefined) return undefined;
-		return snapshot()?.actors.find((actor) => actorInstanceKey(actor) === key);
+		selectionRevision();
+		const index = selectedStreamIndex();
+		return index === undefined ? undefined : store.materialize(index);
 	});
-	/**
-	 * Stable string keys for `<For>` — point objects are new every snapshot, so For-by-reference
-	 * remounts DOM between mousedown and click and drops selection updates.
-	 */
-	const mapPointKeys = createMemo(() => {
-		const keys = projection().points.map((point) => actorInstanceKey(point.actor));
-		const current = selectedKey();
-		if (current === undefined || !keys.includes(current)) return keys;
-		return [...keys.filter((key) => key !== current), current];
+	const mapPathLabel = createMemo(() => {
+		catalogRevision();
+		return store.mapPath ?? "No observed world";
 	});
-	const pointForKey = (key: string) =>
-		projection().points.find((point) => actorInstanceKey(point.actor) === key);
+	const rateMax = createMemo(() => maxRefreshRateFor(latest()));
+	const fallbackCadence = createMemo(() => {
+		const state = latest();
+		return state?.status === "polling_fallback" ? state.cadenceHz : undefined;
+	});
 
-	const acceptResult = (current: WorldScoutResult) => {
+	const syncSelectionFromKey = () => {
+		const key = selectedKey();
+		if (key === undefined) {
+			setSelectedStreamIndex(undefined);
+			return;
+		}
+		const index = store.findByInstanceKey(key);
+		setSelectedStreamIndex(index);
+		if (index === undefined) {
+			setFollowing(false);
+			setNavigationStatus("ACTOR LEFT THE OBSERVED WORLD");
+		}
+	};
+
+	const prepareVisibleProjection = () => {
+		collectVisibleIndices(store, query(), hiddenClasses(), store.visibleIndices);
+		const bounds = contentBounds(store, store.visibleIndices);
+		if (!viewLocked) {
+			store.viewport = stabilizeViewport(store.viewport, bounds);
+		} else if (store.viewport === undefined) {
+			store.viewport = stabilizeViewport(undefined, bounds);
+		}
+		if (cssWidth > 0 && cssHeight > 0 && store.viewport !== undefined) {
+			projectVisibleActors(store, store.viewport, cssWidth, cssHeight, store.visibleIndices);
+		}
+	};
+
+	const paint = () => {
+		const canvas = canvasRef;
+		if (canvas === undefined || cssWidth <= 0 || cssHeight <= 0) return;
+		const started = performance.now();
+		const context = resizeCanvasForDisplay(
+			canvas,
+			cssWidth,
+			cssHeight,
+			typeof window === "undefined" ? 1 : window.devicePixelRatio || 1
+		);
+		if (!context) return;
+		prepareVisibleProjection();
+		paintWorldScout(
+			context,
+			store,
+			store.visibleIndices.length,
+			selectedStreamIndex(),
+			cssWidth,
+			cssHeight
+		);
+		const durationMs = performance.now() - started;
+		Effect.runSync(recordObservatoryPaintDuration(durationMs));
+		setPresentationRevision((value) => value + 1);
+		window.dispatchEvent(
+			new CustomEvent<WorldScoutPaintDetail>(worldScoutPaintedEvent, {
+				detail: {
+					actorsChanged: lastPaintActorsChanged,
+					actorsObserved: store.count,
+					durationMs,
+					sequence: lastPaintSequence
+				}
+			})
+		);
+	};
+
+	const requestPaint = () => {
+		paintGate?.markDirty();
+	};
+
+	let lastCatalogIdentity: string | undefined;
+	let lastPaintActorsChanged = 0;
+	let lastPaintSequence = "0";
+	const acceptObservation = (current: MapReviewWorldObservation) => {
 		setLatest(current);
-		if (current.status === "ready") setSnapshot(current.snapshot);
+		if (current.status === "live" || current.status === "stale") {
+			const identity = `${current.sample.catalog.sessionId}:${current.sample.catalog.revision}`;
+			lastPaintSequence = current.sample.lastSequence.toString();
+			if (identity !== lastCatalogIdentity) {
+				store.installCatalog(current.sample);
+				lastCatalogIdentity = identity;
+				viewLocked = false;
+				lastPaintActorsChanged = store.count;
+				setCatalogRevision((value) => value + 1);
+			} else {
+				const changed =
+					current.changedTransforms ??
+					[...current.sample.transforms].map(([streamIndex, transform]) => ({
+						streamIndex,
+						transform
+					}));
+				store.applyTransforms(changed, current.sample.sampleWorldSeconds);
+				lastPaintActorsChanged = changed.length;
+				props.onTransformBatchApplied?.(changed.length);
+				store.capturedAt = current.sample.catalog.capturedAt;
+			}
+			setHasWorld(true);
+		} else if (current.status === "polling_fallback") {
+			lastCatalogIdentity = undefined;
+			store.installSnapshot(current.snapshot);
+			lastPaintActorsChanged = store.count;
+			lastPaintSequence = String(current.snapshot.sequence);
+			setCatalogRevision((value) => value + 1);
+			setHasWorld(true);
+		} else if (current.status === "unavailable" && current.sample !== undefined) {
+			lastCatalogIdentity = `${current.sample.catalog.sessionId}:${current.sample.catalog.revision}`;
+			store.installCatalog(current.sample);
+			lastPaintActorsChanged = store.count;
+			lastPaintSequence = current.sample.lastSequence.toString();
+			setCatalogRevision((value) => value + 1);
+			setHasWorld(true);
+		}
+		syncSelectionFromKey();
+		setSelectionRevision((value) => value + 1);
+		const selectedActor = selected();
+		if (selectedActor !== undefined) {
+			setLiveRegion(
+				`${selectedActor.displayName}, ${selectedActor.className}, X ${formatCoordinate(selectedActor.location.x)}, Y ${formatCoordinate(selectedActor.location.y)}, Z ${formatCoordinate(selectedActor.location.z)}`
+			);
+		}
+		requestPaint();
+	};
+
+	const acceptConnectResult = (current: WorldScoutResult) => {
+		if (current.status === "ready") {
+			acceptObservation({
+				status: "polling_fallback",
+				cadenceHz: Math.min(refreshRate(), pollingFallbackMaxHz),
+				message: "Connected through a one-shot world snapshot.",
+				snapshot: current.snapshot
+			});
+			return;
+		}
+		acceptObservation({
+			status: "unavailable",
+			message: current.message,
+			recovery: current.recovery
+		});
 	};
 
 	const subscribe = (rate: WorldScoutRefreshRate) => {
-		subscription.subscribe(props.client.worldSnapshots(rate), {
+		subscription.subscribe(props.client.worldObservations(rate), {
 			onValue: (current) => {
-				acceptResult(current);
+				acceptObservation(current);
 				if (!following()) return;
 				const actor = selected();
 				if (actor === undefined) {
@@ -107,7 +305,10 @@ export function WorldScout(props: {
 					setNavigationStatus("ACTOR LEFT THE OBSERVED WORLD");
 					return;
 				}
-				if (current.status !== "ready") return;
+				if (current.status !== "live" && current.status !== "polling_fallback") return;
+				const nowMs = performance.now();
+				if (!shouldRequestFollowUpdate(lastFollowRequestMs, nowMs)) return;
+				lastFollowRequestMs = nowMs;
 				followAction.run(props.client.focusActor(actor.id, false), {
 					onSuccess: (focus) => {
 						if (focus.status !== "focused") {
@@ -120,16 +321,42 @@ export function WorldScout(props: {
 		});
 	};
 
-	onMount(() => subscribe(refreshRate()));
+	onMount(() => {
+		paintGate = createWorldScoutPaintGate(
+			paint,
+			props.paintScheduler?.schedule,
+			props.paintScheduler?.cancel
+		);
+		subscribe(refreshRate());
+	});
+	onCleanup(() => {
+		paintGate?.dispose();
+		paintGate = undefined;
+		resizeObserver?.disconnect();
+		resizeObserver = undefined;
+	});
+
+	createEffect(() => {
+		query();
+		hiddenClasses();
+		selectedStreamIndex();
+		requestPaint();
+	});
 
 	const connect = () =>
-		connectAction.run(props.client.connectWorld(), { onSuccess: acceptResult });
+		connectAction.run(props.client.connectWorld(), { onSuccess: acceptConnectResult });
 	const updateRefreshRate = (value: string) => {
 		const parsed = Number(value);
-		if (!Number.isInteger(parsed) || parsed < 1 || parsed > 30) return;
+		const max = rateMax();
+		if (!Number.isInteger(parsed) || parsed < 1 || parsed > max) return;
 		const next = WorldScoutRefreshRate.make(parsed);
-		setRefreshRate(next);
-		subscribe(next);
+		if (props.client.setWorldObservationRate === undefined) {
+			setRefreshRate(next);
+			return;
+		}
+		rateAction.run(props.client.setWorldObservationRate(next), {
+			onSuccess: (applied) => setRefreshRate(applied)
+		});
 	};
 	const toggleClass = (className: string) =>
 		setHiddenClasses((current) => {
@@ -138,31 +365,135 @@ export function WorldScout(props: {
 			else next.add(className);
 			return next;
 		});
-	const selectActor = (actor: ObservedActor) => {
-		setSelectedKey(actorInstanceKey(actor));
+	const selectStreamIndex = (streamIndex: number) => {
+		const meta = store.actorAt(streamIndex);
+		if (meta === undefined) return;
+		setSelectedKey(meta.instanceKey);
+		setSelectedStreamIndex(streamIndex);
 		setFollowing(false);
 		setNavigationStatus("SELECTED FOR REVIEW");
+		setLiveRegion(
+			`${meta.displayName}, ${meta.className}, X ${formatCoordinate(store.locationX[streamIndex] ?? 0)}, Y ${formatCoordinate(store.locationY[streamIndex] ?? 0)}, Z ${formatCoordinate(store.locationZ[streamIndex] ?? 0)}`
+		);
+		requestPaint();
 	};
-	const pickNearestActor = (event: PointerEvent & { currentTarget: SVGSVGElement }) => {
-		if (event.button !== 0) return;
+	const pickNearestActor = (cssX: number, cssY: number) => {
+		prepareVisibleProjection();
+		const hit = hitTestVisibleActors(
+			store,
+			store.visibleIndices.length,
+			cssX,
+			cssY,
+			cssWidth,
+			cssHeight
+		);
+		if (hit !== undefined) selectStreamIndex(hit);
+	};
+	const syncCanvasSize = (frame: Element) => {
+		const rect = frame.getBoundingClientRect();
+		const nextWidth = Math.max(1, rect.width - 56);
+		const nextHeight = Math.max(1, rect.height - 56);
+		if (nextWidth === cssWidth && nextHeight === cssHeight) return;
+		cssWidth = nextWidth;
+		cssHeight = nextHeight;
+		requestPaint();
+	};
+	const onCanvasWheel = (event: WheelEvent & { currentTarget: HTMLCanvasElement }) => {
+		event.preventDefault();
+		const viewport = store.viewport;
+		if (viewport === undefined) return;
 		const rect = event.currentTarget.getBoundingClientRect();
-		if (rect.width <= 0 || rect.height <= 0) return;
-		const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
-		const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
-		let nearest: { readonly actor: ObservedActor; readonly distance: number } | undefined;
-		for (const point of projection().points) {
-			const distance = Math.hypot(point.xPercent - xPercent, point.yPercent - yPercent);
-			if (distance > mapPickRadiusPercent) continue;
-			if (nearest === undefined || distance < nearest.distance) {
-				nearest = { actor: point.actor, distance };
-			}
+		cssWidth = Math.max(1, rect.width);
+		cssHeight = Math.max(1, rect.height);
+		const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+		store.viewport = zoomViewportAt(
+			viewport,
+			cssWidth,
+			cssHeight,
+			event.clientX - rect.left,
+			event.clientY - rect.top,
+			factor
+		);
+		viewLocked = true;
+		requestPaint();
+	};
+	const onCanvasPointerDown = (event: PointerEvent & { currentTarget: HTMLCanvasElement }) => {
+		if (event.button !== 0 && event.button !== 1) return;
+		const rect = event.currentTarget.getBoundingClientRect();
+		cssWidth = Math.max(1, rect.width);
+		cssHeight = Math.max(1, rect.height);
+		pointerDrag = {
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			moved: false
+		};
+		event.currentTarget.setPointerCapture?.(event.pointerId);
+	};
+	const onCanvasPointerMove = (event: PointerEvent & { currentTarget: HTMLCanvasElement }) => {
+		if (pointerDrag === undefined || pointerDrag.pointerId !== event.pointerId) return;
+		const dx = event.clientX - pointerDrag.startX;
+		const dy = event.clientY - pointerDrag.startY;
+		if (!pointerDrag.moved && Math.hypot(dx, dy) < 4) return;
+		const viewport = store.viewport;
+		if (viewport === undefined) return;
+		pointerDrag.moved = true;
+		pointerDrag.startX = event.clientX;
+		pointerDrag.startY = event.clientY;
+		store.viewport = panViewportBy(viewport, cssWidth, cssHeight, dx, dy);
+		viewLocked = true;
+		requestPaint();
+	};
+	const onCanvasPointerUp = (event: PointerEvent & { currentTarget: HTMLCanvasElement }) => {
+		if (pointerDrag === undefined || pointerDrag.pointerId !== event.pointerId) return;
+		const drag = pointerDrag;
+		pointerDrag = undefined;
+		event.currentTarget.releasePointerCapture?.(event.pointerId);
+		if (drag.moved || event.button === 1) return;
+		const rect = event.currentTarget.getBoundingClientRect();
+		pickNearestActor(event.clientX - rect.left, event.clientY - rect.top);
+	};
+	const resetView = () => {
+		viewLocked = false;
+		store.viewport = undefined;
+		requestPaint();
+	};
+	const onCanvasKeyDown = (event: KeyboardEvent) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			setSelectedKey(undefined);
+			setSelectedStreamIndex(undefined);
+			setFollowing(false);
+			setNavigationStatus("SELECTION CLEARED");
+			setLiveRegion("Selection cleared");
+			requestPaint();
+			return;
 		}
-		if (nearest) selectActor(nearest.actor);
+		if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+			event.preventDefault();
+			prepareVisibleProjection();
+			const next = nearestVisibleActor(store, selectedStreamIndex(), "next");
+			if (next !== undefined) selectStreamIndex(next);
+			return;
+		}
+		if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+			event.preventDefault();
+			prepareVisibleProjection();
+			const previous = nearestVisibleActor(store, selectedStreamIndex(), "previous");
+			if (previous !== undefined) selectStreamIndex(previous);
+			return;
+		}
+		if (event.key === "Enter") {
+			event.preventDefault();
+			const actor = selected();
+			if (actor !== undefined) goToActor(actor, false);
+		}
 	};
 	const goToActor = (actor: ObservedActor, follow: boolean) => {
 		focusAction.run(props.client.focusActor(actor.id, true), {
 			onSuccess: (focus) => {
 				if (focus.status === "focused") {
+					lastFollowRequestMs = performance.now();
 					setFollowing(follow);
 					setNavigationStatus(
 						follow
@@ -179,6 +510,20 @@ export function WorldScout(props: {
 			}
 		});
 	};
+	const setCanvasElement = (element: HTMLCanvasElement) => {
+		canvasRef = element;
+		const frame = element.parentElement;
+		resizeObserver?.disconnect();
+		resizeObserver = undefined;
+		if (frame !== null) {
+			syncCanvasSize(frame);
+			if (typeof ResizeObserver !== "undefined") {
+				resizeObserver = new ResizeObserver(() => syncCanvasSize(frame));
+				resizeObserver.observe(frame);
+			}
+		}
+		requestPaint();
+	};
 
 	return (
 		<section aria-label="Live top-down actor map" {...stylex.props(styles.scout)}>
@@ -190,9 +535,7 @@ export function WorldScout(props: {
 				<div {...stylex.props(styles.worldStatus)}>
 					<span {...stylex.props(styles.liveDot)} />
 					<strong>{connectionLabel()}</strong>
-					<code {...stylex.props(styles.worldStatusCode)}>
-						{snapshot()?.mapPath ?? "No observed world"}
-					</code>
+					<code {...stylex.props(styles.worldStatusCode)}>{mapPathLabel()}</code>
 					<Show when={sampleAge()}>
 						{(age) => (
 							<small {...stylex.props(styles.sampleAge)}>
@@ -206,7 +549,7 @@ export function WorldScout(props: {
 			</header>
 
 			<Show
-				when={snapshot()}
+				when={hasWorld()}
 				fallback={
 					<div {...stylex.props(styles.offline)}>
 						<div {...stylex.props(styles.offlineReticle)}>＋</div>
@@ -265,8 +608,8 @@ export function WorldScout(props: {
 						</For>
 					</div>
 					<div {...stylex.props(styles.sampleMeta)}>
-						<strong>{visibleActors().length}</strong>
-						<span>VISIBLE / {snapshot()?.actors.length ?? 0} OBSERVED</span>
+						<strong>{visibleCount()}</strong>
+						<span>VISIBLE / {observedCount()} OBSERVED</span>
 					</div>
 					<label {...stylex.props(styles.rateControl)}>
 						<span>REFRESH RATE</span>
@@ -274,84 +617,54 @@ export function WorldScout(props: {
 							type="range"
 							aria-label="World refresh rate"
 							min="1"
-							max="30"
+							max={rateMax()}
 							step="1"
-							value={refreshRate()}
+							value={Math.min(refreshRate(), rateMax())}
 							onInput={(event) => updateRefreshRate(event.currentTarget.value)}
 							{...stylex.props(styles.rateSlider)}
 						/>
-						<strong>{refreshRate()} HZ</strong>
+						<strong>
+							{Math.min(refreshRate(), rateMax())} HZ
+							{fallbackCadence() === undefined
+								? ""
+								: ` · FALLBACK ${fallbackCadence()} HZ`}
+						</strong>
 					</label>
 				</div>
 
 				<div {...stylex.props(styles.workspace)}>
 					<div {...stylex.props(styles.mapFrame)}>
 						<div {...stylex.props(styles.north)}>N ↑</div>
-						<div {...stylex.props(styles.extentLabel)}>
-							{Math.round(projection().width).toLocaleString()} ×{" "}
-							{Math.round(projection().height).toLocaleString()} UU
-						</div>
-						<svg
-							viewBox="0 0 100 100"
-							preserveAspectRatio="xMidYMid meet"
-							role="img"
-							aria-label="Top-down actor map"
-							onPointerDown={pickNearestActor}
-							{...stylex.props(styles.map)}
+						<div {...stylex.props(styles.extentLabel)}>{extentLabel()}</div>
+						<button
+							type="button"
+							onClick={resetView}
+							{...stylex.props(styles.resetView)}
 						>
-							<For each={mapPointKeys()}>
-								{(key) => {
-									const point = createMemo(() => pointForKey(key));
-									const isSelected = () => selectedKey() === key;
-									return (
-										<Show when={point()}>
-											{(current) => (
-												<g
-													role="button"
-													tabIndex={0}
-													aria-label={`Select ${current().actor.displayName}`}
-													onPointerDown={(event) => {
-														if (event.button !== 0) return;
-														event.stopPropagation();
-														selectActor(current().actor);
-													}}
-													onKeyDown={(event) => {
-														if (
-															event.key === "Enter" ||
-															event.key === " "
-														) {
-															event.preventDefault();
-															selectActor(current().actor);
-														}
-													}}
-													{...stylex.props(styles.actorPoint)}
-												>
-													<circle
-														cx={current().xPercent}
-														cy={current().yPercent}
-														r={4.5}
-														fill="transparent"
-													/>
-													<circle
-														cx={current().xPercent}
-														cy={current().yPercent}
-														r={isSelected() ? 2.15 : 1.25}
-														fill={colorForClass(
-															current().actor.className
-														)}
-														stroke={
-															isSelected() ? "#ffffff" : "#0a0d0b"
-														}
-														stroke-width={isSelected() ? 0.65 : 0.35}
-														vector-effect="non-scaling-stroke"
-													/>
-												</g>
-											)}
-										</Show>
-									);
-								}}
-							</For>
-						</svg>
+							RESET VIEW
+						</button>
+						<canvas
+							ref={setCanvasElement}
+							role="application"
+							tabIndex={0}
+							aria-label="Top-down actor map"
+							aria-describedby="world-scout-live"
+							title="Scroll to zoom, drag to pan, click to select"
+							onWheel={onCanvasWheel}
+							onPointerDown={onCanvasPointerDown}
+							onPointerMove={onCanvasPointerMove}
+							onPointerUp={onCanvasPointerUp}
+							onPointerCancel={onCanvasPointerUp}
+							onKeyDown={onCanvasKeyDown}
+							{...stylex.props(styles.map)}
+						/>
+						<div
+							id="world-scout-live"
+							aria-live="polite"
+							{...stylex.props(styles.liveRegion)}
+						>
+							{liveRegion()}
+						</div>
 						<div {...stylex.props(styles.axisX)}>WORLD X →</div>
 						<div {...stylex.props(styles.axisY)}>WORLD Y →</div>
 					</div>
@@ -568,9 +881,33 @@ const styles = stylex.create({
 		inset: 28,
 		width: "calc(100% - 56px)",
 		height: "calc(100% - 56px)",
-		overflow: "visible"
+		cursor: "crosshair",
+		touchAction: "none",
+		outline: { ":focus": "1px solid #ffffff" }
 	},
-	actorPoint: { cursor: "pointer", outline: { ":focus": "1px solid #fff" } },
+	resetView: {
+		position: "absolute",
+		top: 10,
+		left: "50%",
+		transform: "translateX(-50%)",
+		zIndex: 2,
+		border: "1px solid #3a433c",
+		backgroundColor: { default: "#111512cc", ":hover": "#1a211c" },
+		color: "#9aa49c",
+		padding: "4px 8px",
+		fontSize: 8,
+		fontWeight: 800,
+		letterSpacing: ".1em",
+		cursor: "pointer"
+	},
+	liveRegion: {
+		position: "absolute",
+		width: 1,
+		height: 1,
+		overflow: "hidden",
+		clip: "rect(0 0 0 0)",
+		whiteSpace: "nowrap"
+	},
 	north: {
 		position: "absolute",
 		top: 12,

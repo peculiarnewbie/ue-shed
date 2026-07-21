@@ -15,10 +15,11 @@ import {
 import type { WorldObservationState } from "./world-observation.js";
 
 export * from "./actor-models.js";
+export { actorInstanceKey, remapObservedActorId } from "./actor-identity.js";
 
 export const WorldScoutRefreshRate = Schema.Int.check(
 	Schema.isGreaterThanOrEqualTo(1),
-	Schema.isLessThanOrEqualTo(30)
+	Schema.isLessThanOrEqualTo(60)
 ).pipe(Schema.brand("WorldScoutRefreshRate"));
 export type WorldScoutRefreshRate = Schema.Schema.Type<typeof WorldScoutRefreshRate>;
 
@@ -63,6 +64,15 @@ export type WorldScoutResult = Schema.Schema.Type<typeof WorldScoutResult>;
 export const WorldScoutFocusResult = FocusResponse;
 export type WorldScoutFocusResult = Schema.Schema.Type<typeof WorldScoutFocusResult>;
 
+const ObservationCadenceResponse = Schema.Union([
+	Schema.Struct({ status: Schema.Literal("ready"), cadenceHz: WorldScoutRefreshRate }),
+	Schema.Struct({
+		status: Schema.Literal("failed"),
+		message: Schema.String,
+		recovery: Schema.String
+	})
+]);
+
 export class ObservatoryConnectionError extends Schema.TaggedErrorClass<ObservatoryConnectionError>()(
 	"ObservatoryConnectionError",
 	{
@@ -74,6 +84,11 @@ export class ObservatoryConnectionError extends Schema.TaggedErrorClass<Observat
 ) {}
 
 export interface ObservatoryShape {
+	/** Retunes an active named-pipe producer without replacing its session or writer. */
+	readonly setObservationCadence: (
+		endpoint: string,
+		cadenceHz: WorldScoutRefreshRate
+	) => Effect.Effect<WorldScoutRefreshRate, ObservatoryConnectionError>;
 	readonly focus: (
 		endpoint: string,
 		actorId: ActorIdType,
@@ -165,10 +180,45 @@ export const ObservatoryLive = Layer.effect(
 			);
 		});
 
+		const setObservationCadence = Effect.fn("Observatory.setObservationCadence")(function* (
+			endpoint: string,
+			cadenceHz: WorldScoutRefreshRate
+		) {
+			const value = yield* remote
+				.request({
+					endpoint,
+					functionName: "SetActorObservationCadence",
+					objectPath,
+					operation: "observatory.set_actor_observation_cadence",
+					parameters: { RequestJson: JSON.stringify({ cadenceHz }) }
+				})
+				.pipe(
+					Effect.mapError((cause) =>
+						connectionError("set_actor_observation_cadence", cause)
+					)
+				);
+			const response = yield* Schema.decodeUnknownEffect(ObservationCadenceResponse)(
+				value
+			).pipe(
+				Effect.mapError((cause) =>
+					connectionError("set_actor_observation_cadence.decode", cause)
+				)
+			);
+			if (response.status === "ready") return response.cadenceHz;
+			return yield* Effect.fail(
+				new ObservatoryConnectionError({
+					message: response.message,
+					operation: "set_actor_observation_cadence",
+					recovery: response.recovery,
+					retrySafe: true
+				})
+			);
+		});
+
 		const observe = (endpoint: string, options: ObserveActorFeedOptions) =>
 			observeActorFeed(remote, endpoint, options);
 
-		return Observatory.of({ focus, observe, snapshot });
+		return Observatory.of({ focus, observe, setObservationCadence, snapshot });
 	})
 );
 
@@ -219,29 +269,6 @@ export function projectActors(
 		})),
 		width
 	};
-}
-
-/** Stable key across editor ↔ PIE path prefixes for the same placed instance. */
-export function actorInstanceKey(actor: Pick<ObservedActorType, "className" | "path">): string {
-	const leaf = actor.path.split(".").at(-1) ?? actor.path;
-	const persistent = leaf.includes("PersistentLevel.")
-		? leaf.slice(leaf.indexOf("PersistentLevel.") + "PersistentLevel.".length)
-		: leaf.replace(/^UEDPIE_\d+_/, "");
-	return `${actor.className}:${persistent}`;
-}
-
-/** Keep a scout selection when snapshot actor ids change (PLAY start/stop). */
-export function remapObservedActorId(
-	previousId: ActorIdType | undefined,
-	previousActors: ReadonlyArray<ObservedActorType>,
-	nextActors: ReadonlyArray<ObservedActorType>
-): ActorIdType | undefined {
-	if (previousId === undefined) return undefined;
-	if (nextActors.some((actor) => actor.id === previousId)) return previousId;
-	const prior = previousActors.find((actor) => actor.id === previousId);
-	if (prior === undefined) return undefined;
-	const key = actorInstanceKey(prior);
-	return nextActors.find((actor) => actorInstanceKey(actor) === key)?.id;
 }
 
 export {
@@ -306,5 +333,6 @@ export type {
 	ActorFeedMetrics,
 	ActorFeedOptions,
 	ActorFeedShape,
+	ActorObservationDiagnostic,
 	ObserveActorFeedOptions
 } from "./actor-feed.js";

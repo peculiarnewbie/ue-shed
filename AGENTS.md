@@ -14,8 +14,10 @@ layer.
 
 ## Commands
 
-Run `pnpm check` after edits. Individual commands are `typecheck`, `lint`, `format:check`, and
-`test`.
+Run `pnpm check` after edits and immediately before returning work to the user. A task is not
+complete while this check is failing: fix the failures and rerun the check, or clearly report the
+remaining blocker instead of handing back an unverified change. Individual commands are
+`typecheck`, `lint`, `format:check`, and `test`.
 
 ## Unreal Engine reference
 

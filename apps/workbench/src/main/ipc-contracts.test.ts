@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import {
 	cameraFrameEvent,
+	worldObservationEvent,
 	CandidateId,
 	decodeCameraFrameEvent,
 	GameObjectPath,
@@ -163,7 +164,10 @@ const validArgsByChannel: Record<InvokeChannel, unknown> = {
 	"map-review:approve-authoring": [{ sessionId: "session-1" }],
 	"map-review:preview-candidate": ["candidate-1"],
 	"map-review:approve-candidate": [approveIntent],
-	"map-review:set-live-preview-fps": [5]
+	"map-review:set-live-preview-fps": [5],
+	"map-review:subscribe-world-observations": [5],
+	"map-review:set-world-observation-rate": [5],
+	"map-review:unsubscribe-world-observations": []
 };
 
 const validResultByChannel: Record<InvokeChannel, unknown> = {
@@ -263,7 +267,10 @@ const validResultByChannel: Record<InvokeChannel, unknown> = {
 		error: { message: "missing", recovery: "reframe" }
 	},
 	"map-review:approve-candidate": { status: "approved", candidateId: "candidate-1" },
-	"map-review:set-live-preview-fps": 5
+	"map-review:set-live-preview-fps": 5,
+	"map-review:subscribe-world-observations": undefined,
+	"map-review:set-world-observation-rate": 5,
+	"map-review:unsubscribe-world-observations": undefined
 };
 
 const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
@@ -289,18 +296,23 @@ const malformedArgsByChannel: Partial<Record<InvokeChannel, unknown>> = {
 	"map-review:approve-authoring": [{ sessionId: "" }],
 	"map-review:capture": [{ viewIds: [] }],
 	"map-review:approve-candidate": [{ candidateId: "only" }],
-	"map-review:set-live-preview-fps": ["fast"]
+	"map-review:set-live-preview-fps": ["fast"],
+	"map-review:subscribe-world-observations": [0],
+	"map-review:set-world-observation-rate": [0]
 };
 
-it("registers exactly 43 invoke channels plus the camera:frame event", () => {
-	expect(invokeChannelNames).toHaveLength(43);
-	expect(new Set(invokeChannelNames).size).toBe(43);
+it("registers exactly 46 invoke channels plus camera and world-observation events", () => {
+	expect(invokeChannelNames).toHaveLength(46);
+	expect(new Set(invokeChannelNames).size).toBe(46);
 	expect(cameraFrameEvent.channel).toBe("camera:frame");
+	expect(worldObservationEvent.channel).toBe("map-review:world-observation");
 });
 
 it("keeps contract channels in exact preload parity", () => {
 	expect([...preloadInvokeChannels].sort()).toEqual([...invokeChannelNames].sort());
-	expect(preloadEventChannels).toEqual(["camera:frame"]);
+	expect(preloadEventChannels.toSorted()).toEqual(
+		["camera:frame", "map-review:world-observation"].toSorted()
+	);
 });
 
 it("decodes valid arguments for every invoke channel", () => {

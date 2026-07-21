@@ -64,16 +64,22 @@ type FixtureContract = {
 		readonly cameraSources: number;
 		readonly actorFamilies: {
 			readonly stationary: {
+				readonly className: string;
+				readonly count: number;
 				readonly shape: string;
 				readonly materialColor: string;
 				readonly behavior: string;
 			};
 			readonly flying: {
+				readonly className: string;
+				readonly count: number;
 				readonly shape: string;
 				readonly materialColor: string;
 				readonly behavior: string;
 			};
 			readonly intermittent: {
+				readonly className: string;
+				readonly count: number;
 				readonly shape: string;
 				readonly materialColor: string;
 				readonly behavior: string;
@@ -190,20 +196,26 @@ describe("generic Unreal fixture contract", () => {
 	it("declares the reproducible multi-camera load map", () => {
 		expect(contract.cameraLoad).toEqual({
 			map: "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad",
-			movingActors: 32,
+			movingActors: 4096,
 			cameraSources: 32,
 			actorFamilies: {
 				stationary: {
+					className: "UEShedFixtureStationary",
+					count: 3278,
 					shape: "cube",
 					materialColor: "slate",
 					behavior: "fixed-pose"
 				},
 				flying: {
+					className: "UEShedFixtureFlying",
+					count: 409,
 					shape: "sphere",
 					materialColor: "cyan",
 					behavior: "airborne-orbit"
 				},
 				intermittent: {
+					className: "UEShedFixtureIntermittent",
+					count: 409,
 					shape: "cylinder",
 					materialColor: "amber",
 					behavior: "visibility-cycle"

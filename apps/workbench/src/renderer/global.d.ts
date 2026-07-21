@@ -5,7 +5,11 @@ import type {
 	EditorPlaySessionCommandResponse,
 	EditorPlaySessionStateResponse
 } from "@ue-shed/protocol";
-import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
+import type {
+	WorldScoutFocusResult,
+	WorldScoutRefreshRate,
+	WorldScoutResult
+} from "@ue-shed/observatory";
 import type { AuthoringSessionIntent } from "@ue-shed/authoring-sdk";
 import type {
 	MapReviewApprovalResult,
@@ -21,6 +25,7 @@ import type {
 } from "@ue-shed/extension-camera-review/client";
 import type {
 	RendererCameraFrame,
+	RendererWorldObservationEvent,
 	FixtureLaunchResult,
 	ShowcaseContext,
 	WorkbenchCameraMetrics
@@ -102,11 +107,21 @@ declare global {
 				) => Promise<MapReviewCaptureResult>;
 				readonly load: () => Promise<MapReviewResult>;
 				readonly setLivePreviewFps: (fps: number) => Promise<number>;
+				readonly subscribeWorldObservations: (
+					cadenceHz: WorldScoutRefreshRate
+				) => Promise<void>;
+				readonly setWorldObservationRate: (
+					cadenceHz: WorldScoutRefreshRate
+				) => Promise<WorldScoutRefreshRate>;
+				readonly unsubscribeWorldObservations: () => Promise<void>;
 			};
 			readonly configure: (config: CameraScheduleConfig) => Promise<CameraStatus>;
 			readonly getMetrics: () => Promise<WorkbenchCameraMetrics>;
 			readonly getStatus: () => Promise<CameraStatus>;
 			readonly onFrame: (listener: (frame: RendererCameraFrame) => void) => () => void;
+			readonly onWorldObservation: (
+				listener: (event: RendererWorldObservationEvent) => void
+			) => () => void;
 			readonly setPresentationBudget: (megabytesPerSecond: number) => Promise<number>;
 		};
 	}

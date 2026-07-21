@@ -1,4 +1,8 @@
 import {
+	recordObservatoryPacket,
+	recordObservatoryReceiverReplacements
+} from "@ue-shed/observability";
+import {
 	RemoteControlClientError,
 	type RemoteControlClientShape
 } from "@ue-shed/unreal-connection";
@@ -17,6 +21,8 @@ import {
 import { createServer, type Server, type Socket } from "node:net";
 import { ActorId, WorldActorSnapshot, WorldVector } from "./actor-models.js";
 import {
+	ACTOR_STREAM_HEADER_BYTES,
+	ACTOR_STREAM_RECORD_BYTES,
 	ActorStreamDecoder,
 	actorStreamPacketToTransformBatch,
 	type ActorStreamPacket
@@ -51,6 +57,18 @@ export interface ActorFeedMetrics {
 	readonly packetsReceived: number;
 	readonly startedMonotonicMs: number;
 	readonly transportErrors: number;
+}
+
+/** One accepted live packet as observed at the host boundary, for benchmarks and diagnostics. */
+export interface ActorObservationDiagnostic {
+	readonly actorsChanged: number;
+	readonly actorsSampled: number;
+	readonly decodeApplyMs: number;
+	readonly missingSequences: number;
+	readonly producerReplacements: number;
+	readonly receiverReplacements: number;
+	readonly samplingDurationMicros: number;
+	readonly sequence: bigint;
 }
 
 export class ActorFeedError extends Schema.TaggedErrorClass<ActorFeedError>()("ActorFeedError", {
@@ -199,6 +217,7 @@ function acquireActorFeedResource(
 							Effect.gen(function* () {
 								if ((yield* PubSub.size(pubsub)) >= capacity) {
 									deliveryReplacements += 1;
+									yield* recordObservatoryReceiverReplacements(1);
 								}
 								yield* PubSub.publish(pubsub, packet);
 							}),
@@ -498,6 +517,7 @@ function runLiveAttempt(args: {
 	readonly feed: ActorFeedShape;
 	readonly getState: () => WorldObservationState;
 	readonly maxConsecutiveRejectedBatches: number;
+	readonly onDiagnostic?: (diagnostic: ActorObservationDiagnostic) => Effect.Effect<void>;
 	readonly publish: (state: WorldObservationState) => Effect.Effect<void>;
 }): Effect.Effect<AttemptOutcome> {
 	return Effect.gen(function* () {
@@ -508,8 +528,10 @@ function runLiveAttempt(args: {
 			receivedSessionId: undefined
 		};
 		let consecutiveRejected = 0;
+		let previousProducerReplacements = 0;
 		yield* Stream.runForEachWhile(args.feed.packets, (packet) =>
 			Effect.gen(function* () {
+				const applyStarted = performance.now();
 				const stateBefore = args.getState();
 				const event: WorldObservationEvent = packet.reset
 					? {
@@ -519,7 +541,46 @@ function runLiveAttempt(args: {
 						}
 					: { _tag: "transforms", batch: actorStreamPacketToTransformBatch(packet) };
 				const result = applyWorldObservationEvent(stateBefore, event);
+				const decodeApplyMs = packet.decodeDurationMs + performance.now() - applyStarted;
+				const priorSequence =
+					stateBefore.status === "live" || stateBefore.status === "stale"
+						? stateBefore.sample.lastSequence
+						: undefined;
+				const missingSequences =
+					priorSequence === undefined || packet.sequence <= priorSequence + 1n
+						? 0
+						: Number(packet.sequence - priorSequence - 1n);
+				const feedMetrics = yield* args.feed.metrics;
 				yield* args.publish(result.state);
+				yield* recordObservatoryPacket({
+					actorsChanged: packet.actorsChanged,
+					actorsSampled: packet.actorsSampled,
+					bytes:
+						ACTOR_STREAM_HEADER_BYTES +
+						packet.records.length * ACTOR_STREAM_RECORD_BYTES,
+					decodeApplyMs,
+					producerReplacements: Math.max(
+						0,
+						packet.producerReplacements - previousProducerReplacements
+					),
+					sequenceGap: result.sequenceGap
+				});
+				previousProducerReplacements = Math.max(
+					previousProducerReplacements,
+					packet.producerReplacements
+				);
+				if (args.onDiagnostic !== undefined && result.accepted && !packet.reset) {
+					yield* args.onDiagnostic({
+						actorsChanged: packet.actorsChanged,
+						actorsSampled: packet.actorsSampled,
+						decodeApplyMs,
+						missingSequences,
+						producerReplacements: packet.producerReplacements,
+						receiverReplacements: feedMetrics.deliveryReplacements,
+						samplingDurationMicros: packet.samplingDurationMicros,
+						sequence: packet.sequence
+					});
+				}
 				if (packet.reset) {
 					outcome = { _tag: "reset" };
 					return false;
@@ -593,6 +654,9 @@ interface DriveObservationArgs {
 	readonly maxMalformedPackets: number;
 	readonly maxRecoveryAttempts: number;
 	readonly overridePipeName: string | undefined;
+	readonly onDiagnostic:
+		| ((diagnostic: ActorObservationDiagnostic) => Effect.Effect<void>)
+		| undefined;
 	readonly publish: (state: WorldObservationState) => Effect.Effect<void>;
 	readonly remote: RemoteControlClientShape;
 }
@@ -613,6 +677,7 @@ function driveObservation(
 		maxMalformedPackets,
 		maxRecoveryAttempts,
 		overridePipeName,
+		onDiagnostic,
 		publish,
 		remote
 	} = args;
@@ -703,7 +768,8 @@ function driveObservation(
 				feed,
 				getState,
 				maxConsecutiveRejectedBatches,
-				publish
+				publish,
+				...(onDiagnostic === undefined ? {} : { onDiagnostic })
 			});
 			if (liveOutcome._tag === "reset") {
 				// Unreal-initiated catalog invalidation (map change, actor add/delete) is expected
@@ -747,6 +813,7 @@ export interface ObserveActorFeedOptions {
 	readonly maxConsecutiveRejectedBatches?: number;
 	readonly maxMalformedPackets?: number;
 	readonly maxRecoveryAttempts?: number;
+	readonly onDiagnostic?: (diagnostic: ActorObservationDiagnostic) => Effect.Effect<void>;
 	readonly pipeName?: string;
 }
 
@@ -794,6 +861,7 @@ export function observeActorFeed(
 						maxConsecutiveRejectedBatches: options.maxConsecutiveRejectedBatches ?? 64,
 						maxMalformedPackets: options.maxMalformedPackets ?? 128,
 						maxRecoveryAttempts: options.maxRecoveryAttempts ?? 5,
+						onDiagnostic: options.onDiagnostic,
 						overridePipeName: options.pipeName,
 						publish,
 						remote

@@ -256,7 +256,18 @@ function buildRegistrationLayer(recorder: Recorder) {
 					Effect.as({ status: "failed" as const, error: { message: "m", recovery: "r" } })
 				),
 		setLivePreviewFps: (fps) =>
-			recorder.record(`mapReview.setLivePreviewFps:${fps}`).pipe(Effect.as(fps))
+			recorder.record(`mapReview.setLivePreviewFps:${fps}`).pipe(Effect.as(fps)),
+		setWorldObservationRate: (cadenceHz) =>
+			recorder
+				.record(`mapReview.setWorldObservationRate:${cadenceHz}`)
+				.pipe(Effect.as(cadenceHz)),
+		subscribeWorldObservations: (cadenceHz) =>
+			recorder
+				.record(`mapReview.subscribeWorldObservations:${cadenceHz}`)
+				.pipe(Effect.asVoid),
+		unsubscribeWorldObservations: () =>
+			recorder.record("mapReview.unsubscribeWorldObservations").pipe(Effect.asVoid),
+		worldObservationPresentationReplacements: () => Effect.succeed(0)
 	});
 
 	const fixtureLauncher = makeFixtureLauncherTestLayer({
@@ -369,13 +380,13 @@ function runRegistered<A>(
 	}).pipe(Effect.scoped);
 }
 
-it.effect("registers exactly the 43 contract channels", () =>
+it.effect("registers exactly the 46 contract channels", () =>
 	Effect.gen(function* () {
 		const { result } = yield* runRegistered((ipc) => ipc.handlers());
 		expect(result.map((entry) => entry.channel).toSorted()).toEqual(
 			[...invokeChannelNames].toSorted()
 		);
-		expect(result).toHaveLength(43);
+		expect(result).toHaveLength(46);
 	})
 );
 

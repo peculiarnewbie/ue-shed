@@ -16,16 +16,30 @@ import {
 import {
 	MapReviewClient,
 	MapReviewClientError,
+	type MapReviewWorldObservation,
 	type MapReviewClientShape
 } from "@ue-shed/extension-camera-review/client";
 import {
+	CatalogRevision,
+	ObservationSessionId,
+	PacketSequence,
+	StreamActorIndex,
+	WorldScoutRefreshRate,
+	WorldActorCatalog,
+	WorldIndexedTransform,
+	WorldObservationHealth,
+	WorldTransform,
+	applyWorldObservationEvent,
+	connectingState,
 	decodeWorldScoutFocusResult,
 	decodeWorldScoutResult,
 	type ActorId,
-	type WorldScoutRefreshRate,
+	type WorldObservationSample,
+	type WorldObservationState,
 	type WorldScoutResult
 } from "@ue-shed/observatory";
-import { Effect, Queue, Schedule, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
+import type { RendererWorldObservationEvent } from "../main/ipc-contracts.js";
 
 const recovery = "Restart Workbench. If the problem persists, verify package versions.";
 
@@ -52,6 +66,146 @@ function request<A>(args: {
 	);
 }
 
+function wireSampleToDomain(sample: {
+	readonly catalog: unknown;
+	readonly health: unknown;
+	readonly lastSequence: string;
+	readonly sampleWorldSeconds: number;
+	readonly transforms: ReadonlyArray<{
+		readonly streamIndex: number;
+		readonly transform: {
+			readonly location: { readonly x: number; readonly y: number; readonly z: number };
+			readonly rotation: { readonly x: number; readonly y: number; readonly z: number };
+		};
+	}>;
+}): WorldObservationSample {
+	const catalog = WorldActorCatalog.make(sample.catalog as never);
+	const health = WorldObservationHealth.make(sample.health as never);
+	const transforms = new Map(
+		sample.transforms.map(
+			(entry) =>
+				[
+					StreamActorIndex.make(entry.streamIndex),
+					WorldTransform.make(entry.transform)
+				] as const
+		)
+	);
+	return {
+		catalog,
+		health,
+		lastSequence: PacketSequence.make(BigInt(sample.lastSequence)),
+		sampleWorldSeconds: sample.sampleWorldSeconds,
+		transforms
+	};
+}
+
+function applyRendererObservationEvent(
+	previous: WorldObservationState,
+	event: RendererWorldObservationEvent
+): MapReviewWorldObservation {
+	switch (event.kind) {
+		case "connecting":
+			return connectingState();
+		case "catalog": {
+			const sample = wireSampleToDomain(event.sample);
+			if (event.status === "stale") {
+				return {
+					status: "stale",
+					message: event.message ?? "World observation is stale.",
+					recovery: event.recovery ?? "Wait for the next catalog or reconnect.",
+					sample
+				};
+			}
+			return { status: "live", sample };
+		}
+		case "transforms": {
+			const changedTransforms = event.transforms.map((entry) =>
+				WorldIndexedTransform.make({
+					streamIndex: StreamActorIndex.make(entry.streamIndex),
+					transform: WorldTransform.make(entry.transform)
+				})
+			);
+			const batch = {
+				actorsChanged: event.actorsChanged,
+				actorsSampled: event.actorsSampled,
+				producerMonotonicMs: event.producerMonotonicMs,
+				producerReplacements: event.producerReplacements,
+				revision: CatalogRevision.make(BigInt(event.revision)),
+				sequence: PacketSequence.make(BigInt(event.sequence)),
+				sessionId: ObservationSessionId.make(event.sessionId),
+				transforms: changedTransforms,
+				worldSeconds: event.worldSeconds
+			};
+			const applied = applyWorldObservationEvent(previous, { _tag: "transforms", batch });
+			if (!applied.accepted) return previous;
+			if (event.status === "stale" && applied.state.status === "live") {
+				return {
+					status: "stale",
+					message: event.message ?? "World observation is stale.",
+					recovery: event.recovery ?? "Wait for the producer to resume.",
+					sample: applied.state.sample,
+					changedTransforms
+				};
+			}
+			return { ...applied.state, changedTransforms };
+		}
+		case "polling_fallback":
+			return {
+				status: "polling_fallback",
+				cadenceHz: event.cadenceHz,
+				message: event.message,
+				snapshot: event.snapshot
+			};
+		case "unavailable":
+			return {
+				status: "unavailable",
+				message: event.message,
+				recovery: event.recovery,
+				...(event.sample === undefined ? {} : { sample: wireSampleToDomain(event.sample) })
+			};
+	}
+}
+
+function sameTransform(left: WorldTransform, right: WorldTransform): boolean {
+	return (
+		left.location.x === right.location.x &&
+		left.location.y === right.location.y &&
+		left.location.z === right.location.z &&
+		left.rotation.x === right.rotation.x &&
+		left.rotation.y === right.rotation.y &&
+		left.rotation.z === right.rotation.z
+	);
+}
+
+/**
+ * A sliding renderer queue may legitimately replace intermediate observation states. The retained
+ * sample is cumulative, so reconstruct the sparse delta relative to the last state consumed by
+ * World Scout; otherwise transforms in a replaced event would never reach the Canvas store.
+ */
+export function reconcileSparseTransformChanges(
+	previous: MapReviewWorldObservation | undefined,
+	current: MapReviewWorldObservation
+): MapReviewWorldObservation {
+	if (
+		previous === undefined ||
+		(previous.status !== "live" && previous.status !== "stale") ||
+		(current.status !== "live" && current.status !== "stale") ||
+		previous.sample.catalog.sessionId !== current.sample.catalog.sessionId ||
+		previous.sample.catalog.revision !== current.sample.catalog.revision
+	) {
+		return current;
+	}
+
+	const changedTransforms = [];
+	for (const [streamIndex, transform] of current.sample.transforms) {
+		const prior = previous.sample.transforms.get(streamIndex);
+		if (prior === undefined || !sameTransform(prior, transform)) {
+			changedTransforms.push(WorldIndexedTransform.make({ streamIndex, transform }));
+		}
+	}
+	return { ...current, changedTransforms };
+}
+
 export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
 	connectWorld: Effect.fn("MapReviewClient.connectWorld")(() => loadWorldSnapshot()),
 	focusActor: Effect.fn("MapReviewClient.focusActor")((actorId: ActorId, bringToFront: boolean) =>
@@ -61,17 +215,71 @@ export const mapReviewClient: MapReviewClientShape = MapReviewClient.of({
 			operation: "mapReview.focusActor"
 		})
 	),
-	worldSnapshots: (refreshRate: WorldScoutRefreshRate) =>
-		Stream.fromEffectSchedule(
-			Effect.catch(loadWorldSnapshot(), (cause) =>
-				Effect.succeed({
-					message: cause.message,
-					recovery: cause.recovery,
-					status: "unavailable" as const
-				})
-			),
-			Schedule.spaced(`${1_000 / refreshRate} millis`)
+	worldObservations: (refreshRate: WorldScoutRefreshRate) =>
+		Stream.callback<MapReviewWorldObservation>(
+			(queue) =>
+				Effect.acquireRelease(
+					Effect.gen(function* () {
+						let state = connectingState();
+						const unsubscribe = window.ueShed.onWorldObservation((event) => {
+							state = applyRendererObservationEvent(state, event);
+							Queue.offerUnsafe(queue, state);
+						});
+						yield* Effect.tryPromise({
+							try: () =>
+								window.ueShed.mapReview.subscribeWorldObservations(refreshRate),
+							catch: (cause) =>
+								new MapReviewClientError({
+									cause,
+									operation: "mapReview.subscribeWorldObservations",
+									recovery
+								})
+						}).pipe(
+							Effect.onError(() => Effect.sync(unsubscribe)),
+							Effect.orDie
+						);
+						return unsubscribe;
+					}),
+					(unsubscribe) =>
+						Effect.gen(function* () {
+							yield* Effect.sync(unsubscribe);
+							yield* Effect.tryPromise({
+								try: () => window.ueShed.mapReview.unsubscribeWorldObservations(),
+								catch: (cause) =>
+									new MapReviewClientError({
+										cause,
+										operation: "mapReview.unsubscribeWorldObservations",
+										recovery
+									})
+							}).pipe(Effect.ignore);
+						})
+				),
+			{ bufferSize: 1, strategy: "sliding" }
+		).pipe(
+			Stream.mapAccum(
+				() => undefined as MapReviewWorldObservation | undefined,
+				(
+					previous: MapReviewWorldObservation | undefined,
+					current: MapReviewWorldObservation
+				): readonly [
+					MapReviewWorldObservation,
+					ReadonlyArray<MapReviewWorldObservation>
+				] => [current, [reconcileSparseTransformChanges(previous, current)]]
+			)
 		),
+	setWorldObservationRate: Effect.fn("MapReviewClient.setWorldObservationRate")(
+		(refreshRate: WorldScoutRefreshRate) =>
+			request({
+				decode: (value) =>
+					typeof value === "number"
+						? Effect.succeed(WorldScoutRefreshRate.make(value))
+						: Effect.fail(
+								new Error("Expected a numeric world observation refresh rate.")
+							),
+				invoke: () => window.ueShed.mapReview.setWorldObservationRate(refreshRate),
+				operation: "mapReview.setWorldObservationRate"
+			})
+	),
 	liveFrames: Stream.callback(
 		(queue) =>
 			Effect.acquireRelease(

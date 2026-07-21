@@ -38,7 +38,7 @@ authoring session, and only Keep View writes that portable set under `.ue-shed/r
 The Live World Scout composition is also implemented as the primary Workbench entry into that flow.
 The separately enabled Observatory capability returns bounded editor-world actor snapshots with
 identity, class, label, transform, bounds, map, world kind, sequence, and observation time. Workbench
-projects those actors onto an aspect-preserving XY canvas at a user-selected 1–30 Hz cadence, with
+projects those actors onto an aspect-preserving XY canvas at a user-selected 1–60 Hz cadence, with
 class counts, search, hide/show filters, selection, and an inspector. The last valid snapshot remains
 visible and is marked reconnecting when a poll fails, then returns to live state on the next valid
 snapshot. Selecting a point only inspects the actor. **Go to

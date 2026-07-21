@@ -74,10 +74,11 @@ describe("actor instance identity", () => {
 });
 
 describe("world scout refresh rate", () => {
-	it("accepts the supported 1-30 Hz range", () => {
+	it("accepts the supported 1-60 Hz range", () => {
 		expect(WorldScoutRefreshRate.make(1)).toBe(1);
 		expect(WorldScoutRefreshRate.make(30)).toBe(30);
+		expect(WorldScoutRefreshRate.make(60)).toBe(60);
 		expect(() => WorldScoutRefreshRate.make(0)).toThrow();
-		expect(() => WorldScoutRefreshRate.make(31)).toThrow();
+		expect(() => WorldScoutRefreshRate.make(61)).toThrow();
 	});
 });

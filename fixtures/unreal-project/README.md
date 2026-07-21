@@ -33,6 +33,9 @@ The fixture enables the separately packaged core and authoring companions plus s
 Remote Control binds to loopback on ports 30001 and 30002. A full editor used for live HTTP tests
 must retain rendering capability; `-RenderOffScreen` is suitable, while `-NullRHI` intentionally
 prevents Unreal's web Remote Control module from starting. Commandlet conformance remains headless.
+The fixture explicitly disables Unreal's **Use Less CPU when in Background** setting. This is
+required for a foreground Workbench to receive moving PIE actors; it is a fixture-only live
+observation setting, not a UE Shed runtime requirement.
 
 `fixture:evidence` loads the saved fixtures in a fresh commandlet and writes two independent evidence
 sets: shared authoring snapshots under `authoring/`, and parser implementation targets under
@@ -64,7 +67,8 @@ can validate and reproduce them.
 
 - Sky atmosphere, realtime-capture sky light, directional sun, and height fog
 - A multi-piece `ReviewSubject` building plus a natural occluder
-- 32 observation actors in three recognizable families:
-    - **Stationary** — slate cubes that stay put
-    - **Flying** — cyan spheres on airborne orbits
-    - **Intermittent** — amber cylinders that cycle visibility
+- 4,096 observation actors in three recognizable families (World Scout density at the stream max):
+    - **UEShedFixtureStationary** — 3,278 slate cubes that stay put (tick disabled in PIE)
+    - **UEShedFixtureFlying** — 409 cyan spheres on airborne orbits
+    - **UEShedFixtureIntermittent** — 409 amber cylinders that cycle visibility
+- 32 camera sources bound to the first 32 movers (unchanged camera-load schedule max)

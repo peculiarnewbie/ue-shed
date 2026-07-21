@@ -189,6 +189,22 @@ describe("actor stream protocol fixtures", () => {
 		expect(malformed).toBe(0);
 		expect(decoder.metrics().bufferedBytes).toBe(ACTOR_STREAM_HEADER_BYTES - 8);
 	});
+
+	it("rejects non-finite transform values before they reach the observation store", () => {
+		const decoder = new ActorStreamDecoder();
+		const { malformed, packets } = decoder.push(
+			validPacket({
+				records: [
+					{
+						...twoRecords[0]!,
+						rotation: { ...twoRecords[0]!.rotation, pitch: Number.NaN }
+					}
+				]
+			})
+		);
+		expect(packets).toHaveLength(0);
+		expect(malformed).toBe(1);
+	});
 });
 
 describe("actor stream decoder limits", () => {

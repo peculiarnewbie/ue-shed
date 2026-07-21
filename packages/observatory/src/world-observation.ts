@@ -11,7 +11,7 @@ import {
 /** Session-local alias into a catalog; never durable actor identity. */
 export const StreamActorIndex = Schema.Int.check(
 	Schema.isGreaterThanOrEqualTo(0),
-	Schema.isLessThanOrEqualTo(4095)
+	Schema.isLessThanOrEqualTo(16_383)
 ).pipe(Schema.brand("StreamActorIndex"));
 export type StreamActorIndex = Schema.Schema.Type<typeof StreamActorIndex>;
 

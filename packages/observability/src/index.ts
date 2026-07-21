@@ -48,6 +48,90 @@ export const coverage = Metric.gauge("ue_shed_coverage_ratio", {
 	description: "Domain coverage ratio from zero to one"
 });
 
+const observatoryCatalogDuration = Metric.histogram("ue_shed_observatory_catalog_duration_ms", {
+	boundaries: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 5_000],
+	description: "Unreal catalog collection duration in milliseconds"
+});
+const observatoryBoundsCalculations = Metric.counter(
+	"ue_shed_observatory_bounds_calculations_total",
+	{
+		description: "Actor bounds calculations performed during catalog collection",
+		incremental: true
+	}
+);
+const observatoryActorsSampled = Metric.counter("ue_shed_observatory_actors_sampled_total", {
+	description: "Actors sampled by the Unreal transform producer",
+	incremental: true
+});
+const observatoryActorsChanged = Metric.counter("ue_shed_observatory_actors_changed_total", {
+	description: "Actors included in changed-transform packets",
+	incremental: true
+});
+const observatoryPackets = Metric.counter("ue_shed_observatory_packets_total", {
+	description: "Decoded Observatory transform packets",
+	incremental: true
+});
+const observatoryBytes = Metric.counter("ue_shed_observatory_bytes_total", {
+	description: "Bytes received on the Observatory actor stream",
+	incremental: true
+});
+const observatorySequenceGaps = Metric.counter("ue_shed_observatory_sequence_gap_total", {
+	description: "Detected Observatory transform sequence gaps",
+	incremental: true
+});
+const observatoryProducerReplacements = Metric.counter(
+	"ue_shed_observatory_producer_replacement_total",
+	{
+		description: "Producer-side Observatory packet replacements",
+		incremental: true
+	}
+);
+const observatoryReceiverReplacements = Metric.counter(
+	"ue_shed_observatory_receiver_replacement_total",
+	{
+		description: "Host receiver Observatory packet replacements",
+		incremental: true
+	}
+);
+const observatoryIpcReplacements = Metric.counter("ue_shed_observatory_ipc_replacement_total", {
+	description: "Workbench IPC Observatory event replacements",
+	incremental: true
+});
+const observatoryDecodeApplyDuration = Metric.histogram(
+	"ue_shed_observatory_decode_apply_duration_ms",
+	{
+		boundaries: [0.1, 0.25, 0.5, 1, 2, 4, 8, 16.7, 33, 50, 100],
+		description: "Decode plus retained-state apply duration in milliseconds"
+	}
+);
+const observatoryPaintDuration = Metric.histogram("ue_shed_observatory_paint_duration_ms", {
+	boundaries: [0.1, 0.25, 0.5, 1, 2, 4, 8, 16.7, 33, 50, 100],
+	description: "World Scout Canvas paint duration in milliseconds"
+});
+const observatorySampleHz = Metric.gauge("ue_shed_observatory_sample_hz", {
+	description: "Effective Observatory transform sample cadence"
+});
+const observatoryPresentationHz = Metric.gauge("ue_shed_observatory_presentation_hz", {
+	description: "Effective World Scout presentation cadence"
+});
+
+export const observatoryMetrics = {
+	actorsChanged: observatoryActorsChanged,
+	actorsSampled: observatoryActorsSampled,
+	boundsCalculations: observatoryBoundsCalculations,
+	bytes: observatoryBytes,
+	catalogDuration: observatoryCatalogDuration,
+	decodeApplyDuration: observatoryDecodeApplyDuration,
+	ipcReplacements: observatoryIpcReplacements,
+	packets: observatoryPackets,
+	paintDuration: observatoryPaintDuration,
+	presentationHz: observatoryPresentationHz,
+	producerReplacements: observatoryProducerReplacements,
+	receiverReplacements: observatoryReceiverReplacements,
+	sampleHz: observatorySampleHz,
+	sequenceGaps: observatorySequenceGaps
+};
+
 export const operationMetrics = {
 	errors: operationErrors,
 	latency: operationLatency,
@@ -74,6 +158,61 @@ export const recordAuthoringTransition = (transition: string): Effect.Effect<voi
 
 export const recordCoverage = (ratio: number): Effect.Effect<void> =>
 	Metric.update(coverage, Math.max(0, Math.min(1, ratio)));
+
+export function recordObservatoryCatalog(input: {
+	readonly boundsCalculations: number;
+	readonly durationMs: number;
+}): Effect.Effect<void> {
+	return Effect.all([
+		Metric.update(observatoryCatalogDuration, Math.max(0, input.durationMs)),
+		Metric.update(observatoryBoundsCalculations, Math.max(0, input.boundsCalculations))
+	]).pipe(Effect.asVoid);
+}
+
+export function recordObservatoryPacket(input: {
+	readonly actorsChanged: number;
+	readonly actorsSampled: number;
+	readonly bytes: number;
+	readonly decodeApplyMs: number;
+	readonly producerReplacements?: number;
+	readonly sequenceGap?: boolean;
+}): Effect.Effect<void> {
+	return Effect.all([
+		Metric.update(observatoryPackets, 1),
+		Metric.update(observatoryBytes, Math.max(0, input.bytes)),
+		Metric.update(observatoryActorsSampled, Math.max(0, input.actorsSampled)),
+		Metric.update(observatoryActorsChanged, Math.max(0, input.actorsChanged)),
+		Metric.update(observatoryDecodeApplyDuration, Math.max(0, input.decodeApplyMs)),
+		Metric.update(
+			observatoryProducerReplacements,
+			Math.max(0, input.producerReplacements ?? 0)
+		),
+		Metric.update(observatorySequenceGaps, input.sequenceGap === true ? 1 : 0)
+	]).pipe(Effect.asVoid);
+}
+
+export const recordObservatoryReceiverReplacements = (count: number): Effect.Effect<void> =>
+	Metric.update(observatoryReceiverReplacements, Math.max(0, count));
+
+export const recordObservatoryIpcReplacements = (count: number): Effect.Effect<void> =>
+	Metric.update(observatoryIpcReplacements, Math.max(0, count));
+
+export const recordObservatoryPaintDuration = (durationMs: number): Effect.Effect<void> =>
+	Metric.update(observatoryPaintDuration, Math.max(0, durationMs));
+
+export function recordObservatoryCadence(input: {
+	readonly presentationHz?: number;
+	readonly sampleHz?: number;
+}): Effect.Effect<void> {
+	const updates: Array<Effect.Effect<void>> = [];
+	if (input.sampleHz !== undefined) {
+		updates.push(Metric.update(observatorySampleHz, Math.max(0, input.sampleHz)));
+	}
+	if (input.presentationHz !== undefined) {
+		updates.push(Metric.update(observatoryPresentationHz, Math.max(0, input.presentationHz)));
+	}
+	return updates.length === 0 ? Effect.void : Effect.all(updates).pipe(Effect.asVoid);
+}
 
 export function observeOperation<A, E, R>(
 	name: string,

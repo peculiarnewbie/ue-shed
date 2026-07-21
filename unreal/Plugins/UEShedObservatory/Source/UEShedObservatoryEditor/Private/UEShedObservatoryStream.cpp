@@ -34,10 +34,19 @@ void WriteValue(TArray<uint8>& Bytes, int32 Offset, const T& Value)
 
 void WriteSessionId(TArray<uint8>& Bytes, int32 Offset, const FGuid& SessionGuid)
 {
-	WriteValue(Bytes, Offset, SessionGuid.A);
-	WriteValue(Bytes, Offset + 4, SessionGuid.B);
-	WriteValue(Bytes, Offset + 8, SessionGuid.C);
-	WriteValue(Bytes, Offset + 12, SessionGuid.D);
+	const FString SessionHex = SessionGuid.ToString(EGuidFormats::Digits).ToLower();
+	const auto HexNibble = [](const TCHAR Character) -> uint8
+	{
+		return Character >= TEXT('0') && Character <= TEXT('9')
+			? static_cast<uint8>(Character - TEXT('0'))
+			: static_cast<uint8>(Character - TEXT('a') + 10);
+	};
+	for (int32 ByteIndex = 0; ByteIndex < 16; ++ByteIndex)
+	{
+		Bytes[Offset + ByteIndex] = static_cast<uint8>(
+			(HexNibble(SessionHex[ByteIndex * 2]) << 4)
+			| HexNibble(SessionHex[ByteIndex * 2 + 1]));
+	}
 }
 
 FString SessionIdHexLower(const FGuid& Guid)
@@ -81,9 +90,15 @@ bool TransformChanged(
 		|| !Rotation.Equals(LastRotation, RotationTolerance);
 }
 
+bool HasFiniteTransform(const FVector& Location, const FRotator& Rotation)
+{
+	return !Location.ContainsNaN() && !Rotation.ContainsNaN();
+}
+
 struct FStreamPacket
 {
 	TArray<uint8> Bytes;
+	uint64 Sequence = 0;
 };
 }
 
@@ -152,6 +167,7 @@ public:
 				continue;
 			}
 			PacketsDelivered++;
+			LastDeliveredSequence.Store(Packet->Sequence);
 			BytesSent += Packet->Bytes.Num();
 		}
 		if (bCreated)
@@ -170,6 +186,7 @@ public:
 
 	TAtomic<bool> bConnected{ false };
 	TAtomic<uint64> BytesSent{ 0 };
+	TAtomic<uint64> LastDeliveredSequence{ 0 };
 	TAtomic<uint64> PacketsDelivered{ 0 };
 	TAtomic<uint64> ProducerReplacements{ 0 };
 
@@ -205,6 +222,7 @@ struct FUEShedObservatoryStreamService::FCatalogActorEntry
 	FVector CatalogScale = FVector::OneVector;
 	FVector LastSentLocation = FVector::ZeroVector;
 	FRotator LastSentRotation = FRotator::ZeroRotator;
+	uint64 LastIncludedSequence = 0;
 	bool bHasLastSent = false;
 };
 
@@ -375,6 +393,7 @@ void FUEShedObservatoryStreamService::RebuildCatalogIfNeeded(UWorld* World, bool
 		return;
 	}
 
+	const bool bReplacingCatalog = CatalogRevision > 0;
 	Catalog.Reset();
 	uint32 StreamIndex = 0;
 	for (TActorIterator<AActor> It(World); It && Catalog.Num() < MaxActors; ++It)
@@ -409,7 +428,10 @@ void FUEShedObservatoryStreamService::RebuildCatalogIfNeeded(UWorld* World, bool
 	bCatalogDirty = false;
 	ObservedWorldPath = World->GetOutermost()->GetName();
 	ObservedWorldKind = bIsPie ? TEXT("pie") : TEXT("editor");
-	EmitResetPacket(World);
+	if (bReplacingCatalog)
+	{
+		EmitResetPacket(World);
+	}
 }
 
 TArray<uint8> FUEShedObservatoryStreamService::BuildPacketBytes(
@@ -466,9 +488,12 @@ TArray<uint8> FUEShedObservatoryStreamService::BuildPacketBytes(
 		WriteValue(Bytes, Offset + 8, Entry->LastSentLocation.X);
 		WriteValue(Bytes, Offset + 16, Entry->LastSentLocation.Y);
 		WriteValue(Bytes, Offset + 24, Entry->LastSentLocation.Z);
-		WriteValue(Bytes, Offset + 32, Entry->LastSentRotation.Roll);
-		WriteValue(Bytes, Offset + 36, Entry->LastSentRotation.Pitch);
-		WriteValue(Bytes, Offset + 40, Entry->LastSentRotation.Yaw);
+		// USOT reserves four bytes for each angle. UE's FRotator uses doubles in
+		// large-world builds, so writing the fields directly would overwrite the
+		// adjacent slots and corrupt the wire record.
+		WriteValue(Bytes, Offset + 32, static_cast<float>(Entry->LastSentRotation.Roll));
+		WriteValue(Bytes, Offset + 36, static_cast<float>(Entry->LastSentRotation.Pitch));
+		WriteValue(Bytes, Offset + 40, static_cast<float>(Entry->LastSentRotation.Yaw));
 		WriteValue(Bytes, Offset + 44, static_cast<uint32>(0));
 	}
 	return Bytes;
@@ -494,6 +519,7 @@ void FUEShedObservatoryStreamService::EmitResetPacket(UWorld* World)
 	TSharedRef<FStreamPacket, ESPMode::ThreadSafe> Packet =
 		MakeShared<FStreamPacket, ESPMode::ThreadSafe>();
 	Packet->Bytes = MoveTemp(Bytes);
+	Packet->Sequence = PacketSequence;
 	WriterImpl->Writer->Submit(Packet);
 }
 
@@ -527,6 +553,7 @@ void FUEShedObservatoryStreamService::SampleIfDue(UWorld* World, bool bIsPie)
 	ChangedEntries.Reserve(Catalog.Num());
 	uint32 ActorsSampled = 0;
 	uint32 ActorsChanged = 0;
+	const uint64 LastDeliveredSequence = WriterImpl->Writer->LastDeliveredSequence.Load();
 
 	for (FCatalogActorEntry& Entry : Catalog)
 	{
@@ -548,7 +575,11 @@ void FUEShedObservatoryStreamService::SampleIfDue(UWorld* World, bool bIsPie)
 		const FTransform Transform = Actor->GetActorTransform();
 		const FVector Location = Transform.GetLocation();
 		const FRotator Rotation = Transform.Rotator();
-		if (!Entry.bHasLastSent
+		if (!HasFiniteTransform(Location, Rotation))
+		{
+			continue;
+		}
+		if (!Entry.bHasLastSent || Entry.LastIncludedSequence > LastDeliveredSequence
 			|| TransformChanged(Location, Rotation, Entry.LastSentLocation, Entry.LastSentRotation))
 		{
 			Entry.LastSentLocation = Location;
@@ -571,6 +602,13 @@ void FUEShedObservatoryStreamService::SampleIfDue(UWorld* World, bool bIsPie)
 	ActorsChangedTotal += ActorsChanged;
 
 	PacketSequence++;
+	for (FCatalogActorEntry* Entry : ChangedEntries)
+	{
+		if (Entry != nullptr)
+		{
+			Entry->LastIncludedSequence = PacketSequence;
+		}
+	}
 	TArray<uint8> Bytes = BuildPacketBytes(
 		World,
 		0,
@@ -581,6 +619,7 @@ void FUEShedObservatoryStreamService::SampleIfDue(UWorld* World, bool bIsPie)
 	TSharedRef<FStreamPacket, ESPMode::ThreadSafe> Packet =
 		MakeShared<FStreamPacket, ESPMode::ThreadSafe>();
 	Packet->Bytes = MoveTemp(Bytes);
+	Packet->Sequence = PacketSequence;
 	WriterImpl->Writer->Submit(Packet);
 }
 
@@ -702,6 +741,78 @@ void FUEShedObservatoryStreamService::StopActorObservation(FString& ResultJson)
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetStringField(TEXT("status"), TEXT("stopped"));
 	SerializeJson(Root, ResultJson);
+}
+
+void FUEShedObservatoryStreamService::SetActorObservationCadence(
+	const FString& RequestJson,
+	FString& ResultJson)
+{
+#if !PLATFORM_WINDOWS
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("status"), TEXT("failed"));
+	Root->SetStringField(
+		TEXT("message"),
+		TEXT("Actor transform streaming requires Windows named pipes."));
+	Root->SetStringField(TEXT("recovery"), TEXT("Use bounded snapshot polling fallback at \u226410 Hz."));
+	SerializeJson(Root, ResultJson);
+	return;
+#else
+	if (!bActive || !WriterImpl.IsValid())
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("status"), TEXT("failed"));
+		Root->SetStringField(TEXT("message"), TEXT("No actor observation stream is active."));
+		Root->SetStringField(
+			TEXT("recovery"),
+			TEXT("Start actor observation before changing its sampling cadence."));
+		SerializeJson(Root, ResultJson);
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Request;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RequestJson);
+	if (!FJsonSerializer::Deserialize(Reader, Request) || !Request.IsValid())
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("status"), TEXT("failed"));
+		Root->SetStringField(TEXT("message"), TEXT("RequestJson is not valid JSON."));
+		Root->SetStringField(TEXT("recovery"), TEXT("Provide {\"cadenceHz\": 1-60}."));
+		SerializeJson(Root, ResultJson);
+		return;
+	}
+
+	double CadenceField = 0.0;
+	if (!Request->TryGetNumberField(TEXT("cadenceHz"), CadenceField))
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("status"), TEXT("failed"));
+		Root->SetStringField(TEXT("message"), TEXT("Missing cadenceHz."));
+		Root->SetStringField(TEXT("recovery"), TEXT("Provide an integer cadenceHz between 1 and 60."));
+		SerializeJson(Root, ResultJson);
+		return;
+	}
+	const int32 RequestedCadence = FMath::RoundToInt(CadenceField);
+	if (RequestedCadence < 1 || RequestedCadence > MaxCadenceHz
+		|| !FMath::IsNearlyEqual(CadenceField, static_cast<double>(RequestedCadence), KINDA_SMALL_NUMBER))
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("status"), TEXT("failed"));
+		Root->SetStringField(TEXT("message"), TEXT("cadenceHz must be an integer between 1 and 60."));
+		Root->SetStringField(TEXT("recovery"), TEXT("Provide an integer cadenceHz between 1 and 60."));
+		SerializeJson(Root, ResultJson);
+		return;
+	}
+
+	// Preserve the current session, catalog, and writer. The next tick samples immediately
+	// at the new rate, so the host never has to reconnect its named-pipe reader.
+	CadenceHz = RequestedCadence;
+	NextSampleSeconds = 0;
+
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetStringField(TEXT("status"), TEXT("ready"));
+	Root->SetNumberField(TEXT("cadenceHz"), CadenceHz);
+	SerializeJson(Root, ResultJson);
+#endif
 }
 
 void FUEShedObservatoryStreamService::GetActorObservationStatus(FString& ResultJson) const

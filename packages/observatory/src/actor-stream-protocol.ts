@@ -3,19 +3,18 @@ import {
 	ObservationSessionId,
 	PacketSequence,
 	StreamActorIndex,
-	WorldIndexedTransform,
-	WorldTransform,
-	WorldTransformBatch
+	type WorldTransformBatch
 } from "./world-observation.js";
 
-export const ACTOR_STREAM_MAGIC = Buffer.from("USOT");
+export const ACTOR_STREAM_MAGIC = new Uint8Array([0x55, 0x53, 0x4f, 0x54]); // USOT
 export const ACTOR_STREAM_VERSION = 1;
 export const ACTOR_STREAM_HEADER_BYTES = 96;
 export const ACTOR_STREAM_RECORD_BYTES = 48;
-export const ACTOR_STREAM_MAX_RECORDS = 4_096;
+export const ACTOR_STREAM_MAX_RECORDS = 16_384;
 export const ACTOR_STREAM_MAX_PAYLOAD_BYTES = ACTOR_STREAM_MAX_RECORDS * ACTOR_STREAM_RECORD_BYTES;
 /** Maximum undecoded bytes retained by the incremental decoder before discarding. */
-export const ACTOR_STREAM_MAX_BUFFERED_BYTES = 512 * 1024;
+export const ACTOR_STREAM_MAX_BUFFERED_BYTES =
+	ACTOR_STREAM_HEADER_BYTES + ACTOR_STREAM_MAX_PAYLOAD_BYTES + 64 * 1024;
 export const ACTOR_STREAM_FLAG_RESET = 0x0001;
 
 export interface ActorStreamRecord {
@@ -29,6 +28,8 @@ export interface ActorStreamPacket {
 	readonly actorsChanged: number;
 	readonly actorsSampled: number;
 	readonly catalogRevision: bigint;
+	/** Host time spent decoding this complete packet after framing and limit validation. */
+	readonly decodeDurationMs: number;
 	readonly flags: number;
 	readonly producerMonotonicMs: number;
 	readonly producerReplacements: number;
@@ -145,7 +146,10 @@ function decodeRecord(buffer: Buffer, offset: number): ActorStreamRecord {
 	};
 }
 
-function decodePacket(header: Buffer, payload: Buffer): ActorStreamPacket {
+function decodePacket(
+	header: Buffer,
+	payload: Buffer
+): Omit<ActorStreamPacket, "decodeDurationMs"> {
 	const flags = header.readUInt16LE(10);
 	const recordCount = header.readUInt32LE(12);
 	const records: ActorStreamRecord[] = [];
@@ -166,6 +170,21 @@ function decodePacket(header: Buffer, payload: Buffer): ActorStreamPacket {
 		sessionId: bytesToSessionId(header, 48),
 		worldSeconds: header.readDoubleLE(32)
 	};
+}
+
+function hasFiniteValues(packet: Omit<ActorStreamPacket, "decodeDurationMs">): boolean {
+	if (!Number.isFinite(packet.producerMonotonicMs) || !Number.isFinite(packet.worldSeconds)) {
+		return false;
+	}
+	return packet.records.every(
+		(record) =>
+			Number.isFinite(record.location.x) &&
+			Number.isFinite(record.location.y) &&
+			Number.isFinite(record.location.z) &&
+			Number.isFinite(record.rotation.pitch) &&
+			Number.isFinite(record.rotation.roll) &&
+			Number.isFinite(record.rotation.yaw)
+	);
 }
 
 export class ActorStreamDecoder {
@@ -239,9 +258,14 @@ export class ActorStreamDecoder {
 		if (this.bufferedBytes < ACTOR_STREAM_MAGIC.length) return false;
 		const head = this.chunks[0];
 		if (head && head.length - this.headOffset >= ACTOR_STREAM_MAGIC.length) {
-			return head
-				.subarray(this.headOffset, this.headOffset + ACTOR_STREAM_MAGIC.length)
-				.equals(ACTOR_STREAM_MAGIC);
+			const slice = head.subarray(
+				this.headOffset,
+				this.headOffset + ACTOR_STREAM_MAGIC.length
+			);
+			for (let index = 0; index < ACTOR_STREAM_MAGIC.length; index += 1) {
+				if (slice[index] !== ACTOR_STREAM_MAGIC[index]) return false;
+			}
+			return true;
 		}
 		let offset = 0;
 		for (const chunk of this.chunks) {
@@ -312,17 +336,29 @@ export class ActorStreamDecoder {
 				continue;
 			}
 			if (this.bufferedBytes < headerBytes + payloadBytes) break;
+			const decodeStarted = performance.now();
 			this.discard(headerBytes);
 			const payload = payloadBytes === 0 ? Buffer.alloc(0) : this.read(payloadBytes);
 			if (payloadBytes > 0 && !payload) break;
-			packets.push(decodePacket(header, payload ?? Buffer.alloc(0)));
+			const packet = decodePacket(header, payload ?? Buffer.alloc(0));
+			if (!hasFiniteValues(packet)) {
+				malformed += 1;
+				this.malformedCount += 1;
+				continue;
+			}
+			packets.push({
+				...packet,
+				decodeDurationMs: performance.now() - decodeStarted
+			});
 		}
 		return { malformed, packets };
 	}
 }
 
 export function actorStreamPacketToTransformBatch(packet: ActorStreamPacket): WorldTransformBatch {
-	return WorldTransformBatch.make({
+	// Fixed-layout and finite-value checks run in ActorStreamDecoder. Avoiding Schema.make here
+	// keeps the hot transform path allocation-light without trusting unvalidated pipe input.
+	return {
 		actorsChanged: packet.actorsChanged,
 		actorsSampled: packet.actorsSampled,
 		producerMonotonicMs: packet.producerMonotonicMs,
@@ -330,19 +366,17 @@ export function actorStreamPacketToTransformBatch(packet: ActorStreamPacket): Wo
 		revision: CatalogRevision.make(packet.catalogRevision),
 		sequence: PacketSequence.make(packet.sequence),
 		sessionId: ObservationSessionId.make(packet.sessionId),
-		transforms: packet.records.map((record) =>
-			WorldIndexedTransform.make({
-				streamIndex: StreamActorIndex.make(record.streamIndex),
-				transform: WorldTransform.make({
-					location: record.location,
-					rotation: {
-						x: record.rotation.roll,
-						y: record.rotation.pitch,
-						z: record.rotation.yaw
-					}
-				})
-			})
-		),
+		transforms: packet.records.map((record) => ({
+			streamIndex: StreamActorIndex.make(record.streamIndex),
+			transform: {
+				location: record.location,
+				rotation: {
+					x: record.rotation.roll,
+					y: record.rotation.pitch,
+					z: record.rotation.yaw
+				}
+			}
+		})),
 		worldSeconds: packet.worldSeconds
-	});
+	} satisfies WorldTransformBatch;
 }

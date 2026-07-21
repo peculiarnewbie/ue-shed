@@ -60,13 +60,13 @@ const offlineScout = {
 			status: "unavailable" as const
 		}),
 	focusActor: (actorId) => Effect.succeed({ actorId, status: "not_supported" as const }),
-	worldSnapshots: () =>
+	worldObservations: () =>
 		Stream.make({
 			message: "Offline",
 			recovery: "Open Unreal",
 			status: "unavailable" as const
 		})
-} satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldSnapshots">;
+} satisfies Pick<MapReviewClientShape, "connectWorld" | "focusActor" | "worldObservations">;
 
 const unavailableDurableAuthoring = {
 	authoringResume: () =>

@@ -11,13 +11,15 @@ import {
 	type ReviewSet
 } from "@ue-shed/cameras";
 import { it } from "@effect/vitest";
-import { Observatory } from "@ue-shed/observatory";
+import { Observatory, ActorId, WorldScoutRefreshRate } from "@ue-shed/observatory";
 import { makeEditorPlaySessionTestLayer } from "@ue-shed/engine-discovery";
 import { makeRemoteControlClientTestLayer } from "@ue-shed/unreal-connection";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Queue, Ref, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { makeLocalFilesTestLayer } from "../adapters/local-files.js";
+import { makeWorkbenchWindowTestLayer, WorkbenchWindowTest } from "../adapters/electron-window.js";
 import {
 	makeWorkbenchConfigurationLayer,
 	type WorkbenchConfigurationShape
@@ -147,6 +149,7 @@ const WorkbenchMapReviewTestLive = WorkbenchMapReviewLive.pipe(
 	Layer.provide(
 		Layer.mergeAll(
 			makeCameraFeedTestLayer(),
+			makeWorkbenchWindowTestLayer(),
 			makeRemoteControlClientTestLayer(() => Effect.die("not used")),
 			makeReviewAuthoringSessionsTestLayer(dyingAuthoringSessions),
 			Layer.succeed(
@@ -154,6 +157,7 @@ const WorkbenchMapReviewTestLive = WorkbenchMapReviewLive.pipe(
 				Observatory.of({
 					focus: () => Effect.die("not used"),
 					observe: () => Stream.die("not used"),
+					setObservationCadence: () => Effect.die("not used"),
 					snapshot: () => Effect.die("not used")
 				})
 			),
@@ -485,6 +489,7 @@ it.effect(
 					Layer.provide(
 						Layer.mergeAll(
 							makeCameraFeedTestLayer(),
+							makeWorkbenchWindowTestLayer(),
 							makeRemoteControlClientTestLayer(() => Effect.die("not used")),
 							makeReviewAuthoringSessionsTestLayer({
 								...dyingAuthoringSessions,
@@ -597,6 +602,7 @@ it.effect(
 								Observatory.of({
 									focus: () => Effect.die("not used"),
 									observe: () => Stream.die("not used"),
+									setObservationCadence: () => Effect.die("not used"),
 									snapshot: () => Effect.die("not used")
 								})
 							),
@@ -742,4 +748,342 @@ it.effect(
 				)
 			)
 		)
+);
+
+function observationActor(
+	id: string,
+	x: number,
+	y: number
+): import("@ue-shed/observatory").ObservedActor {
+	return {
+		bounds: { center: { x, y, z: 0 }, extent: { x: 10, y: 10, z: 10 } },
+		className: "FixtureMover",
+		displayName: id,
+		id: ActorId.make(id),
+		location: { x, y, z: 0 },
+		path: `/Game/Fixture.${id}`,
+		rotation: { x: 0, y: 0, z: 0 }
+	};
+}
+
+const settle = Effect.gen(function* () {
+	for (let index = 0; index < 25; index += 1) yield* Effect.yieldNow;
+});
+
+it.effect("subscribes to world observations, coalesces transform bursts, and cleans up", () =>
+	Effect.gen(function* () {
+		const {
+			CatalogRevision,
+			ObservationSessionId,
+			PacketSequence,
+			StreamActorIndex,
+			WorldActorSnapshot,
+			WorldIndexedTransform,
+			WorldTransform,
+			WorldTransformBatch,
+			applyWorldObservationEvent,
+			catalogFromSnapshot,
+			connectingState
+		} = yield* Effect.promise(() => import("@ue-shed/observatory"));
+		const observationQueue =
+			yield* Queue.unbounded<import("@ue-shed/observatory").WorldObservationState>();
+		const activeObservers = yield* Ref.make(0);
+
+		const windowLayer = makeWorkbenchWindowTestLayer();
+		const serviceLayer = WorkbenchMapReviewLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					makeCameraFeedTestLayer(),
+					makeRemoteControlClientTestLayer(() => Effect.die("not used")),
+					makeReviewAuthoringSessionsTestLayer(dyingAuthoringSessions),
+					Layer.succeed(
+						Observatory,
+						Observatory.of({
+							focus: () => Effect.die("not used"),
+							observe: () =>
+								Stream.unwrap(
+									Effect.gen(function* () {
+										yield* Ref.update(activeObservers, (count) => count + 1);
+										return Stream.fromQueue(observationQueue).pipe(
+											Stream.ensuring(
+												Ref.update(activeObservers, (count) => count - 1)
+											)
+										);
+									})
+								),
+							setObservationCadence: () => Effect.die("not used"),
+							snapshot: () => Effect.die("not used")
+						})
+					),
+					makeEditorPlaySessionTestLayer({
+						execute: () => Effect.die("not used"),
+						pause: () => Effect.die("not used"),
+						resume: () => Effect.die("not used"),
+						start: () => Effect.die("not used"),
+						status: () =>
+							Effect.succeed({
+								contract: {
+									name: "unreal-editor-play-session",
+									version: { major: 1, minor: 0 }
+								},
+								state: { status: "stopped" }
+							}),
+						stop: () => Effect.die("not used")
+					}),
+					makeWorkbenchConfigurationLayer(notConfigured),
+					makeLocalFilesTestLayer(),
+					makeReviewRepositoryTestLayer({
+						discardStaging: () => Effect.die("not used"),
+						findSet: () => Effect.die("not used"),
+						finalizeRun: () => Effect.die("not used"),
+						listRuns: () => Effect.die("not used"),
+						loadRun: () => Effect.die("not used"),
+						loadSet: () => Effect.die("not used"),
+						prepareRun: () => Effect.die("not used"),
+						saveSet: () => Effect.die("not used"),
+						storeArtifact: () => Effect.die("not used"),
+						writeRunDocument: () => Effect.die("not used")
+					}),
+					makeReviewCaptureTestLayer(dyingCapture),
+					makeReviewAuthoringTestLayer(dyingAuthoring)
+				)
+			),
+			Layer.provideMerge(windowLayer)
+		);
+
+		yield* Effect.gen(function* () {
+			const mapReview = yield* WorkbenchMapReview;
+			const windowTest = yield* WorkbenchWindowTest;
+			yield* mapReview.subscribeWorldObservations(WorldScoutRefreshRate.make(30));
+
+			const snapshot = WorldActorSnapshot.make({
+				actors: [observationActor("a", 1, 2), observationActor("b", 3, 4)],
+				capturedAt: "2026-07-21T00:00:00.000Z",
+				mapPath: "/Game/Fixture",
+				sequence: 1,
+				worldKind: "editor",
+				worldSeconds: 1
+			});
+			const sessionId = ObservationSessionId.make("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+			const revision = CatalogRevision.make(1n);
+			const { catalog, transforms } = catalogFromSnapshot(snapshot, sessionId, revision);
+			const live = applyWorldObservationEvent(connectingState(), {
+				_tag: "catalog",
+				catalog,
+				initialTransforms: transforms
+			}).state;
+			yield* Queue.offer(observationQueue, live);
+
+			const moved = applyWorldObservationEvent(live, {
+				_tag: "transforms",
+				batch: WorldTransformBatch.make({
+					actorsChanged: 1,
+					actorsSampled: 2,
+					producerMonotonicMs: 10,
+					producerReplacements: 0,
+					revision,
+					sequence: PacketSequence.make(2n),
+					sessionId,
+					transforms: [
+						WorldIndexedTransform.make({
+							streamIndex: StreamActorIndex.make(0),
+							transform: WorldTransform.make({
+								location: { x: 10, y: 20, z: 0 },
+								rotation: { x: 0, y: 0, z: 0 }
+							})
+						})
+					],
+					worldSeconds: 2
+				})
+			}).state;
+			const movedAgain = applyWorldObservationEvent(moved, {
+				_tag: "transforms",
+				batch: WorldTransformBatch.make({
+					actorsChanged: 1,
+					actorsSampled: 2,
+					producerMonotonicMs: 11,
+					producerReplacements: 1,
+					revision,
+					sequence: PacketSequence.make(3n),
+					sessionId,
+					transforms: [
+						WorldIndexedTransform.make({
+							streamIndex: StreamActorIndex.make(1),
+							transform: WorldTransform.make({
+								location: { x: 30, y: 40, z: 0 },
+								rotation: { x: 0, y: 0, z: 0 }
+							})
+						})
+					],
+					worldSeconds: 3
+				})
+			}).state;
+			yield* Queue.offer(observationQueue, moved);
+			yield* Queue.offer(observationQueue, movedAgain);
+			yield* settle;
+			expect(yield* mapReview.worldObservationPresentationReplacements()).toBeGreaterThan(0);
+			yield* TestClock.adjust("20 millis");
+			yield* settle;
+
+			const afterTransforms = yield* windowTest.sent();
+			const catalogEventIndex = afterTransforms.findIndex(
+				(entry) =>
+					entry.channel === "map-review:world-observation" &&
+					(entry.payload as { kind: string }).kind === "catalog"
+			);
+			const transformEvents = afterTransforms.filter(
+				(entry) =>
+					entry.channel === "map-review:world-observation" &&
+					(entry.payload as { kind: string }).kind === "transforms"
+			);
+			expect(catalogEventIndex).toBeGreaterThanOrEqual(0);
+			expect(transformEvents.length).toBeGreaterThanOrEqual(1);
+			const lastTransform = transformEvents.at(-1)?.payload as {
+				readonly transforms: ReadonlyArray<{ readonly streamIndex: number }>;
+			};
+			expect(lastTransform.transforms).toHaveLength(2);
+			expect(lastTransform.transforms.map((transform) => transform.streamIndex)).toEqual([
+				0, 1
+			]);
+
+			yield* mapReview.unsubscribeWorldObservations();
+			yield* settle;
+			expect(yield* Ref.get(activeObservers)).toBe(0);
+		}).pipe(Effect.provide(serviceLayer));
+	})
+);
+
+it.effect("keeps observation live while focusing an actor and retuning cadence", () =>
+	Effect.gen(function* () {
+		const {
+			CatalogRevision,
+			ObservationSessionId,
+			WorldActorSnapshot,
+			WorldScoutRefreshRate,
+			applyWorldObservationEvent,
+			catalogFromSnapshot,
+			connectingState
+		} = yield* Effect.promise(() => import("@ue-shed/observatory"));
+		const observationQueue =
+			yield* Queue.unbounded<import("@ue-shed/observatory").WorldObservationState>();
+		const observeStarts = yield* Ref.make(0);
+		const cadenceUpdates = yield* Ref.make<number[]>([]);
+
+		const windowLayer = makeWorkbenchWindowTestLayer();
+		const serviceLayer = WorkbenchMapReviewLive.pipe(
+			Layer.provide(
+				Layer.mergeAll(
+					makeCameraFeedTestLayer(),
+					makeRemoteControlClientTestLayer(() => Effect.die("not used")),
+					makeReviewAuthoringSessionsTestLayer(dyingAuthoringSessions),
+					Layer.succeed(
+						Observatory,
+						Observatory.of({
+							focus: (endpoint, actorId) =>
+								Effect.succeed({
+									actorId,
+									authoringSubject: "selected" as const,
+									status: "focused" as const
+								}),
+							observe: () =>
+								Stream.unwrap(
+									Ref.update(observeStarts, (count) => count + 1).pipe(
+										Effect.as(Stream.fromQueue(observationQueue))
+									)
+								),
+							setObservationCadence: (_endpoint, cadenceHz) =>
+								Ref.update(cadenceUpdates, (updates) => [
+									...updates,
+									cadenceHz
+								]).pipe(Effect.as(cadenceHz)),
+							snapshot: () => Effect.die("not used")
+						})
+					),
+					makeEditorPlaySessionTestLayer({
+						execute: () => Effect.die("not used"),
+						pause: () => Effect.die("not used"),
+						resume: () => Effect.die("not used"),
+						start: () => Effect.die("not used"),
+						status: () =>
+							Effect.succeed({
+								contract: {
+									name: "unreal-editor-play-session",
+									version: { major: 1, minor: 0 }
+								},
+								state: { status: "stopped" }
+							}),
+						stop: () => Effect.die("not used")
+					}),
+					makeWorkbenchConfigurationLayer(notConfigured),
+					makeLocalFilesTestLayer(),
+					makeReviewRepositoryTestLayer({
+						discardStaging: () => Effect.die("not used"),
+						findSet: () => Effect.die("not used"),
+						finalizeRun: () => Effect.die("not used"),
+						listRuns: () => Effect.die("not used"),
+						loadRun: () => Effect.die("not used"),
+						loadSet: () => Effect.die("not used"),
+						prepareRun: () => Effect.die("not used"),
+						saveSet: () => Effect.die("not used"),
+						storeArtifact: () => Effect.die("not used"),
+						writeRunDocument: () => Effect.die("not used")
+					}),
+					makeReviewCaptureTestLayer(dyingCapture),
+					makeReviewAuthoringTestLayer(dyingAuthoring)
+				)
+			),
+			Layer.provideMerge(windowLayer)
+		);
+
+		yield* Effect.gen(function* () {
+			const mapReview = yield* WorkbenchMapReview;
+			const windowTest = yield* WorkbenchWindowTest;
+			yield* mapReview.subscribeWorldObservations(WorldScoutRefreshRate.make(10));
+			yield* settle;
+			expect(yield* Ref.get(observeStarts)).toBe(1);
+
+			const snapshot = WorldActorSnapshot.make({
+				actors: [observationActor("a", 1, 2)],
+				capturedAt: "2026-07-21T00:00:00.000Z",
+				mapPath: "/Game/Fixture",
+				sequence: 1,
+				worldKind: "editor",
+				worldSeconds: 1
+			});
+			const sessionId = ObservationSessionId.make("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+			const revision = CatalogRevision.make(1n);
+			const { catalog, transforms } = catalogFromSnapshot(snapshot, sessionId, revision);
+			yield* Queue.offer(
+				observationQueue,
+				applyWorldObservationEvent(connectingState(), {
+					_tag: "catalog",
+					catalog,
+					initialTransforms: transforms
+				}).state
+			);
+			yield* settle;
+			yield* TestClock.adjust("20 millis");
+			yield* settle;
+
+			yield* mapReview.focusActor(ActorId.make("a"), true);
+			yield* settle;
+			yield* TestClock.adjust("20 millis");
+			yield* settle;
+			yield* mapReview.setWorldObservationRate(WorldScoutRefreshRate.make(20));
+			yield* settle;
+
+			const sent = yield* windowTest.sent();
+			expect(
+				sent.some(
+					(entry) =>
+						entry.channel === "map-review:world-observation" &&
+						(entry.payload as { kind: string; status?: string }).kind === "catalog" &&
+						(entry.payload as { status?: string }).status === "stale"
+				)
+			).toBe(false);
+			expect(yield* Ref.get(observeStarts)).toBe(1);
+			expect(yield* Ref.get(cadenceUpdates)).toEqual([20]);
+			yield* mapReview.unsubscribeWorldObservations();
+		}).pipe(Effect.provide(serviceLayer));
+	})
 );

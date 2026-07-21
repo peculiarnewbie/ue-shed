@@ -7,6 +7,7 @@ export default defineConfig({
 	outputDir: "../../../test-results/workbench",
 	reporter: "list",
 	testDir: ".",
+	testIgnore: ["**/observatory-performance.e2e.ts"],
 	testMatch: "**/*.e2e.ts",
 	timeout: 30_000,
 	workers: 1

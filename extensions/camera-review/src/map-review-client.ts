@@ -12,11 +12,18 @@ import type {
 } from "@ue-shed/cameras/review-contracts";
 import type {
 	ActorId,
+	WorldIndexedTransform,
+	WorldObservationState,
 	WorldScoutFocusResult,
 	WorldScoutRefreshRate,
 	WorldScoutResult
 } from "@ue-shed/observatory";
 import { Context, type Effect, Schema, type Stream } from "effect";
+
+/** Renderer presentation state plus the sparse IPC batch that produced its latest transform tick. */
+export type MapReviewWorldObservation = WorldObservationState & {
+	readonly changedTransforms?: ReadonlyArray<WorldIndexedTransform>;
+};
 
 export type {
 	MapReviewApprovalResult,
@@ -52,9 +59,12 @@ export interface MapReviewClientShape {
 		actorId: ActorId,
 		bringToFront: boolean
 	) => Effect.Effect<WorldScoutFocusResult, MapReviewClientError>;
-	readonly worldSnapshots: (
+	readonly worldObservations: (
 		refreshRate: WorldScoutRefreshRate
-	) => Stream.Stream<WorldScoutResult>;
+	) => Stream.Stream<MapReviewWorldObservation>;
+	readonly setWorldObservationRate?: (
+		refreshRate: WorldScoutRefreshRate
+	) => Effect.Effect<WorldScoutRefreshRate, MapReviewClientError>;
 	readonly approveCandidate: (
 		intent: MapReviewApproveCandidateIntent
 	) => Effect.Effect<MapReviewApprovalResult, MapReviewClientError>;

@@ -67,6 +67,21 @@ AUEShedFixtureMover::AUEShedFixtureMover()
 	Mesh->SetMobility(EComponentMobility::Movable);
 }
 
+AUEShedFixtureStationary::AUEShedFixtureStationary()
+{
+	Motion = EUEShedFixtureMotion::Stationary;
+}
+
+AUEShedFixtureFlying::AUEShedFixtureFlying()
+{
+	Motion = EUEShedFixtureMotion::Flying;
+}
+
+AUEShedFixtureIntermittent::AUEShedFixtureIntermittent()
+{
+	Motion = EUEShedFixtureMotion::Intermittent;
+}
+
 void AUEShedFixtureMover::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
@@ -97,6 +112,11 @@ void AUEShedFixtureMover::BeginPlay()
 	Origin = GetActorLocation();
 	ApplyVisualIdentity();
 	SetIntermittentVisible(true);
+	// Stationary actors stay in the Observatory catalog but do not need a per-frame tick.
+	if (Motion == EUEShedFixtureMotion::Stationary)
+	{
+		SetActorTickEnabled(false);
+	}
 }
 
 void AUEShedFixtureMover::SetIntermittentVisible(bool bVisible)

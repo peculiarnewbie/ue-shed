@@ -26,9 +26,13 @@ const catalogOwned = new Set([
 const approvedRuntimeExits = new Set([
 	"apps/cli/src/index.ts",
 	"extensions/data-authoring/adoption/consumer/server/src/index.ts",
+	// Canvas paint is a browser callback boundary; the metric update is synchronous and bounded.
+	"extensions/camera-review/src/world-scout.tsx",
 	// Node's socket callback is a foreign runtime boundary. The fork is attached to the layer's
 	// scope with Effect.forkIn; camera decoding itself remains the measured synchronous hot path.
 	"packages/cameras/src/index.ts",
+	// The live benchmark is a Node process entrypoint and owns the single Effect runtime exit.
+	"packages/observatory/scripts/benchmark-live.ts",
 	// Same pattern for the actor transform feed's per-socket decode-and-publish fork.
 	"packages/observatory/src/actor-feed.ts"
 ]);
@@ -46,12 +50,16 @@ const approvedPromiseAdapters = new Set([
 	"packages/cameras/src/index.ts",
 	"packages/cameras/src/review-repository.ts",
 	"packages/authoring-sdk/src/index.ts",
+	// The synthetic benchmark invokes Playwright as its foreign child-process adapter.
+	"packages/observatory/scripts/benchmark.ts",
 	"packages/observatory/src/actor-feed.ts",
 	"packages/unreal-assets/src/index.ts"
 ]);
 const approvedEnvironmentAdapters = new Set([
 	"apps/cli/src/index.ts",
-	"apps/workbench/src/main/main.ts"
+	"apps/workbench/src/main/main.ts",
+	// The synthetic benchmark forwards the process environment to its Playwright child.
+	"packages/observatory/scripts/benchmark.ts"
 ]);
 const approvedRawFetchAdapters = new Set([
 	"packages/authoring-sdk/src/index.ts",

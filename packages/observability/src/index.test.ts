@@ -6,7 +6,11 @@ import {
 	aggregateHealth,
 	defaultHealthInput,
 	observeOperation,
+	observatoryMetrics,
 	operationMetrics,
+	recordObservatoryCadence,
+	recordObservatoryPacket,
+	recordObservatoryPaintDuration,
 	RuntimeHealthService,
 	runtimeObservabilityLayer
 } from "./index.js";
@@ -62,6 +66,29 @@ it.effect("provides disabled and console telemetry modes through Effect Config",
 			ConfigProvider.layer(ConfigProvider.fromUnknown({ UE_SHED_TELEMETRY_MODE: "console" }))
 		)
 	)
+);
+
+it.effect("updates Observatory packet and paint metrics", () =>
+	Effect.gen(function* () {
+		const beforePackets = yield* Metric.value(observatoryMetrics.packets);
+		const beforePaint = yield* Metric.value(observatoryMetrics.paintDuration);
+		yield* recordObservatoryPacket({
+			actorsChanged: 4,
+			actorsSampled: 8,
+			bytes: 288,
+			decodeApplyMs: 1.5,
+			producerReplacements: 1,
+			sequenceGap: true
+		});
+		yield* recordObservatoryPaintDuration(2.25);
+		yield* recordObservatoryCadence({ presentationHz: 60, sampleHz: 60 });
+		const afterPackets = yield* Metric.value(observatoryMetrics.packets);
+		const afterPaint = yield* Metric.value(observatoryMetrics.paintDuration);
+		const sampleHz = yield* Metric.value(observatoryMetrics.sampleHz);
+		expect(afterPackets.count - beforePackets.count).toBe(1);
+		expect(afterPaint.count - beforePaint.count).toBe(1);
+		expect(sampleHz.value).toBe(60);
+	})
 );
 
 it("aggregates optional absence, reconnection, required failures, and telemetry gaps", () => {

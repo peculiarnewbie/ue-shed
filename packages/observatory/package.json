@@ -7,12 +7,17 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./presentation": {
+			"types": "./src/presentation.ts",
+			"default": "./src/presentation.ts"
 		}
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@ue-shed/observability": "workspace:*",
 		"@ue-shed/unreal-connection": "workspace:*",
 		"effect": "catalog:"
 	}

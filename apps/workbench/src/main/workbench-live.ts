@@ -125,6 +125,8 @@ function featureLayer(hosts: WorkbenchHosts) {
  *
  * Acquiring this layer never launches Unreal and never polls fixture health; it only builds
  * services, forks scoped presentation/camera workers, and registers IPC handlers.
+ * Observatory named-pipe observation starts only when Map Review subscribes and stops when that
+ * subscription scope closes — Workbench never begins actor sampling at layer acquisition.
  */
 export function WorkbenchLive(hosts: WorkbenchHosts) {
 	return Layer.effectDiscard(registerWorkbenchIpc).pipe(Layer.provideMerge(featureLayer(hosts)));

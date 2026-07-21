@@ -18,6 +18,7 @@ import {
 	observeActorFeed,
 	StreamActorIndex,
 	type ActorFeedShape,
+	type ActorObservationDiagnostic,
 	type WorldObservationState
 } from "./index.js";
 
@@ -154,7 +155,7 @@ function readyStart(args: {
 			worldSeconds: 1
 		},
 		catalogRevision: args.catalogRevision ?? "1",
-		limits: { maxActors: 4096, maxCadenceHz: 60 },
+		limits: { maxActors: 16_384, maxCadenceHz: 60 },
 		pipeName: args.pipeName,
 		sessionId: args.sessionId
 	};
@@ -381,11 +382,16 @@ describe("observeActorFeed", () => {
 		});
 
 		const states: WorldObservationState[] = [];
+		const diagnostics: ActorObservationDiagnostic[] = [];
 		const catalogReady = await Effect.runPromise(Deferred.make<void>());
 		const transformed = await Effect.runPromise(Deferred.make<void>());
 		const fiber = Effect.runFork(
 			observeActorFeed(remote, "http://127.0.0.1:30010", {
 				cadenceHz: 30,
+				onDiagnostic: (diagnostic) =>
+					Effect.sync(() => {
+						diagnostics.push(diagnostic);
+					}),
 				pipeName: name
 			}).pipe(
 				Stream.tap((state) =>
@@ -427,6 +433,13 @@ describe("observeActorFeed", () => {
 				z: 0
 			});
 		}
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]).toMatchObject({
+			actorsChanged: 1,
+			actorsSampled: 1,
+			missingSequences: 0,
+			sequence: 1n
+		});
 		socket.destroy();
 		await Effect.runPromise(Fiber.interrupt(fiber));
 		expect(stops.count).toBeGreaterThanOrEqual(1);

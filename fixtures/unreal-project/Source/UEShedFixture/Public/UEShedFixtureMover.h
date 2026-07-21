@@ -60,3 +60,30 @@ private:
 
 	void SetIntermittentVisible(bool bVisible);
 };
+
+UCLASS()
+class UESHEDFIXTURE_API AUEShedFixtureStationary final : public AUEShedFixtureMover
+{
+	GENERATED_BODY()
+
+public:
+	AUEShedFixtureStationary();
+};
+
+UCLASS()
+class UESHEDFIXTURE_API AUEShedFixtureFlying final : public AUEShedFixtureMover
+{
+	GENERATED_BODY()
+
+public:
+	AUEShedFixtureFlying();
+};
+
+UCLASS()
+class UESHEDFIXTURE_API AUEShedFixtureIntermittent final : public AUEShedFixtureMover
+{
+	GENERATED_BODY()
+
+public:
+	AUEShedFixtureIntermittent();
+};

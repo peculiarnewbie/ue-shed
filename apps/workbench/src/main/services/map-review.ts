@@ -16,6 +16,7 @@ import {
 	type ReviewSet
 } from "@ue-shed/cameras";
 import { EditorPlaySession } from "@ue-shed/engine-discovery";
+import { recordObservatoryIpcReplacements } from "@ue-shed/observability";
 import type {
 	MapReviewApprovalResult,
 	MapReviewApproveCandidateIntent,
@@ -31,18 +32,123 @@ import type {
 } from "@ue-shed/cameras/review-contracts";
 import {
 	Observatory,
+	StreamActorIndex,
 	type ActorId,
+	type WorldObservationSample,
+	type WorldObservationState,
 	type WorldScoutFocusResult,
-	type WorldScoutResult
+	type WorldScoutRefreshRate,
+	type WorldScoutResult,
+	type WorldTransform
 } from "@ue-shed/observatory";
 import { RemoteControlClient } from "@ue-shed/unreal-connection";
-import { Context, Effect, Layer, Option, Ref, Clock, Semaphore } from "effect";
+import {
+	Context,
+	Effect,
+	Fiber,
+	Layer,
+	Option,
+	Queue,
+	Ref,
+	Clock,
+	Semaphore,
+	Stream
+} from "effect";
 import { dirname } from "node:path";
 import { LocalFiles } from "../adapters/local-files.js";
+import { WorkbenchWindow } from "../adapters/electron-window.js";
+import type { RendererWorldObservationEvent } from "../ipc-contracts.js";
 import { WorkbenchConfiguration } from "../workbench-config.js";
 import { makeUnrealOperationCoordinator } from "./unreal-operation-coordinator.js";
 
 const artifactReadConcurrency = 4;
+/** Presentation cadence cap independent of producer sample rate (plan 019 Step 5). */
+const maxWorldObservationPresentationHz = 60;
+const worldObservationEventChannel = "map-review:world-observation";
+
+function catalogKey(sample: WorldObservationSample): string {
+	return `${sample.catalog.sessionId}:${sample.catalog.revision.toString()}`;
+}
+
+function sampleToWire(sample: WorldObservationSample) {
+	return {
+		catalog: sample.catalog,
+		health: sample.health,
+		lastSequence: sample.lastSequence.toString(),
+		sampleWorldSeconds: sample.sampleWorldSeconds,
+		transforms: [...sample.transforms.entries()].map(([streamIndex, transform]) => ({
+			streamIndex,
+			transform
+		}))
+	};
+}
+
+function stateToStatusEvent(
+	state: WorldObservationState
+): RendererWorldObservationEvent | undefined {
+	switch (state.status) {
+		case "connecting":
+			return { kind: "connecting" };
+		case "live":
+			return { kind: "catalog", sample: sampleToWire(state.sample), status: "live" };
+		case "stale":
+			return {
+				kind: "catalog",
+				message: state.message,
+				recovery: state.recovery,
+				sample: sampleToWire(state.sample),
+				status: "stale"
+			};
+		case "polling_fallback":
+			return {
+				kind: "polling_fallback",
+				cadenceHz: state.cadenceHz,
+				message: state.message,
+				snapshot: state.snapshot
+			};
+		case "unavailable":
+			return {
+				kind: "unavailable",
+				message: state.message,
+				recovery: state.recovery,
+				...(state.sample === undefined ? {} : { sample: sampleToWire(state.sample) })
+			};
+	}
+}
+
+type PendingObservation =
+	| { readonly tag: "status"; readonly event: RendererWorldObservationEvent }
+	| {
+			readonly tag: "transforms";
+			readonly actorsChanged: number;
+			readonly actorsSampled: number;
+			readonly health: WorldObservationSample["health"];
+			readonly message?: string;
+			readonly producerMonotonicMs: number;
+			readonly producerReplacements: number;
+			readonly recovery?: string;
+			readonly revision: string;
+			readonly sequence: string;
+			readonly sessionId: string;
+			readonly status: "live" | "stale";
+			readonly transforms: Map<number, WorldTransform>;
+			readonly worldSeconds: number;
+	  };
+
+/**
+ * Status/catalog events and transform deltas occupy independent presentation slots. A catalog
+ * always includes a complete retained sample, so it invalidates obsolete deltas, but a pending
+ * catalog must never be overwritten by the next sparse transform batch.
+ */
+interface PendingObservationSlots {
+	readonly status: Option.Option<RendererWorldObservationEvent>;
+	readonly transforms: Option.Option<Extract<PendingObservation, { readonly tag: "transforms" }>>;
+}
+
+const emptyPendingObservationSlots = (): PendingObservationSlots => ({
+	status: Option.none(),
+	transforms: Option.none()
+});
 
 function clampLivePreviewFps(fps: number): number {
 	return Math.min(10, Math.max(1, Math.round(fps)));
@@ -80,6 +186,12 @@ interface ReviewFailure {
 
 export interface WorkbenchMapReviewShape {
 	readonly worldSnapshot: () => Effect.Effect<WorldScoutResult>;
+	readonly subscribeWorldObservations: (cadenceHz: WorldScoutRefreshRate) => Effect.Effect<void>;
+	readonly setWorldObservationRate: (
+		cadenceHz: WorldScoutRefreshRate
+	) => Effect.Effect<WorldScoutRefreshRate>;
+	readonly unsubscribeWorldObservations: () => Effect.Effect<void>;
+	readonly worldObservationPresentationReplacements: () => Effect.Effect<number>;
 	readonly focusActor: (
 		actorId: ActorId,
 		bringToFront: boolean
@@ -193,6 +305,8 @@ export const WorkbenchMapReviewLive = Layer.effect(
 		const editorSession = yield* EditorPlaySession;
 		const cameraFeed = yield* CameraFeed;
 		const remoteControl = yield* RemoteControlClient;
+		const window = yield* WorkbenchWindow;
+		const layerScope = yield* Effect.scope;
 		const coordinator = yield* makeUnrealOperationCoordinator;
 		const lastWorldSnapshot = yield* Ref.make<Option.Option<WorldScoutResult>>(Option.none());
 		const activeReviewSetPath = yield* Ref.make<Option.Option<string>>(Option.none());
@@ -211,6 +325,386 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			Option.Option<{ readonly active: boolean; readonly checkedAtMs: number }>
 		>(Option.none());
 		const liveEnsureGate = yield* Semaphore.make(1);
+
+		const observationPresentationReplacements = yield* Ref.make(0);
+		const lastObservationSample = yield* Ref.make<Option.Option<WorldObservationSample>>(
+			Option.none()
+		);
+		const lastPresentedCatalogKey = yield* Ref.make<string | undefined>(undefined);
+		const pendingObservation = yield* Ref.make<PendingObservationSlots>(
+			emptyPendingObservationSlots()
+		);
+		const observationWake = yield* Queue.sliding<void>(1);
+		const nextObservationPresentationAtMillis = yield* Ref.make(0);
+		const observationSubscription = yield* Ref.make<{
+			readonly cadenceHz: WorldScoutRefreshRate | undefined;
+			readonly fiber: Fiber.Fiber<void, never> | undefined;
+			readonly pausedForExclusive: boolean;
+			readonly subscribers: number;
+		}>({
+			cadenceHz: undefined,
+			fiber: undefined,
+			pausedForExclusive: false,
+			subscribers: 0
+		});
+
+		yield* Effect.addFinalizer(() =>
+			Effect.gen(function* () {
+				const current = yield* Ref.get(observationSubscription);
+				if (current.fiber !== undefined) yield* Fiber.interrupt(current.fiber);
+				yield* Ref.set(observationSubscription, {
+					cadenceHz: undefined,
+					fiber: undefined,
+					pausedForExclusive: false,
+					subscribers: 0
+				});
+				yield* Ref.set(pendingObservation, emptyPendingObservationSlots());
+				yield* Queue.shutdown(observationWake);
+			})
+		);
+
+		const sendObservationEvent = Effect.fn("Workbench.WorkbenchMapReview.sendObservationEvent")(
+			function* (event: RendererWorldObservationEvent) {
+				yield* window.send(worldObservationEventChannel, event).pipe(
+					Effect.matchEffect({
+						onFailure: () => Effect.void,
+						onSuccess: () => Effect.void
+					})
+				);
+			}
+		);
+
+		const takePendingObservation = (): Effect.Effect<Option.Option<PendingObservation>> =>
+			Ref.modify(pendingObservation, (current) => {
+				if (Option.isSome(current.status)) {
+					return [
+						Option.some<PendingObservation>({
+							tag: "status",
+							event: current.status.value
+						}),
+						{ ...current, status: Option.none() }
+					];
+				}
+				if (Option.isSome(current.transforms)) {
+					return [
+						Option.some<PendingObservation>(current.transforms.value),
+						{ ...current, transforms: Option.none() }
+					];
+				}
+				return [Option.none(), current];
+			});
+
+		const sendPendingObservation = Effect.fn(
+			"Workbench.WorkbenchMapReview.sendPendingObservation"
+		)(function* (pending: PendingObservation) {
+			const now = yield* Clock.currentTimeMillis;
+			const deadline = yield* Ref.get(nextObservationPresentationAtMillis);
+			const scheduledAt = Math.max(now, deadline);
+			const delayMs = scheduledAt - now;
+			if (delayMs > 0) yield* Effect.sleep(delayMs);
+			const event: RendererWorldObservationEvent =
+				pending.tag === "status"
+					? pending.event
+					: {
+							kind: "transforms",
+							actorsChanged: pending.actorsChanged,
+							actorsSampled: pending.actorsSampled,
+							health: pending.health,
+							producerMonotonicMs: pending.producerMonotonicMs,
+							producerReplacements: pending.producerReplacements,
+							revision: pending.revision,
+							sequence: pending.sequence,
+							sessionId: pending.sessionId,
+							status: pending.status,
+							transforms: [...pending.transforms.entries()].map(
+								([streamIndex, transform]) => ({
+									streamIndex: StreamActorIndex.make(streamIndex),
+									transform
+								})
+							),
+							worldSeconds: pending.worldSeconds,
+							...(pending.message === undefined ? {} : { message: pending.message }),
+							...(pending.recovery === undefined
+								? {}
+								: { recovery: pending.recovery })
+						};
+			yield* sendObservationEvent(event);
+			yield* Ref.set(
+				nextObservationPresentationAtMillis,
+				scheduledAt + 1_000 / maxWorldObservationPresentationHz
+			);
+		});
+
+		const drainPendingObservations: Effect.Effect<void> = Effect.gen(function* () {
+			while (true) {
+				const next = yield* takePendingObservation();
+				if (Option.isNone(next)) return;
+				yield* sendPendingObservation(next.value);
+			}
+		});
+
+		const observationDrainWorker: Effect.Effect<void> = Effect.gen(function* () {
+			while (true) {
+				yield* Queue.take(observationWake);
+				yield* drainPendingObservations;
+			}
+		});
+
+		yield* observationDrainWorker.pipe(Effect.forkScoped);
+
+		const queueStatusEvent = (event: RendererWorldObservationEvent) =>
+			Ref.set(pendingObservation, {
+				status: Option.some(event),
+				transforms: Option.none()
+			}).pipe(Effect.andThen(Queue.offer(observationWake, undefined)), Effect.asVoid);
+
+		const ingestObservationState = Effect.fn(
+			"Workbench.WorkbenchMapReview.ingestObservationState"
+		)(function* (state: WorldObservationState) {
+			if (state.status === "live" || state.status === "stale") {
+				yield* Ref.set(lastObservationSample, Option.some(state.sample));
+				yield* Ref.set(lastPresentedCatalogKey, catalogKey(state.sample));
+			} else {
+				yield* Ref.set(lastPresentedCatalogKey, undefined);
+				if (state.status === "unavailable" && state.sample !== undefined) {
+					yield* Ref.set(lastObservationSample, Option.some(state.sample));
+				}
+			}
+			const event = stateToStatusEvent(state);
+			if (event !== undefined) yield* queueStatusEvent(event);
+		});
+
+		/**
+		 * Diff consecutive live samples so IPC carries only changed transforms. Catalog
+		 * metadata is never resent on ordinary transform ticks.
+		 */
+		const ingestObservationStateWithDiff = Effect.fn(
+			"Workbench.WorkbenchMapReview.ingestObservationStateWithDiff"
+		)(function* (state: WorldObservationState, previous: WorldObservationState | undefined) {
+			if (state.status !== "live" && state.status !== "stale") {
+				yield* ingestObservationState(state);
+				return;
+			}
+			const key = catalogKey(state.sample);
+			const presentedKey = yield* Ref.get(lastPresentedCatalogKey);
+			if (presentedKey !== key) {
+				yield* ingestObservationState(state);
+				return;
+			}
+			yield* Ref.set(lastObservationSample, Option.some(state.sample));
+			const priorTransforms =
+				previous !== undefined &&
+				(previous.status === "live" || previous.status === "stale") &&
+				catalogKey(previous.sample) === key
+					? previous.sample.transforms
+					: undefined;
+			const changed = new Map<number, WorldTransform>();
+			for (const [index, transform] of state.sample.transforms) {
+				const prior = priorTransforms?.get(index);
+				if (
+					prior === undefined ||
+					prior.location.x !== transform.location.x ||
+					prior.location.y !== transform.location.y ||
+					prior.location.z !== transform.location.z ||
+					prior.rotation.x !== transform.rotation.x ||
+					prior.rotation.y !== transform.rotation.y ||
+					prior.rotation.z !== transform.rotation.z
+				) {
+					changed.set(index, transform);
+				}
+			}
+			const hadPending = yield* Ref.modify(pendingObservation, (current) => {
+				const transforms = new Map<number, WorldTransform>();
+				if (Option.isSome(current.transforms)) {
+					for (const [index, transform] of current.transforms.value.transforms) {
+						transforms.set(index, transform);
+					}
+				}
+				for (const [index, transform] of changed) transforms.set(index, transform);
+				const next: PendingObservation = {
+					tag: "transforms",
+					actorsChanged: changed.size,
+					actorsSampled: state.sample.catalog.entries.length,
+					health: state.sample.health,
+					producerMonotonicMs: state.sample.sampleWorldSeconds,
+					producerReplacements: state.sample.health.producerReplacements,
+					revision: state.sample.catalog.revision.toString(),
+					sequence: state.sample.lastSequence.toString(),
+					sessionId: state.sample.catalog.sessionId,
+					status: state.status,
+					transforms,
+					worldSeconds: state.sample.sampleWorldSeconds,
+					...(state.status === "stale"
+						? { message: state.message, recovery: state.recovery }
+						: {})
+				};
+				return [
+					Option.isSome(current.transforms),
+					{ ...current, transforms: Option.some(next) }
+				];
+			});
+			if (hadPending) {
+				yield* Ref.update(observationPresentationReplacements, (count) => count + 1);
+				yield* recordObservatoryIpcReplacements(1);
+			}
+			yield* Queue.offer(observationWake, undefined);
+		});
+
+		const stopObservationFiber = Effect.fn("Workbench.WorkbenchMapReview.stopObservationFiber")(
+			function* () {
+				const current = yield* Ref.get(observationSubscription);
+				if (current.fiber !== undefined) yield* Fiber.interrupt(current.fiber);
+				yield* Ref.update(observationSubscription, (subscription) => ({
+					...subscription,
+					fiber: undefined
+				}));
+			}
+		);
+
+		const startObservationFiber = Effect.fn(
+			"Workbench.WorkbenchMapReview.startObservationFiber"
+		)(function* (cadenceHz: WorldScoutRefreshRate) {
+			yield* stopObservationFiber();
+			let previous: WorldObservationState | undefined;
+			const fiber = yield* observatory
+				.observe(configuration.remoteControlEndpoint, { cadenceHz })
+				.pipe(
+					Stream.runForEach((state) =>
+						Effect.gen(function* () {
+							yield* ingestObservationStateWithDiff(state, previous);
+							previous = state;
+						})
+					),
+					Effect.catch(() =>
+						Effect.gen(function* () {
+							const sample = yield* Ref.get(lastObservationSample);
+							yield* queueStatusEvent({
+								kind: "unavailable",
+								message: "World observation stopped unexpectedly.",
+								recovery:
+									"Unsubscribe and subscribe again, or use Connect world for a snapshot.",
+								...(Option.isSome(sample)
+									? { sample: sampleToWire(sample.value) }
+									: {})
+							});
+						})
+					),
+					Effect.forkIn(layerScope)
+				);
+			yield* Ref.update(observationSubscription, (subscription) => ({
+				...subscription,
+				cadenceHz,
+				fiber
+			}));
+		});
+
+		const pauseObservationForExclusive = Effect.fn(
+			"Workbench.WorkbenchMapReview.pauseObservationForExclusive"
+		)(function* () {
+			const current = yield* Ref.get(observationSubscription);
+			if (current.subscribers <= 0) return;
+			yield* Ref.update(observationSubscription, (subscription) => ({
+				...subscription,
+				pausedForExclusive: true
+			}));
+			yield* stopObservationFiber();
+			const sample = yield* Ref.get(lastObservationSample);
+			if (Option.isSome(sample)) {
+				yield* Ref.set(lastPresentedCatalogKey, undefined);
+				yield* queueStatusEvent({
+					kind: "catalog",
+					message: "Unreal is busy with a selected preview or durable capture.",
+					recovery: "Live world observation will resume automatically.",
+					sample: sampleToWire(sample.value),
+					status: "stale"
+				});
+			}
+		});
+
+		const resumeObservationAfterExclusive = Effect.fn(
+			"Workbench.WorkbenchMapReview.resumeObservationAfterExclusive"
+		)(function* () {
+			const current = yield* Ref.get(observationSubscription);
+			yield* Ref.update(observationSubscription, (subscription) => ({
+				...subscription,
+				pausedForExclusive: false
+			}));
+			if (current.subscribers <= 0 || current.cadenceHz === undefined) return;
+			yield* Ref.set(lastPresentedCatalogKey, undefined);
+			yield* startObservationFiber(current.cadenceHz);
+		});
+
+		const withObservationPause = <A, E, R>(
+			effect: Effect.Effect<A, E, R>
+		): Effect.Effect<A, E, R> =>
+			pauseObservationForExclusive().pipe(
+				Effect.andThen(effect),
+				Effect.ensuring(resumeObservationAfterExclusive())
+			) as Effect.Effect<A, E, R>;
+
+		const runExclusive = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+			coordinator.exclusive(withObservationPause(effect));
+
+		const subscribeWorldObservations = Effect.fn(
+			"Workbench.WorkbenchMapReview.subscribeWorldObservations"
+		)(function* (cadenceHz: WorldScoutRefreshRate) {
+			const current = yield* Ref.get(observationSubscription);
+			const subscribers = current.subscribers + 1;
+			yield* Ref.set(observationSubscription, {
+				...current,
+				cadenceHz,
+				subscribers
+			});
+			if (current.pausedForExclusive) return;
+			if (
+				subscribers === 1 ||
+				current.cadenceHz !== cadenceHz ||
+				current.fiber === undefined
+			) {
+				yield* startObservationFiber(cadenceHz);
+			}
+		});
+
+		const unsubscribeWorldObservations = Effect.fn(
+			"Workbench.WorkbenchMapReview.unsubscribeWorldObservations"
+		)(function* () {
+			const current = yield* Ref.get(observationSubscription);
+			const subscribers = Math.max(0, current.subscribers - 1);
+			yield* Ref.set(observationSubscription, {
+				...current,
+				subscribers
+			});
+			if (subscribers === 0) {
+				yield* stopObservationFiber();
+				yield* Ref.set(pendingObservation, emptyPendingObservationSlots());
+				yield* Ref.set(lastPresentedCatalogKey, undefined);
+			}
+		});
+
+		const setWorldObservationRate = Effect.fn(
+			"Workbench.WorkbenchMapReview.setWorldObservationRate"
+		)(function* (cadenceHz: WorldScoutRefreshRate) {
+			const current = yield* Ref.get(observationSubscription);
+			if (current.subscribers <= 0 || current.cadenceHz === undefined) return cadenceHz;
+			const updated = yield* coordinator
+				.poll(
+					observatory.setObservationCadence(
+						configuration.remoteControlEndpoint,
+						cadenceHz
+					)
+				)
+				.pipe(Effect.orElseSucceed(() => Option.none()));
+			if (Option.isNone(updated)) return current.cadenceHz;
+			yield* Ref.update(observationSubscription, (subscription) => ({
+				...subscription,
+				cadenceHz: updated.value
+			}));
+			return updated.value;
+		});
+
+		const worldObservationPresentationReplacements = Effect.fn(
+			"Workbench.WorkbenchMapReview.worldObservationPresentationReplacements"
+		)(() => Ref.get(observationPresentationReplacements));
 
 		const invalidateLivePreviewBank = Effect.fn(
 			"Workbench.WorkbenchMapReview.invalidateLivePreviewBank"
@@ -300,7 +794,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			actorId: ActorId,
 			bringToFront: boolean
 		) {
-			return yield* coordinator.exclusive(
+			const focused = yield* coordinator.poll(
 				observatory.focus(configuration.remoteControlEndpoint, actorId, bringToFront).pipe(
 					Effect.catch((cause) =>
 						Effect.succeed({
@@ -312,6 +806,12 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					)
 				)
 			);
+			return Option.getOrElse(focused, () => ({
+				actorId,
+				message: "Unreal is busy with an exclusive capture or authoring operation.",
+				recovery: "Wait for that operation to finish, then focus the actor again.",
+				status: "failed" as const
+			}));
 		});
 
 		const buildRunView = Effect.fn("Workbench.WorkbenchMapReview.buildRunView")(function* (
@@ -405,7 +905,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 				return { policy: block, status: "blocked" as const };
 			}
 			const { projectRoot } = reviewProject;
-			return yield* coordinator.exclusive(
+			return yield* runExclusive(
 				capture
 					.captureSet({
 						endpoint: configuration.remoteControlEndpoint,
@@ -458,7 +958,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 				}
 				const { projectRoot } = reviewProject;
-				return yield* coordinator.exclusive(
+				return yield* runExclusive(
 					Effect.gen(function* () {
 						yield* invalidateLivePreviewBank();
 						const selection = yield* authoring.inspectSelection(
@@ -510,7 +1010,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 							recovery: "Select an actor and use Reframe selected actor to start one."
 						});
 					}
-					return yield* coordinator.exclusive(
+					return yield* runExclusive(
 						authoringSessions
 							.resume({
 								endpoint: configuration.remoteControlEndpoint,
@@ -587,7 +1087,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 				}
 				const { projectRoot } = reviewProject;
-				return yield* coordinator.exclusive(
+				return yield* runExclusive(
 					Effect.gen(function* () {
 						yield* invalidateLivePreviewBank();
 						const selection = yield* authoring.inspectSelection(
@@ -691,7 +1191,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 							) {
 								return cached.value.bindings;
 							}
-							return yield* coordinator.exclusive(
+							return yield* runExclusive(
 								Effect.gen(function* () {
 									const fps = yield* Ref.get(livePreviewFps);
 									const next = yield* ensureReviewPreviewSources(
@@ -752,7 +1252,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 				}
 
 				yield* Ref.set(livePreviewBindings, Option.none());
-				return yield* coordinator.exclusive(
+				return yield* runExclusive(
 					Effect.gen(function* () {
 						const reviewSet =
 							session.pendingReviewSet ??
@@ -822,7 +1322,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 				}
 				const projectRoot = reviewProject.projectRoot;
-				return yield* coordinator.exclusive(
+				return yield* runExclusive(
 					authoringSessions
 						.approve({
 							endpoint: configuration.remoteControlEndpoint,
@@ -876,7 +1376,7 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					});
 				}
 				const { reviewSetPath } = configuration.review;
-				return yield* coordinator.exclusive(
+				return yield* runExclusive(
 					Effect.gen(function* () {
 						const reviewSet = yield* repository.loadSet(reviewSetPath);
 						const selection = yield* authoring.inspectSelection(
@@ -1010,6 +1510,10 @@ export const WorkbenchMapReviewLive = Layer.effect(
 			previewAuthoringCandidate,
 			previewCandidate,
 			setLivePreviewFps,
+			setWorldObservationRate,
+			subscribeWorldObservations,
+			unsubscribeWorldObservations,
+			worldObservationPresentationReplacements,
 			worldSnapshot
 		});
 	})

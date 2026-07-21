@@ -15,7 +15,7 @@ Header:
 |      6 | u16     | header length, `96`                                       |
 |      8 | u16     | record length, `48`                                       |
 |     10 | u16     | flags; bit 0 is reset/catalog-invalidated                 |
-|     12 | u32     | record count, at most 4,096                               |
+|     12 | u32     | record count, at most 16,384                              |
 |     16 | u32     | payload length, exactly `recordCount * 48`                |
 |     20 | u32     | reserved, zero                                            |
 |     24 | u64     | session-local packet sequence                             |
@@ -45,13 +45,13 @@ Record:
 
 ## Limits
 
-- Record count ≤ 4,096
+- Record count ≤ 16,384
 - Header length = 96 bytes
 - Record length = 48 bytes
-- Payload length = `recordCount * 48` ≤ 196,608 bytes
+- Payload length = `recordCount * 48` ≤ 786,432 bytes
 - Host incremental decoders must bound undecoded buffered bytes (TypeScript decoder default:
-  524,288 bytes). Excess input is discarded and counted as malformed before the decoder resumes
-  seeking magic.
+  one max packet plus 64 KiB slack). Excess input is discarded and counted as malformed before the
+  decoder resumes seeking magic.
 
 ## Semantics
 
@@ -62,6 +62,9 @@ Record:
   record whose session ID, revision, or actor index does not match the retained catalog.
 - Sequence is session-local and monotonic for applied packets. Gaps are expected under
   latest-state-wins delivery and must be observable; they are not a decode error.
+- A producer that replaces an unsent sparse packet must carry its changed indices forward until a
+  packet containing them has been delivered to the transport. Replacing one independent delta with
+  another would lose state and does not satisfy latest-state-wins semantics.
 - Stream-local actor indices are compact aliases for one catalog revision only. They are never
   durable actor identity and must not be persisted into Review Sets.
 - This binary stream is a local data plane. It never carries durable Map Review evidence. Remote

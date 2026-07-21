@@ -74,7 +74,7 @@ void UUEShedObservatoryLibrary::GetActorSnapshot(FString& ResultJson)
 
 	TArray<TSharedPtr<FJsonValue>> Actors;
 	Actors.Reserve(256);
-	constexpr int32 MaxActors = 4096;
+	constexpr int32 MaxActors = 16384;
 	for (TActorIterator<AActor> It(World); It && Actors.Num() < MaxActors; ++It)
 	{
 		AActor* Actor = *It;
@@ -125,6 +125,13 @@ void UUEShedObservatoryLibrary::StartActorObservation(
 void UUEShedObservatoryLibrary::StopActorObservation(FString& ResultJson)
 {
 	GetObservatoryStreamService().StopActorObservation(ResultJson);
+}
+
+void UUEShedObservatoryLibrary::SetActorObservationCadence(
+	const FString& RequestJson,
+	FString& ResultJson)
+{
+	GetObservatoryStreamService().SetActorObservationCadence(RequestJson, ResultJson);
 }
 
 void UUEShedObservatoryLibrary::GetActorObservationStatus(FString& ResultJson)

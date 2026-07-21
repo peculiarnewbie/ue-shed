@@ -21,7 +21,16 @@ import {
 } from "@ue-shed/cameras/review-contracts";
 import { TextCorpusRunResult } from "@ue-shed/game-text";
 import { RuntimeHealth } from "@ue-shed/observability";
-import { ActorId, WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
+import {
+	ActorId,
+	WorldActorCatalog,
+	WorldActorSnapshot,
+	WorldIndexedTransform,
+	WorldObservationHealth,
+	WorldScoutFocusResult,
+	WorldScoutResult,
+	WorldScoutRefreshRate
+} from "@ue-shed/observatory";
 import {
 	CameraScheduleConfig,
 	CameraStatus,
@@ -113,6 +122,72 @@ export const RendererCameraFrame = Schema.Struct({
 	worldSeconds: Schema.Number
 });
 export interface RendererCameraFrame extends Schema.Schema.Type<typeof RendererCameraFrame> {}
+
+/**
+ * Retained observation sample crossing Electron IPC. Transforms stay as a dense array so the
+ * renderer can rebuild a Map without receiving catalog actor metadata on every transform tick.
+ */
+export const RendererWorldObservationSample = Schema.Struct({
+	catalog: WorldActorCatalog,
+	health: WorldObservationHealth,
+	lastSequence: Schema.String,
+	sampleWorldSeconds: Schema.Finite,
+	transforms: Schema.Array(WorldIndexedTransform)
+});
+export interface RendererWorldObservationSample extends Schema.Schema.Type<
+	typeof RendererWorldObservationSample
+> {}
+
+/**
+ * Main→renderer observation events. Catalog/status payloads carry metadata once; transform
+ * batches carry only coalesced changed indices. Bigints travel as decimal strings (camera pattern).
+ */
+export const RendererWorldObservationEvent = Schema.Union([
+	Schema.Struct({
+		kind: Schema.Literal("connecting")
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("catalog"),
+		sample: RendererWorldObservationSample,
+		status: Schema.Literals(["live", "stale"]),
+		message: Schema.optionalKey(Schema.String),
+		recovery: Schema.optionalKey(Schema.String)
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("transforms"),
+		actorsChanged: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		actorsSampled: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		health: WorldObservationHealth,
+		producerMonotonicMs: Schema.Finite,
+		producerReplacements: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+		revision: Schema.String,
+		sequence: Schema.String,
+		sessionId: Schema.String,
+		status: Schema.Literals(["live", "stale"]),
+		transforms: Schema.Array(WorldIndexedTransform),
+		worldSeconds: Schema.Finite,
+		message: Schema.optionalKey(Schema.String),
+		recovery: Schema.optionalKey(Schema.String)
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("polling_fallback"),
+		cadenceHz: Schema.Int.check(
+			Schema.isGreaterThanOrEqualTo(1),
+			Schema.isLessThanOrEqualTo(10)
+		),
+		message: Schema.String,
+		snapshot: WorldActorSnapshot
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("unavailable"),
+		message: Schema.String,
+		recovery: Schema.String,
+		sample: Schema.optionalKey(RendererWorldObservationSample)
+	})
+]);
+export type RendererWorldObservationEvent = Schema.Schema.Type<
+	typeof RendererWorldObservationEvent
+>;
 
 export const CameraMetricsResult = Schema.UndefinedOr(WorkbenchCameraMetrics);
 export type CameraMetricsResult = Schema.Schema.Type<typeof CameraMetricsResult>;
@@ -355,6 +430,21 @@ export const invokeContracts = {
 		channel: "map-review:set-live-preview-fps",
 		args: Schema.Tuple([Schema.Number]),
 		result: Schema.Number
+	}),
+	"map-review:subscribe-world-observations": invoke({
+		channel: "map-review:subscribe-world-observations",
+		args: Schema.Tuple([WorldScoutRefreshRate]),
+		result: Schema.Undefined
+	}),
+	"map-review:set-world-observation-rate": invoke({
+		channel: "map-review:set-world-observation-rate",
+		args: Schema.Tuple([WorldScoutRefreshRate]),
+		result: WorldScoutRefreshRate
+	}),
+	"map-review:unsubscribe-world-observations": invoke({
+		channel: "map-review:unsubscribe-world-observations",
+		args: EmptyArgs,
+		result: Schema.Undefined
 	})
 } as const;
 
@@ -366,6 +456,12 @@ export const cameraFrameEvent = {
 	payload: RendererCameraFrame
 } as const;
 
+export const worldObservationEvent = {
+	kind: "event",
+	channel: "map-review:world-observation",
+	payload: RendererWorldObservationEvent
+} as const;
+
 export const invokeChannelNames = Object.keys(invokeContracts) as Array<InvokeChannel>;
 
 export const decodeInvokeArgs = <C extends InvokeContract>(contract: C) =>
@@ -375,3 +471,6 @@ export const decodeInvokeResult = <C extends InvokeContract>(contract: C) =>
 	Schema.decodeUnknownEffect(contract.result);
 
 export const decodeCameraFrameEvent = Schema.decodeUnknownEffect(cameraFrameEvent.payload);
+export const decodeWorldObservationEvent = Schema.decodeUnknownEffect(
+	worldObservationEvent.payload
+);

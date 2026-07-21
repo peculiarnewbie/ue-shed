@@ -318,6 +318,9 @@ importers:
       '@ue-shed/cameras':
         specifier: workspace:*
         version: link:../../packages/cameras
+      '@ue-shed/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@ue-shed/observatory':
         specifier: workspace:*
         version: link:../../packages/observatory
@@ -543,6 +546,9 @@ importers:
 
   packages/observatory:
     dependencies:
+      '@ue-shed/observability':
+        specifier: workspace:*
+        version: link:../observability
       '@ue-shed/unreal-connection':
         specifier: workspace:*
         version: link:../unreal-connection

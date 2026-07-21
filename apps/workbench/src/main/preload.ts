@@ -18,11 +18,16 @@ import type {
 	EditorPlaySessionCommandResponse,
 	EditorPlaySessionStateResponse
 } from "@ue-shed/protocol";
-import type { WorldScoutFocusResult, WorldScoutResult } from "@ue-shed/observatory";
+import type {
+	WorldScoutFocusResult,
+	WorldScoutRefreshRate,
+	WorldScoutResult
+} from "@ue-shed/observatory";
 import { contextBridge, ipcRenderer } from "electron";
 import type {
 	FixtureLaunchResult,
 	RendererCameraFrame,
+	RendererWorldObservationEvent,
 	ShowcaseContext,
 	WorkbenchCameraMetrics
 } from "./ipc-contracts.js";
@@ -30,6 +35,7 @@ import type {
 export type {
 	FixtureLaunchResult,
 	RendererCameraFrame,
+	RendererWorldObservationEvent,
 	ShowcaseContext,
 	WorkbenchCameraMetrics
 } from "./ipc-contracts.js";
@@ -132,7 +138,15 @@ contextBridge.exposeInMainWorld("ueShed", {
 			ipcRenderer.invoke("map-review:capture", intent),
 		load: (): Promise<MapReviewResult> => ipcRenderer.invoke("map-review:load"),
 		setLivePreviewFps: (fps: number): Promise<number> =>
-			ipcRenderer.invoke("map-review:set-live-preview-fps", fps)
+			ipcRenderer.invoke("map-review:set-live-preview-fps", fps),
+		subscribeWorldObservations: (cadenceHz: WorldScoutRefreshRate): Promise<void> =>
+			ipcRenderer.invoke("map-review:subscribe-world-observations", cadenceHz),
+		setWorldObservationRate: (
+			cadenceHz: WorldScoutRefreshRate
+		): Promise<WorldScoutRefreshRate> =>
+			ipcRenderer.invoke("map-review:set-world-observation-rate", cadenceHz),
+		unsubscribeWorldObservations: (): Promise<void> =>
+			ipcRenderer.invoke("map-review:unsubscribe-world-observations")
 	},
 	configure: (config: CameraScheduleConfig): Promise<CameraStatus> =>
 		ipcRenderer.invoke("camera:configure", config),
@@ -145,5 +159,13 @@ contextBridge.exposeInMainWorld("ueShed", {
 			listener(frame);
 		ipcRenderer.on("camera:frame", handler);
 		return () => ipcRenderer.removeListener("camera:frame", handler);
+	},
+	onWorldObservation: (listener: (event: RendererWorldObservationEvent) => void) => {
+		const handler = (
+			_event: Electron.IpcRendererEvent,
+			observation: RendererWorldObservationEvent
+		) => listener(observation);
+		ipcRenderer.on("map-review:world-observation", handler);
+		return () => ipcRenderer.removeListener("map-review:world-observation", handler);
 	}
 });

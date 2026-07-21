@@ -42,6 +42,11 @@
 namespace
 {
 constexpr int32 CameraFixtureCount = 32;
+/** Dense World Scout catalog; cameras stay at CameraFixtureCount and bind to movers 0..31. */
+constexpr int32 ObservationMoverCount = 4096;
+constexpr int32 StationaryMoverCount = 3278;
+constexpr int32 FlyingMoverCount = 409;
+constexpr int32 IntermittentMoverCount = 409;
 constexpr int32 LargeTableRowCount = 10000;
 
 struct FFixtureTableDefinition
@@ -915,6 +920,7 @@ bool GenerateCameraMap()
 		int32 StationaryMovers = 0;
 		int32 FlyingMovers = 0;
 		int32 IntermittentMovers = 0;
+		bool bMoverMotionsMatch = true;
 		bool bHasReviewSubject = false;
 		bool bHasAtmosphere = false;
 		bool bAllCamerasBound = true;
@@ -926,9 +932,16 @@ bool GenerateCameraMap()
 			if (const AUEShedFixtureMover* Mover = Cast<AUEShedFixtureMover>(Actor))
 			{
 				++ExistingMovers;
-				StationaryMovers += Mover->Motion == EUEShedFixtureMotion::Stationary ? 1 : 0;
-				FlyingMovers += Mover->Motion == EUEShedFixtureMotion::Flying ? 1 : 0;
-				IntermittentMovers += Mover->Motion == EUEShedFixtureMotion::Intermittent ? 1 : 0;
+				StationaryMovers += Mover->IsA<AUEShedFixtureStationary>() ? 1 : 0;
+				FlyingMovers += Mover->IsA<AUEShedFixtureFlying>() ? 1 : 0;
+				IntermittentMovers += Mover->IsA<AUEShedFixtureIntermittent>() ? 1 : 0;
+				bMoverMotionsMatch = bMoverMotionsMatch
+					&& (!Mover->IsA<AUEShedFixtureStationary>()
+						|| Mover->Motion == EUEShedFixtureMotion::Stationary)
+					&& (!Mover->IsA<AUEShedFixtureFlying>()
+						|| Mover->Motion == EUEShedFixtureMotion::Flying)
+					&& (!Mover->IsA<AUEShedFixtureIntermittent>()
+						|| Mover->Motion == EUEShedFixtureMotion::Intermittent);
 			}
 			if (const AUEShedCameraSource* Camera = Cast<AUEShedCameraSource>(Actor))
 			{
@@ -936,10 +949,12 @@ bool GenerateCameraMap()
 				bAllCamerasBound = bAllCamerasBound && Camera->ObservationTarget != nullptr;
 			}
 		}
-		const bool bFamiliesBalanced = StationaryMovers > 0 && FlyingMovers > 0
-			&& IntermittentMovers > 0;
-		if (ExistingMovers == CameraFixtureCount && ExistingCameras == CameraFixtureCount
-			&& bAllCamerasBound && bHasReviewSubject && bHasAtmosphere && bFamiliesBalanced)
+		const bool bFamiliesMatch = StationaryMovers == StationaryMoverCount
+			&& FlyingMovers == FlyingMoverCount
+			&& IntermittentMovers == IntermittentMoverCount;
+		if (ExistingMovers == ObservationMoverCount && ExistingCameras == CameraFixtureCount
+			&& bAllCamerasBound && bHasReviewSubject && bHasAtmosphere && bFamiliesMatch
+			&& bMoverMotionsMatch)
 		{
 			UE_LOG(LogTemp, Display, TEXT("Camera fixture map already matches its contract"));
 			return true;
@@ -1044,31 +1059,56 @@ bool GenerateCameraMap()
 	Occluder->SetActorScale3D(FVector(1.8, 6.0, 3.2));
 	ApplySolidColor(Occluder->GetStaticMeshComponent(), FLinearColor(0.22f, 0.24f, 0.26f, 1.0f));
 
-	for (int32 Index = 0; Index < CameraFixtureCount; ++Index)
+	TArray<AUEShedFixtureMover*> Movers;
+	Movers.Reserve(ObservationMoverCount);
+	constexpr int32 GridSide = 64; // 64 * 64 == ObservationMoverCount
+	constexpr double GridSpacing = 220.0;
+	const double GridOrigin = -0.5 * (GridSide - 1) * GridSpacing;
+
+	for (int32 Index = 0; Index < ObservationMoverCount; ++Index)
 	{
-		const EUEShedFixtureMotion Motion = static_cast<EUEShedFixtureMotion>(Index % 3);
-		const double Angle = UE_TWO_PI * Index / CameraFixtureCount;
-		const double RingRadius = 850.0 + (Index % 4) * 260.0;
-		const FVector Origin(FMath::Cos(Angle) * RingRadius,
-			FMath::Sin(Angle) * RingRadius, MotionBaseHeight(Motion));
-		AUEShedFixtureMover* Mover = World->SpawnActor<AUEShedFixtureMover>(Origin, FRotator::ZeroRotator);
+		const int32 GridX = Index % GridSide;
+		const int32 GridY = Index / GridSide;
+		// Exact 80% stationary / 10% flying / 10% intermittent split after rounding.
+		const EUEShedFixtureMotion Motion = Index < StationaryMoverCount
+			? EUEShedFixtureMotion::Stationary
+			: Index < StationaryMoverCount + FlyingMoverCount
+				? EUEShedFixtureMotion::Flying
+				: EUEShedFixtureMotion::Intermittent;
+		const FVector Origin(
+			GridOrigin + GridX * GridSpacing,
+			GridOrigin + GridY * GridSpacing,
+			MotionBaseHeight(Motion));
+		UClass* MoverClass = Motion == EUEShedFixtureMotion::Stationary
+			? AUEShedFixtureStationary::StaticClass()
+			: Motion == EUEShedFixtureMotion::Flying
+				? AUEShedFixtureFlying::StaticClass()
+				: AUEShedFixtureIntermittent::StaticClass();
+		AUEShedFixtureMover* Mover = World->SpawnActor<AUEShedFixtureMover>(
+			MoverClass, Origin, FRotator::ZeroRotator);
 		Mover->Tags.Add(TEXT("UEShedCameraFixture"));
 		Mover->LogicalIndex = Index;
-		Mover->Motion = Motion;
+		const int32 MotionVariant = Index % 32;
 		Mover->Radius = Motion == EUEShedFixtureMotion::Flying
-			? 220.0f + Index * 12.0f
-			: 180.0f + Index * 18.0f;
+			? 220.0f + MotionVariant * 12.0f
+			: 180.0f + MotionVariant * 18.0f;
 		Mover->Speed = Motion == EUEShedFixtureMotion::Flying
-			? 0.35f + Index * 0.04f
-			: 0.45f + Index * 0.055f;
+			? 0.35f + MotionVariant * 0.04f
+			: 0.45f + MotionVariant * 0.055f;
 		Mover->IntermittentPeriod = 2.6f + (Index % 5) * 0.35f;
 		Mover->IntermittentDutyCycle = 0.45f + (Index % 4) * 0.08f;
 		Mover->ApplyVisualIdentity();
-		Mover->SetActorLabel(FString::Printf(TEXT("%s %02d"), MotionFamilyLabel(Motion), Index + 1));
+		Mover->SetActorLabel(FString::Printf(TEXT("%s %04d"), MotionFamilyLabel(Motion), Index + 1));
+		Movers.Add(Mover);
+	}
 
+	for (int32 Index = 0; Index < CameraFixtureCount; ++Index)
+	{
+		AUEShedFixtureMover* Mover = Movers[Index];
+		const double Angle = UE_TWO_PI * Index / CameraFixtureCount;
 		const FVector CameraLocation(FMath::Cos(Angle) * 2600.0,
 			FMath::Sin(Angle) * 2600.0, 1150.0 + (Index % 2) * 250.0);
-		const FRotator CameraRotation = (Origin - CameraLocation).Rotation();
+		const FRotator CameraRotation = (Mover->GetActorLocation() - CameraLocation).Rotation();
 		AUEShedCameraSource* Camera = World->SpawnActor<AUEShedCameraSource>(
 			CameraLocation, CameraRotation);
 		Camera->Tags.Add(TEXT("UEShedCameraFixture"));
@@ -1083,7 +1123,7 @@ bool GenerateCameraMap()
 	if (bCreatedWorld) World->CleanupWorld();
 	if (!bSaved) return false;
 	UE_LOG(LogTemp, Display, TEXT("Generated %s with %d movers and %d camera sources"),
-		PackageName, CameraFixtureCount, CameraFixtureCount);
+		PackageName, ObservationMoverCount, CameraFixtureCount);
 	return true;
 }
 
@@ -1098,6 +1138,7 @@ bool VerifyCameraMap()
 	int32 StationaryMovers = 0;
 	int32 FlyingMovers = 0;
 	int32 IntermittentMovers = 0;
+	bool bMoverMotionsMatch = true;
 	bool bHasReviewSubject = false;
 	bool bHasAtmosphere = false;
 	for (AActor* Actor : World->PersistentLevel->Actors)
@@ -1108,9 +1149,16 @@ bool VerifyCameraMap()
 		if (const AUEShedFixtureMover* Mover = Cast<AUEShedFixtureMover>(Actor))
 		{
 			++Movers;
-			StationaryMovers += Mover->Motion == EUEShedFixtureMotion::Stationary ? 1 : 0;
-			FlyingMovers += Mover->Motion == EUEShedFixtureMotion::Flying ? 1 : 0;
-			IntermittentMovers += Mover->Motion == EUEShedFixtureMotion::Intermittent ? 1 : 0;
+			StationaryMovers += Mover->IsA<AUEShedFixtureStationary>() ? 1 : 0;
+			FlyingMovers += Mover->IsA<AUEShedFixtureFlying>() ? 1 : 0;
+			IntermittentMovers += Mover->IsA<AUEShedFixtureIntermittent>() ? 1 : 0;
+			bMoverMotionsMatch = bMoverMotionsMatch
+				&& (!Mover->IsA<AUEShedFixtureStationary>()
+					|| Mover->Motion == EUEShedFixtureMotion::Stationary)
+				&& (!Mover->IsA<AUEShedFixtureFlying>()
+					|| Mover->Motion == EUEShedFixtureMotion::Flying)
+				&& (!Mover->IsA<AUEShedFixtureIntermittent>()
+					|| Mover->Motion == EUEShedFixtureMotion::Intermittent);
 		}
 		if (const AUEShedCameraSource* Camera = Cast<AUEShedCameraSource>(Actor))
 		{
@@ -1122,9 +1170,10 @@ bool VerifyCameraMap()
 		TEXT("Camera fixture verification found %d movers (%d stationary / %d flying / %d intermittent), %d cameras, atmosphere=%s"),
 		Movers, StationaryMovers, FlyingMovers, IntermittentMovers, Cameras,
 		bHasAtmosphere ? TEXT("yes") : TEXT("no"));
-	return Movers == CameraFixtureCount && Cameras == CameraFixtureCount
+	return Movers == ObservationMoverCount && Cameras == CameraFixtureCount
 		&& BoundCameras == CameraFixtureCount && bHasReviewSubject && bHasAtmosphere
-		&& StationaryMovers > 0 && FlyingMovers > 0 && IntermittentMovers > 0;
+		&& StationaryMovers == StationaryMoverCount && FlyingMovers == FlyingMoverCount
+		&& IntermittentMovers == IntermittentMoverCount && bMoverMotionsMatch;
 }
 }
 

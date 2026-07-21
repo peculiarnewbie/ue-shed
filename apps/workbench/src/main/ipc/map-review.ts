@@ -5,10 +5,10 @@ import type {
 	MapReviewAuthoringSessionIntent,
 	MapReviewCaptureIntent
 } from "@ue-shed/cameras/review-contracts";
+import type { ActorId, WorldScoutRefreshRate } from "@ue-shed/observatory";
 import { Effect } from "effect";
 import { ElectronIpc } from "../adapters/electron-ipc.js";
 import { invokeContracts, type CandidateId } from "../ipc-contracts.js";
-import type { ActorId } from "@ue-shed/observatory";
 import { WorkbenchMapReview } from "../services/map-review.js";
 
 export const register = Effect.gen(function* () {
@@ -65,4 +65,15 @@ export const register = Effect.gen(function* () {
 		const [fps] = args as [number];
 		return mapReview.setLivePreviewFps(fps);
 	});
+	yield* ipc.register(invokeContracts["map-review:subscribe-world-observations"], (...args) => {
+		const [cadenceHz] = args as [WorldScoutRefreshRate];
+		return mapReview.subscribeWorldObservations(cadenceHz);
+	});
+	yield* ipc.register(invokeContracts["map-review:set-world-observation-rate"], (...args) => {
+		const [cadenceHz] = args as [WorldScoutRefreshRate];
+		return mapReview.setWorldObservationRate(cadenceHz);
+	});
+	yield* ipc.register(invokeContracts["map-review:unsubscribe-world-observations"], () =>
+		mapReview.unsubscribeWorldObservations()
+	);
 }).pipe(Effect.withSpan("Workbench.Ipc.registerMapReview"));

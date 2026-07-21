@@ -344,7 +344,9 @@ bool UUEShedCameraSubsystem::EnsureReviewPreviewSources(
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.SpawnCollisionHandlingOverride =
 			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		SpawnParams.Name = *FString::Printf(TEXT("UEShedReviewPreview_%d"), Index);
+		// Destroy() marks old preview actors for teardown, but their names remain reserved until the
+		// end of the frame. Let Unreal allocate a unique transient name so replacing a preview bank
+		// during PIE cannot collide with a just-destroyed source and crash the editor.
 		AUEShedCameraSource* Source = World->SpawnActor<AUEShedCameraSource>(
 			AUEShedCameraSource::StaticClass(),
 			Spec.Location,

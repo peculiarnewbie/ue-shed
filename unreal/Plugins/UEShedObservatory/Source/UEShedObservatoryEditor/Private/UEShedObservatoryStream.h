@@ -22,6 +22,7 @@ public:
 
 	void StartActorObservation(const FString& RequestJson, FString& ResultJson);
 	void StopActorObservation(FString& ResultJson);
+	void SetActorObservationCadence(const FString& RequestJson, FString& ResultJson);
 	void GetActorObservationStatus(FString& ResultJson) const;
 
 	void Tick(float DeltaTime) override;
@@ -56,7 +57,7 @@ private:
 	void OnLevelActorAdded(AActor* Actor);
 	void OnLevelActorDeleted(AActor* Actor);
 
-	static constexpr int32 MaxActors = 4096;
+	static constexpr int32 MaxActors = 16384;
 	static constexpr int32 MaxCadenceHz = 60;
 	static constexpr int32 HeaderBytes = 96;
 	static constexpr int32 RecordBytes = 48;

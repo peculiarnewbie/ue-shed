@@ -10,6 +10,8 @@ and demand-driven actor transform streaming.
 - `StartActorObservation` — validate cadence (1–60 Hz), build a catalog with dense stream indices,
   return session metadata and pipe name, then begin transform sampling.
 - `StopActorObservation` — idempotently stop sampling and the pipe writer.
+- `SetActorObservationCadence` — retune an active stream without replacing its catalog, session, or
+  named-pipe writer.
 - `GetActorObservationStatus` — bounded counters and connection health without actor arrays.
 
 ## Transform stream

@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"fixtureVersion": "1.2.0",
+	"fixtureVersion": "1.3.0",
 	"engine": {
 		"major": 5,
 		"minor": 7
@@ -26,20 +26,26 @@
 	},
 	"cameraLoad": {
 		"map": "/Game/Fixture/Cameras/L_CameraLoad.L_CameraLoad",
-		"movingActors": 32,
+		"movingActors": 4096,
 		"cameraSources": 32,
 		"actorFamilies": {
 			"stationary": {
+				"className": "UEShedFixtureStationary",
+				"count": 3278,
 				"shape": "cube",
 				"materialColor": "slate",
 				"behavior": "fixed-pose"
 			},
 			"flying": {
+				"className": "UEShedFixtureFlying",
+				"count": 409,
 				"shape": "sphere",
 				"materialColor": "cyan",
 				"behavior": "airborne-orbit"
 			},
 			"intermittent": {
+				"className": "UEShedFixtureIntermittent",
+				"count": 409,
 				"shape": "cylinder",
 				"materialColor": "amber",
 				"behavior": "visibility-cycle"

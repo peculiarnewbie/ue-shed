@@ -101,6 +101,9 @@ export const workbenchWindowLayer = (
 						show: false,
 						title: options.title,
 						webPreferences: {
+							// Map Review must keep consuming and painting the sparse live stream while
+							// Unreal is foregrounded for Go to Actor / authoring operations.
+							backgroundThrottling: false,
 							contextIsolation: true,
 							preload: options.preloadPath,
 							sandbox: true
