@@ -632,13 +632,10 @@ export const WorkbenchMapReviewLive = Layer.effect(
 					return mapReviewAuthoringFailure({
 						message:
 							"Reframe before requesting previews for a stale or completed session.",
-						recovery:
-							"Use Reframe selected actor to regenerate reviewable candidates."
+						recovery: "Use Reframe selected actor to regenerate reviewable candidates."
 					});
 				}
-				const candidate = session.candidates.find(
-					(item) => item.id === intent.candidateId
-				);
+				const candidate = session.candidates.find((item) => item.id === intent.candidateId);
 				if (!candidate) {
 					return mapReviewAuthoringFailure({
 						message: `Candidate ${intent.candidateId} is no longer available.`
@@ -709,7 +706,9 @@ export const WorkbenchMapReviewLive = Layer.effect(
 											width: 320
 										})),
 										{ previewFps: fps }
-									).pipe(Effect.provideService(RemoteControlClient, remoteControl));
+									).pipe(
+										Effect.provideService(RemoteControlClient, remoteControl)
+									);
 									yield* Ref.set(
 										livePreviewBindings,
 										Option.some({

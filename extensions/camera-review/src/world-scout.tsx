@@ -316,7 +316,10 @@ export function WorldScout(props: {
 														selectActor(current().actor);
 													}}
 													onKeyDown={(event) => {
-														if (event.key === "Enter" || event.key === " ") {
+														if (
+															event.key === "Enter" ||
+															event.key === " "
+														) {
 															event.preventDefault();
 															selectActor(current().actor);
 														}
@@ -333,8 +336,12 @@ export function WorldScout(props: {
 														cx={current().xPercent}
 														cy={current().yPercent}
 														r={isSelected() ? 2.15 : 1.25}
-														fill={colorForClass(current().actor.className)}
-														stroke={isSelected() ? "#ffffff" : "#0a0d0b"}
+														fill={colorForClass(
+															current().actor.className
+														)}
+														stroke={
+															isSelected() ? "#ffffff" : "#0a0d0b"
+														}
 														stroke-width={isSelected() ? 0.65 : 0.35}
 														vector-effect="non-scaling-stroke"
 													/>

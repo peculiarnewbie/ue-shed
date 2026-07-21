@@ -213,7 +213,10 @@ export function MapReviewRoute(props: { readonly client: MapReviewClientShape })
 								when={selected()}
 								fallback={
 									<section {...stylex.props(styles.firstCapture)}>
-										<p>No captures yet. Use Capture Set when you want PNG evidence.</p>
+										<p>
+											No captures yet. Use Capture Set when you want PNG
+											evidence.
+										</p>
 									</section>
 								}
 							>

@@ -65,6 +65,6 @@ can validate and reproduce them.
 - Sky atmosphere, realtime-capture sky light, directional sun, and height fog
 - A multi-piece `ReviewSubject` building plus a natural occluder
 - 32 observation actors in three recognizable families:
-  - **Stationary** — slate cubes that stay put
-  - **Flying** — cyan spheres on airborne orbits
-  - **Intermittent** — amber cylinders that cycle visibility
+    - **Stationary** — slate cubes that stay put
+    - **Flying** — cyan spheres on airborne orbits
+    - **Intermittent** — amber cylinders that cycle visibility

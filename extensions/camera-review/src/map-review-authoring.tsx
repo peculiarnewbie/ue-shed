@@ -111,10 +111,14 @@ function CandidateImage(props: { readonly candidate: MapReviewAuthoringCandidate
 				return (
 					<div {...stylex.props(styles.previewFailure)}>
 						<span>
-							{current.status === "pending" ? "RENDERING PREVIEW" : "PREVIEW UNAVAILABLE"}
+							{current.status === "pending"
+								? "RENDERING PREVIEW"
+								: "PREVIEW UNAVAILABLE"}
 						</span>
 						<small>
-							{current.status === "failed" ? current.message : "Waiting for the first frame."}
+							{current.status === "failed"
+								? current.message
+								: "Waiting for the first frame."}
 						</small>
 					</div>
 				);
@@ -198,7 +202,10 @@ export function MapReviewAuthoring(props: {
 		setState({ session: result, status: "ready" });
 		hydratePreviews(result);
 	};
-	const persist = (patch: AuthoringPatch, options: { readonly refreshPreviews?: boolean } = {}) => {
+	const persist = (
+		patch: AuthoringPatch,
+		options: { readonly refreshPreviews?: boolean } = {}
+	) => {
 		const durable = session()?.session;
 		if (!durable || durable.lifecycle !== "active") return;
 		patchAction.run(props.client.authoringPatch({ patch, sessionId: durable.id }), {
@@ -623,151 +630,145 @@ export function MapReviewAuthoring(props: {
 			</Show>
 			<Show when={session()}>
 				<div {...stylex.props(styles.authoringBody)}>
-						<div
-							aria-label="Framing candidates"
-							role="region"
-							{...stylex.props(styles.contactSheet)}
-						>
-							<For each={candidates()}>
-								{(candidate, index) => (
-									<article
-										{...stylex.props(
-											styles.candidateCard,
-											selected()?.id === candidate.id &&
-												styles.candidateSelected
-										)}
+					<div
+						aria-label="Framing candidates"
+						role="region"
+						{...stylex.props(styles.contactSheet)}
+					>
+						<For each={candidates()}>
+							{(candidate, index) => (
+								<article
+									{...stylex.props(
+										styles.candidateCard,
+										selected()?.id === candidate.id && styles.candidateSelected
+									)}
+								>
+									<button
+										type="button"
+										aria-label={`Select ${candidate.displayName}`}
+										onClick={() => select(candidate)}
+										{...stylex.props(styles.candidateSelect)}
 									>
-										<button
-											type="button"
-											aria-label={`Select ${candidate.displayName}`}
-											onClick={() => select(candidate)}
-											{...stylex.props(styles.candidateSelect)}
-										>
-											<CandidateImage candidate={candidate} />
-											<div {...stylex.props(styles.candidateMeta)}>
-												<span {...stylex.props(styles.candidateIndex)}>
-													{String(index() + 1).padStart(2, "0")}
-												</span>
-												<div {...stylex.props(styles.candidateCopy)}>
-													<strong>{candidate.displayName}</strong>
-													<small>
-														{candidate.preset.replaceAll("_", " ")}
-													</small>
-												</div>
+										<CandidateImage candidate={candidate} />
+										<div {...stylex.props(styles.candidateMeta)}>
+											<span {...stylex.props(styles.candidateIndex)}>
+												{String(index() + 1).padStart(2, "0")}
+											</span>
+											<div {...stylex.props(styles.candidateCopy)}>
+												<strong>{candidate.displayName}</strong>
+												<small>
+													{candidate.preset.replaceAll("_", " ")}
+												</small>
 											</div>
-										</button>
-										<button
-											type="button"
-											onClick={() => discard(candidate.id)}
-											{...stylex.props(styles.discardButton)}
+										</div>
+									</button>
+									<button
+										type="button"
+										onClick={() => discard(candidate.id)}
+										{...stylex.props(styles.discardButton)}
+									>
+										DISCARD
+									</button>
+								</article>
+							)}
+						</For>
+					</div>
+					<Show when={selected()}>
+						{(candidate) => (
+							<div {...stylex.props(styles.approvalBench)}>
+								<div>
+									<p>APPROVED POSE / {candidate().displayName.toUpperCase()}</p>
+									<div {...stylex.props(styles.poseGrid)}>
+										<For
+											each={
+												[
+													["X", "location", "x"],
+													["Y", "location", "y"],
+													["Z", "location", "z"],
+													["PITCH", "rotation", "pitch"],
+													["YAW", "rotation", "yaw"],
+													["FOV", "pose", "fieldOfViewDegrees"]
+												] as const
+											}
 										>
-											DISCARD
-										</button>
-									</article>
-								)}
-							</For>
-						</div>
-						<Show when={selected()}>
-							{(candidate) => (
-								<div {...stylex.props(styles.approvalBench)}>
-									<div>
-										<p>
-											APPROVED POSE / {candidate().displayName.toUpperCase()}
-										</p>
-										<div {...stylex.props(styles.poseGrid)}>
-											<For
-												each={
-													[
-														["X", "location", "x"],
-														["Y", "location", "y"],
-														["Z", "location", "z"],
-														["PITCH", "rotation", "pitch"],
-														["YAW", "rotation", "yaw"],
-														["FOV", "pose", "fieldOfViewDegrees"]
-													] as const
-												}
-											>
-												{([label, section, field]) => (
-													<label {...stylex.props(styles.poseField)}>
-														<span>{label}</span>
-														<input
-															type="number"
-															step="0.1"
-															value={poseFieldValue(
-																draftPose(),
+											{([label, section, field]) => (
+												<label {...stylex.props(styles.poseField)}>
+													<span>{label}</span>
+													<input
+														type="number"
+														step="0.1"
+														value={poseFieldValue(
+															draftPose(),
+															section,
+															field
+														)}
+														{...stylex.props(styles.poseInput)}
+														onInput={(event) =>
+															updateNumber(
 																section,
-																field
-															)}
-															{...stylex.props(styles.poseInput)}
-															onInput={(event) =>
-																updateNumber(
-																	section,
-																	field,
-																	event.currentTarget.value
-																)
-															}
-														/>
-													</label>
+																field,
+																event.currentTarget.value
+															)
+														}
+													/>
+												</label>
+											)}
+										</For>
+									</div>
+									<label {...stylex.props(styles.reasonField)}>
+										<span>MANUAL ADJUSTMENT NOTE</span>
+										<input
+											value={manualReason()}
+											{...stylex.props(styles.poseInput)}
+											onInput={(event) => {
+												const next = event.currentTarget.value;
+												setManualReason(next);
+												persist(currentPatch({ manualReason: next }));
+											}}
+											placeholder="Why did this framing need art direction?"
+										/>
+									</label>
+								</div>
+								<div {...stylex.props(styles.approveColumn)}>
+									<span>
+										Keeps a Review View only — does not spawn a map actor
+									</span>
+									<Show when={candidate().diagnostics.length > 0}>
+										<div role="status" {...stylex.props(styles.diagnosticList)}>
+											<For each={candidate().diagnostics}>
+												{(diagnostic) => (
+													<span>
+														{diagnostic.severity.toUpperCase()} /{" "}
+														{diagnostic.message}
+													</span>
 												)}
 											</For>
 										</div>
-										<label {...stylex.props(styles.reasonField)}>
-											<span>MANUAL ADJUSTMENT NOTE</span>
-											<input
-												value={manualReason()}
-												{...stylex.props(styles.poseInput)}
-												onInput={(event) => {
-													const next = event.currentTarget.value;
-													setManualReason(next);
-													persist(currentPatch({ manualReason: next }));
-												}}
-												placeholder="Why did this framing need art direction?"
-											/>
-										</label>
-									</div>
-									<div {...stylex.props(styles.approveColumn)}>
-										<span>Keeps a Review View only — does not spawn a map actor</span>
-										<Show when={candidate().diagnostics.length > 0}>
-											<div
-												role="status"
-												{...stylex.props(styles.diagnosticList)}
-											>
-												<For each={candidate().diagnostics}>
-													{(diagnostic) => (
-														<span>
-															{diagnostic.severity.toUpperCase()} /{" "}
-															{diagnostic.message}
-														</span>
-													)}
-												</For>
-											</div>
-										</Show>
-										<Show when={authoringBlocked()}>
-											<small {...stylex.props(styles.reframeNotice)}>
-												Reframe before keeping this view. The persisted
-												subject or the framing evidence needs attention.
-											</small>
-										</Show>
-										<button
-											type="button"
-											disabled={
-												state().status === "saving" || authoringBlocked()
-											}
-											onClick={() => void approve()}
-											{...stylex.props(styles.keepButton)}
-										>
-											{state().status === "saving" ? "SAVING…" : "KEEP VIEW"}
-										</button>
-										<Show when={state().status === "approved"}>
-											<strong {...stylex.props(styles.savedMark)}>
-												APPROVED + SAVED
-											</strong>
-										</Show>
-									</div>
+									</Show>
+									<Show when={authoringBlocked()}>
+										<small {...stylex.props(styles.reframeNotice)}>
+											Reframe before keeping this view. The persisted subject
+											or the framing evidence needs attention.
+										</small>
+									</Show>
+									<button
+										type="button"
+										disabled={state().status === "saving" || authoringBlocked()}
+										onClick={() => void approve()}
+										{...stylex.props(styles.keepButton)}
+									>
+										{state().status === "saving" ? "SAVING…" : "KEEP VIEW"}
+									</button>
+									<Show when={state().status === "approved"}>
+										<strong {...stylex.props(styles.savedMark)}>
+											APPROVED + SAVED
+										</strong>
+									</Show>
 								</div>
-							)}
-						</Show>
-					</div>
+							</div>
+						)}
+					</Show>
+				</div>
 			</Show>
 		</section>
 	);

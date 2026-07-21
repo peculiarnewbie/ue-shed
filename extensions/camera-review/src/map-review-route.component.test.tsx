@@ -183,7 +183,9 @@ describe("MapReviewRoute", () => {
 		};
 		const user = userEvent.setup();
 		renderRoute(client);
-		expect(await screen.findByText("No captures yet. Use Capture Set when you want PNG evidence.")).toBeDefined();
+		expect(
+			await screen.findByText("No captures yet. Use Capture Set when you want PNG evidence.")
+		).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "CAPTURE SET" }));
 		expect(screen.getByRole("dialog", { name: "Capture review set" })).toBeDefined();
 		await user.click(screen.getByRole("button", { name: "REVIEW CAPTURE PLAN →" }));

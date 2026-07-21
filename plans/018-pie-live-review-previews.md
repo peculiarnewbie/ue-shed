@@ -34,9 +34,9 @@ frames into durable evidence.
 
 ## Product rule (do not violate)
 
-| Mode | Authoring contact sheet | Keep / Capture Set |
-| ---- | ----------------------- | ------------------ |
-| Editor stopped | PNG one-shot (`CaptureReviewView`) | PNG durable path |
+| Mode              | Authoring contact sheet                | Keep / Capture Set              |
+| ----------------- | -------------------------------------- | ------------------------------- |
+| Editor stopped    | PNG one-shot (`CaptureReviewView`)     | PNG durable path                |
 | PIE / SIE playing | Live BGRA from transient posed sources | Still blocked (existing policy) |
 
 Live frames are previews only. Promoting a live frame into a Capture Run is Slice 7 and out of scope.
@@ -81,8 +81,8 @@ In `unreal/Plugins/UEShedCameras`:
 2. Extend schedule config with `viewMode: "posed"` (protocol + C++ parse). In `posed` mode, do
    **not** restore overview transforms and do not apply actor_pov offsets.
 3. Add Remote Control callables (cameras library is fine if they resolve the PIE-world subsystem):
-   - `EnsureReviewPreviewSources(RequestJson) → ResultJson` with camera descriptors
-   - `ClearReviewPreviewSources()` that destroys only transient review sources and drops their slots
+    - `EnsureReviewPreviewSources(RequestJson) → ResultJson` with camera descriptors
+    - `ClearReviewPreviewSources()` that destroys only transient review sources and drops their slots
 4. Mark review sources so PIE end / clear cannot leave map dirt. Prefer session-scoped **replace** of
    the active schedule bank while Map Review preview is bound (fixture sources remain in-world but
    are not scheduled), rather than exceeding the 32-cap blindly.
@@ -94,9 +94,9 @@ In `unreal/Plugins/UEShedCameras`:
 In `packages/cameras` (+ protocol schema for `posed`):
 
 1. Branch `ReviewAuthoring.previewCandidate` (or a sibling) on play-session state:
-   - playing → ensure live sources, `configureCameras` with `viewMode: "posed"`, observation-friendly
-     resolution (start at `640x360`), wait for latest frame(s) from `CameraFeed` keyed by `cameraId`
-   - stopped → existing PNG `CaptureReviewView` path
+    - playing → ensure live sources, `configureCameras` with `viewMode: "posed"`, observation-friendly
+      resolution (start at `640x360`), wait for latest frame(s) from `CameraFeed` keyed by `cameraId`
+    - stopped → existing PNG `CaptureReviewView` path
 2. Typed failure if PIE is active but no pipe host is listening (Workbench or other feed host), with
    recovery: start a feed host or stop PIE for PNG preview.
 3. Keep / Capture Set unchanged: still PNG + existing capture policy.
@@ -120,14 +120,14 @@ In `packages/cameras` (+ protocol schema for `posed`):
 
 ## Verification gates
 
-| Gate | Command / action | Pass |
-| ---- | ---------------- | ---- |
-| Protocol / typecheck | `pnpm typecheck` | exit 0 |
-| Unit | targeted vitest for schedule `posed`, preview branch, no re-hydrate on select | exit 0 |
-| Camera Lab regression | Lab launch + configure overview still delivers frames | manual / existing e2e |
-| PIE integration | PLAY → Ensure sources for N candidates → frames on pipe → Clear on STOP | exit 0 / manual |
-| Policy | Capture Set still blocked during PIE | unit + manual |
-| UI | click another tile does not re-shoot sheet; Reframe does | component / manual |
+| Gate                  | Command / action                                                              | Pass                  |
+| --------------------- | ----------------------------------------------------------------------------- | --------------------- |
+| Protocol / typecheck  | `pnpm typecheck`                                                              | exit 0                |
+| Unit                  | targeted vitest for schedule `posed`, preview branch, no re-hydrate on select | exit 0                |
+| Camera Lab regression | Lab launch + configure overview still delivers frames                         | manual / existing e2e |
+| PIE integration       | PLAY → Ensure sources for N candidates → frames on pipe → Clear on STOP       | exit 0 / manual       |
+| Policy                | Capture Set still blocked during PIE                                          | unit + manual         |
+| UI                    | click another tile does not re-shoot sheet; Reframe does                      | component / manual    |
 
 ## Done criteria
 

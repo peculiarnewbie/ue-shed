@@ -172,8 +172,7 @@ export function awaitReviewPreviewFrame(args: {
 	const timeout = args.timeout ?? "8 seconds";
 	return Effect.gen(function* () {
 		const deadline =
-			(yield* Clock.currentTimeMillis) +
-			Duration.toMillis(Duration.fromInputUnsafe(timeout));
+			(yield* Clock.currentTimeMillis) + Duration.toMillis(Duration.fromInputUnsafe(timeout));
 		while ((yield* Clock.currentTimeMillis) < deadline) {
 			const latest = yield* args.latestFrames;
 			const frame = latest.get(args.cameraIndex);

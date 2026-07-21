@@ -266,8 +266,8 @@ export function ObservatoryMock() {
 			</div>
 			<div {...stylex.props(styles.footer)}>
 				Positions stream over a bounded subscription with stable actor identity. Movement
-				here is simulated in-page; the fixture map ships stationary, flying, and intermittent
-				families.
+				here is simulated in-page; the fixture map ships stationary, flying, and
+				intermittent families.
 			</div>
 		</WindowFrame>
 	);

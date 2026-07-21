@@ -35,10 +35,7 @@ async function remoteControlResponds(endpoint, fetchImplementation) {
  * Prefer an explicit endpoint, then a live Remote Control server already on the usual
  * ports, then the first free HTTP/WS pair for a future fixture launch.
  */
-export async function resolveRemoteControlEndpoint(
-	environment = process.env,
-	options = {}
-) {
+export async function resolveRemoteControlEndpoint(environment = process.env, options = {}) {
 	if (environment.UE_SHED_REMOTE_CONTROL_ENDPOINT) {
 		return environment.UE_SHED_REMOTE_CONTROL_ENDPOINT;
 	}

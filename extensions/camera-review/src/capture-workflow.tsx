@@ -274,7 +274,9 @@ export function CaptureWorkflow(props: {
 										<p {...stylex.props(styles.stageNumber)}>
 											03 / CAPTURE COMPLETE
 										</p>
-										<h3 {...stylex.props(styles.stageTitle)}>Capture finished</h3>
+										<h3 {...stylex.props(styles.stageTitle)}>
+											Capture finished
+										</h3>
 										<p {...stylex.props(styles.copy)}>
 											The new run is listed in capture history for this Review
 											Set.
